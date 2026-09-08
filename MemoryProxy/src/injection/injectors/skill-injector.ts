@@ -296,6 +296,15 @@ export class SkillInjector implements InjectionHook {
         // Shared cache key across prewarm + execute so pipeline self-heal
         // writes replace, not fragment, the prewarmed entry.
         cacheKey: "skill-injector:catalog",
+        // metadata.assets（Tier B / identity-only）：listing 正文由 core 预渲染、
+        // proxy 无 entry↔skill 字节契约，故只挂 hits 身份，不给 spans。
+        // 见 docs/implementation/15-injector-asset-metadata.md §4.3。
+        assets: result.hits.map((h) => ({
+          assetId: h.skill_id,
+          assetType: "skill" as const,
+          name: h.name,
+          version: h.version,
+        })),
       },
     }];
   }
