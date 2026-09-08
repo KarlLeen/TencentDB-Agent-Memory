@@ -113,20 +113,22 @@ export async function resolveFixedAssetCtxs(
       }
     }
 
-    if (items.length > 0) {
-      // Prepend self (skip the temporary selfCtx)
-      result = [
-        {
-          teamId: selfTeamId,
-          userId: selfAgent?.owner_user_id ?? identity.userId,
-          agentId: selfAgent?.agent_id ?? identity.agentId,
-          agentName: (selfAgent as any)?.name ?? identity.agentId,
-          isSelf: true,
-          memoryAssetId: chatMemoryAssetId(selfTeamId, selfAgent?.agent_id ?? identity.agentId),
-        },
-        ...items.slice(0, 2), // max 2 imported
-      ];
-    }
+    // Rebuild self from the corrected detail.agent (15-spec §5.2：合成用修正后 team)
+    // whenever the kernel answered — even with no imported items (review F3):
+    // `items > 0` 限制会把 items=0 场景留在顶部 identity.teamId 合成的 selfCtx，
+    // 与 items>0 路径的 team 修正口径分裂。detail.agent 为 `{}`（内核无 agent 段）时
+    // 各字段回退 identity，重组结果与顶部 selfCtx 等价，无行为漂移。
+    result = [
+      {
+        teamId: selfTeamId,
+        userId: selfAgent?.owner_user_id ?? identity.userId,
+        agentId: selfAgent?.agent_id ?? identity.agentId,
+        agentName: (selfAgent as any)?.name ?? identity.agentId,
+        isSelf: true,
+        memoryAssetId: chatMemoryAssetId(selfTeamId, selfAgent?.agent_id ?? identity.agentId),
+      },
+      ...items.slice(0, 2), // max 2 imported
+    ];
   } catch (err) {
     // Silently degrade: inject only self
     console.warn("[fixed-asset] kernel error, injecting only self:", (err as Error).message);

@@ -205,6 +205,22 @@ describe("AttributionEventObserver", () => {
     expect(rows[0].payload).toMatchObject({ hookId: "hook-x", point: "user.before" });
   });
 
+  it("hook.start normalizes undeclared cacheStrategy to 'none' (review F2)", () => {
+    const { repo, observer } = mk();
+    observer.onHookStart(makeHook("hook-und"), POINT_USER_BEFORE, makeMeta());
+    const rows = ofType(repo, EVENT_TYPE_HOOK_START);
+    expect(rows).toHaveLength(1);
+    expect((rows[0].payload as { cacheStrategy: string }).cacheStrategy).toBe("none");
+  });
+
+  it("hook.done normalizes undeclared cacheStrategy to 'none' (review F2)", () => {
+    const { repo, observer } = mk();
+    observer.onHookDone(makeHook(), POINT_USER_BEFORE, [plainBlock()], 4, undefined, makeMeta());
+    const rows = ofType(repo, EVENT_TYPE_HOOK_DONE);
+    expect(rows).toHaveLength(1);
+    expect((rows[0].payload as { cacheStrategy: string }).cacheStrategy).toBe("none");
+  });
+
   it("hook.error writes one row", () => {
     const { repo, observer } = mk();
     observer.onHookError(makeHook(), POINT_USER_BEFORE, new Error("net"), 5, makeMeta());
