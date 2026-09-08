@@ -19,9 +19,21 @@ export interface FixedAssetCtx {
   agentId: string;
   agentName: string;
   isSelf: boolean;
+  /**
+   * 该 ctx 的记忆所属 chat_memory 资产 id：
+   *   - self = 合成 `chat_memory-{teamId}-{agentId}`（auto-mint 固定存在）
+   *   - imported = 绑定 item 的 `asset_id` 原样带回
+   * 解析不出时缺省；调用方宁缺勿造（metadata.assets 只收真实可回查资产）。
+   */
+  memoryAssetId?: string;
 }
 
 const CACHE_KEY = "__tdaiFixedAssetCtxs";
+
+function chatMemoryAssetId(teamId: string, agentId: string): string | undefined {
+  if (!teamId || !agentId) return undefined;
+  return `chat_memory-${teamId}-${agentId}`;
+}
 
 function parseChatMemoryAssetId(assetId: string): { teamId: string; agentId: string } | null {
   if (!assetId.startsWith("chat_memory-")) return null;
@@ -61,6 +73,7 @@ export async function resolveFixedAssetCtxs(
     agentId: identity.agentId,
     agentName: identity.agentId,
     isSelf: true,
+    memoryAssetId: chatMemoryAssetId(identity.teamId, identity.agentId),
   };
 
   if (!client) {
@@ -96,6 +109,7 @@ export async function resolveFixedAssetCtxs(
           agentId: sourceAgent.agent_id,
           agentName: sourceAgent.name || item.name || sourceAgent.agent_id,
           isSelf: false,
+          memoryAssetId: item.asset_id,
         });
       } catch {
         // 绑定的来源 agent 已删除/不可见时跳过，避免用 chat_memory asset_id 当 agent_id 查询导致空召回。
@@ -111,6 +125,7 @@ export async function resolveFixedAssetCtxs(
           agentId: selfAgent?.agent_id ?? identity.agentId,
           agentName: (selfAgent as any)?.name ?? identity.agentId,
           isSelf: true,
+          memoryAssetId: chatMemoryAssetId(selfTeamId, selfAgent?.agent_id ?? identity.agentId),
         },
         ...items.slice(0, 2), // max 2 imported
       ];

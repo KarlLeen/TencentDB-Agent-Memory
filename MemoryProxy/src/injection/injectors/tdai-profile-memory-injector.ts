@@ -6,6 +6,7 @@ import { getTdaiIdentity } from "../../tdai/identity.js";
 import type { CoreSkillConfig } from "../../types.js";
 import { getMetadataClient } from "../../meta/client.js";
 import { resolveFixedAssetCtxs, type FixedAssetCtx } from "./tdai-fixed-asset.js";
+import { joinLinesWithOffsets, spanOfLines, type InjectedAssetRef } from "./asset-refs.js";
 
 /**
  * L2/L3 注入（按 openclaw / hermes 官方做法重构）：
@@ -80,67 +81,111 @@ export class TdaiProfileMemoryInjector implements InjectionHook {
     const groups = await Promise.all(ctxs.map((c) => loadAgentProfile(client, c)));
 
     // 全部为空 → 仍注入 tools-guide（LLM 可主动 search L1 / 读 L2）
-    const hasAnything = groups.some((g) => g.l3 || g.l2Entries.length > 0);
-    if (!hasAnything) {
+    const rendered = renderProfileMemoryBlock(groups);
+    if (!rendered) {
       return [{
         type: "text",
         content: MEMORY_TOOLS_GUIDE,
-        metadata: { source: this.id, agentCount: 0, l3Count: 0, l2Count: 0, mode: "tools-only" },
+        metadata: { source: this.id, agentCount: 0, l3Count: 0, l2Count: 0, mode: "tools-only", assets: [] },
       }];
     }
-
-    const lines: string[] = [
-      "<tdai_profile_memory>",
-      "以下是 TDAI 为当前 agent 维护的长期工作记忆（自有 + 借入分段；L2 仅给索引，按需用工具读全文）：",
-    ];
-
-    let l2TotalCount = 0;
-    let l3Count = 0;
-    for (const g of groups) {
-      if (!g.l3 && g.l2Entries.length === 0) continue;
-      const tag = g.ctx.isSelf ? "self" : "imported_from";
-      lines.push(
-        `<agent name=${JSON.stringify(g.ctx.agentName)} role=${JSON.stringify(tag)} agent_id=${JSON.stringify(g.ctx.agentId)}>`,
-      );
-      if (g.l3?.content) {
-        l3Count++;
-        lines.push("<l3_core_memory>", truncate(g.l3.content, 6000), "</l3_core_memory>");
-      }
-      if (g.l2Entries.length > 0) {
-        lines.push("<l2_scene_index>");
-        for (const e of g.l2Entries) {
-          l2TotalCount++;
-          // 索引行：路径 + summary（如果有）；正文用 tool 拉
-          if (e.summary) {
-            lines.push(`- \`${e.path}\` — ${truncate(e.summary, 200)}`);
-          } else {
-            lines.push(`- \`${e.path}\``);
-          }
-        }
-        lines.push("</l2_scene_index>");
-      }
-      lines.push("</agent>");
-    }
-
-    lines.push("</tdai_profile_memory>");
-    // 紧跟一段 memory-tools-guide，告诉 LLM 三个工具的用法 + 调用上限
-    lines.push("");
-    lines.push(MEMORY_TOOLS_GUIDE);
 
     return [
       {
         type: "text",
-        content: lines.join("\n"),
+        content: rendered.content,
         metadata: {
           source: this.id,
           agentCount: groups.length,
-          l3Count,
-          l2IndexCount: l2TotalCount,
+          l3Count: rendered.stats.l3Count,
+          l2IndexCount: rendered.stats.l2IndexCount,
           mode: "index+tools",
+          assets: rendered.assets,
         },
       },
     ];
   }
+}
+
+export interface ProfileMemoryRenderResult {
+  /** `<tdai_profile_memory>` + memory-tools-guide 的完整渲染文本。 */
+  content: string;
+  /** metadata.assets：每个有内容的 group 一条 chat_memory 资产；spans 指向该 group 的 `<agent>…</agent>` 段。 */
+  assets: InjectedAssetRef[];
+  stats: { l3Count: number; l2IndexCount: number };
+}
+
+/**
+ * 纯渲染：把已加载的 profile 组拼成块并计算 asset refs。
+ * 全部为空返回 null（调用方落 tools-only 块，assets=[]）。
+ * content 与重构前的 `lines.join("\n")` 逐字节一致（只加 offset 跟踪，不改文案/换行）。
+ */
+export function renderProfileMemoryBlock(groups: AgentProfileBundle[]): ProfileMemoryRenderResult | null {
+  const rendered = groups.filter((g) => g.l3 || g.l2Entries.length > 0);
+  if (rendered.length === 0) return null;
+
+  const lines: string[] = [
+    "<tdai_profile_memory>",
+    "以下是 TDAI 为当前 agent 维护的长期工作记忆（自有 + 借入分段；L2 仅给索引，按需用工具读全文）：",
+  ];
+  // 每个 group 在 lines 中的起止行 + L3 是否被截断
+  const hints: Array<{ first: number; last: number; l3Cut: boolean }> = [];
+
+  let l3Count = 0;
+  let l2TotalCount = 0;
+  for (const g of rendered) {
+    const tag = g.ctx.isSelf ? "self" : "imported_from";
+    const first = lines.length;
+    lines.push(
+      `<agent name=${JSON.stringify(g.ctx.agentName)} role=${JSON.stringify(tag)} agent_id=${JSON.stringify(g.ctx.agentId)}>`,
+    );
+    let l3Cut = false;
+    if (g.l3?.content) {
+      l3Count++;
+      const l3Text = truncate(g.l3.content, 6000);
+      l3Cut = l3Text !== g.l3.content;
+      lines.push("<l3_core_memory>", l3Text, "</l3_core_memory>");
+    }
+    if (g.l2Entries.length > 0) {
+      lines.push("<l2_scene_index>");
+      for (const e of g.l2Entries) {
+        l2TotalCount++;
+        // 索引行：路径 + summary（如果有）；正文用 tool 拉
+        if (e.summary) {
+          lines.push(`- \`${e.path}\` — ${truncate(e.summary, 200)}`);
+        } else {
+          lines.push(`- \`${e.path}\``);
+        }
+      }
+      lines.push("</l2_scene_index>");
+    }
+    lines.push("</agent>");
+    hints.push({ first, last: lines.length - 1, l3Cut });
+  }
+
+  lines.push("</tdai_profile_memory>");
+  // 紧跟一段 memory-tools-guide，告诉 LLM 三个工具的用法 + 调用上限
+  lines.push("");
+  lines.push(MEMORY_TOOLS_GUIDE);
+
+  const { content, offsets } = joinLinesWithOffsets(lines);
+
+  const assets: InjectedAssetRef[] = [];
+  for (let i = 0; i < rendered.length; i++) {
+    const g = rendered[i];
+    // 解析不出真实资产（memoryAssetId 缺省）→ 宁缺勿造：内容仍注入，但不挂 ref。
+    if (!g.ctx.memoryAssetId) continue;
+    const h = hints[i];
+    assets.push({
+      assetId: g.ctx.memoryAssetId,
+      assetType: "chat_memory",
+      name: g.ctx.agentName,
+      spans: [spanOfLines(offsets, lines, h.first, h.last)],
+      truncated: h.l3Cut || undefined,
+    });
+  }
+
+  return { content, assets, stats: { l3Count, l2IndexCount: l2TotalCount } };
 }
 
 function createPrewarmAgentContext(input: PrewarmInput): AgentContext {
@@ -209,7 +254,7 @@ curl -sfk -X POST <bridge>/atomic/search \\
 - 同一 L2 path 不要重复读
 </memory-tools-guide>`;
 
-interface AgentProfileBundle {
+export interface AgentProfileBundle {
   ctx: FixedAssetCtx;
   l3: { content: string } | null;
   /** L2 索引：仅 path + 可选 summary，**不**读全文。 */

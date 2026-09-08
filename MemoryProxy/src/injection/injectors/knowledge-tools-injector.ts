@@ -31,6 +31,7 @@ import type {
   PrewarmInput,
 } from "../types.js";
 import { HOOK_PRIORITY } from "../types.js";
+import type { AssetTextSpan } from "./asset-refs.js";
 import {
   CoreKnowledgeClient,
   getCoreKnowledgeClient,
@@ -136,11 +137,32 @@ function deriveRepoSlug(repoUrl: string | undefined): string | undefined {
   return slug.length > 0 ? slug : undefined;
 }
 
-export function renderKnowledgeToolsBlock(
+export interface KnowledgeBlockRenderResult {
+  /** `<knowledge_tools>` 完整渲染文本（注入用）。 */
+  content: string;
+  /** 每个资源对应的元素区间（与 resources 顺序一一对应）。 */
+  spans: AssetTextSpan[];
+}
+
+/** 渲染单个 `<knowledge/>` 元素（与 spans 计算共用，保证单源、零复制渲染逻辑）。 */
+function renderKnowledgeElement(r: KnowledgeItem): string {
+  // `match` 是 code-graph 的锚点判定依据：agent 拿它比对当前工作区的 git
+  // remote，命中才调用。优先用后端下发的 repo_slug；缺失时从 repo_url 降级
+  // 提取 `<org>/.../<repo>`。wiki 无 repo，不渲染该属性。
+  const matchAttr = attr("match", r.repo_slug ?? deriveRepoSlug(r.repo_url));
+  const branchAttr = attr("branch", r.repo_url ? (r.branch ?? "main") : undefined);
+  // wiki 的 summary 是 LLM 依据页面标题生成的内容概述，是 agent 判断"该不该
+  // 查这个 wiki"的唯一线索，必须保留。code-graph 的 summary 只是
+  // "N 个文件、M 个符号节点"一类计数，对调用决策无帮助，不注入。
+  const summaryAttr = r.type === "wiki" ? attr("about", r.summary) : "";
+  return `<knowledge type="${r.type}" id="${r.knowledge_id}"\n  url="${r.service_url}"\n  name="${xmlAttrEscape(r.name)}"${matchAttr}${branchAttr}${summaryAttr} />`;
+}
+
+export function renderKnowledgeToolsBlockWithAssetSpans(
   resources: KnowledgeItem[],
   serviceId: string,
   telemetryContext: KnowledgeTelemetryContext = {},
-): string | null {
+): KnowledgeBlockRenderResult | null {
   if (!resources || resources.length === 0) return null;
 
   const telemetryHeaders: Array<[string, string | undefined]> = [
@@ -158,22 +180,10 @@ export function renderKnowledgeToolsBlock(
       .map(([name, value]) => renderHeader(name, value)),
   ];
 
-  const resourceTags = resources
-    .map((r) => {
-      // `match` 是 code-graph 的锚点判定依据：agent 拿它比对当前工作区的 git
-      // remote，命中才调用。优先用后端下发的 repo_slug；缺失时从 repo_url 降级
-      // 提取 `<org>/.../<repo>`。wiki 无 repo，不渲染该属性。
-      const matchAttr = attr("match", r.repo_slug ?? deriveRepoSlug(r.repo_url));
-      const branchAttr = attr("branch", r.repo_url ? (r.branch ?? "main") : undefined);
-      // wiki 的 summary 是 LLM 依据页面标题生成的内容概述，是 agent 判断"该不该
-      // 查这个 wiki"的唯一线索，必须保留。code-graph 的 summary 只是
-      // "N 个文件、M 个符号节点"一类计数，对调用决策无帮助，不注入。
-      const summaryAttr = r.type === "wiki" ? attr("about", r.summary) : "";
-      return `<knowledge type="${r.type}" id="${r.knowledge_id}"\n  url="${r.service_url}"\n  name="${xmlAttrEscape(r.name)}"${matchAttr}${branchAttr}${summaryAttr} />`;
-    })
-    .join("\n\n");
+  const elementStrings = resources.map(renderKnowledgeElement);
+  const resourceTags = elementStrings.join("\n\n");
 
-  return [
+  const content = [
     "<knowledge_tools>",
     "**团队知识库资源**：code-graph 是仓库的预建代码索引（符号 / 调用图 / 结构），wiki 是工程设计文档。两类各有判据，见下。",
     "",
@@ -233,6 +243,29 @@ export function renderKnowledgeToolsBlock(
     "- 响应格式统一为 {code, message, data}，code=0 表示成功。",
     "</knowledge_tools>\n",
   ].join("\n");
+
+  // 方案1文本锚：resourceTags 作为整体只出现一次，按元素串长度推进即得各元素区间。
+  const tagStart = content.indexOf(resourceTags);
+  const spans: AssetTextSpan[] = [];
+  let pos = tagStart;
+  for (let i = 0; i < elementStrings.length; i++) {
+    spans.push({ start: pos, end: pos + elementStrings[i].length });
+    pos += elementStrings[i].length + (i < elementStrings.length - 1 ? 2 : 0); // "\n\n" 分隔
+  }
+
+  return { content, spans };
+}
+
+/**
+ * (兼容原签名) 只取 content 的薄封装，供既有调用/测试使用。
+ * 需要 spans 的路径用 `renderKnowledgeToolsBlockWithAssetSpans`。
+ */
+export function renderKnowledgeToolsBlock(
+  resources: KnowledgeItem[],
+  serviceId: string,
+  telemetryContext: KnowledgeTelemetryContext = {},
+): string | null {
+  return renderKnowledgeToolsBlockWithAssetSpans(resources, serviceId, telemetryContext)?.content ?? null;
 }
 
 /**
@@ -355,14 +388,25 @@ export class KnowledgeToolsInjector implements InjectionHook {
       resources = filterResourcesByCapabilities(resources, assetCapabilities);
       // 注入 prompt 里给 LLM 用的 service-id 也要是 spaceId（LLM 拿它调 KS 的 tools/list|call）。
       const injectionServiceId = spaceId || this.config.coreSkill.serviceId;
-      const content = renderKnowledgeToolsBlock(resources, injectionServiceId, telemetryContext);
-      if (!content) return [];
+      const rendered = renderKnowledgeToolsBlockWithAssetSpans(
+        resources,
+        injectionServiceId,
+        telemetryContext,
+      );
+      if (!rendered) return [];
       return [{
         type: "text",
-        content,
+        content: rendered.content,
         metadata: {
           source: this.id,
           cacheKey: `knowledge-tools-injector:${scope}`,
+          // metadata.assets：每资源一条真实资产 ref（llm_wiki/code_graph），spans 指向其 <knowledge/> 元素。
+          assets: resources.map((r, i) => ({
+            assetId: r.knowledge_id,
+            assetType: (r.type === "wiki" ? "llm_wiki" : "code_graph") as "llm_wiki" | "code_graph",
+            name: r.name,
+            spans: [rendered.spans[i]],
+          })),
         },
       }];
     } catch (err) {
