@@ -191,7 +191,9 @@ export class InjectionPipeline {
       for (const hook of hooks) {
         const hookStartMs = Date.now();
         // ── Observer: hook start ──────────────────────────────────────────
-        safeCall(() => this.observer.onHookStart(hook, point));
+        // hook 级回调透传 ctx.metadata：observer 不得 latch 请求态（并发安全，
+        // 见 20-event-observer.md §3.1）。
+        safeCall(() => this.observer.onHookStart(hook, point, ctx.metadata));
 
         try {
           const blocks = await this.resolveHookBlocks(hook, ctx, spaceId, userId, agentSource, sessionId);
@@ -216,7 +218,7 @@ export class InjectionPipeline {
 
           // ── Observer: hook done ─────────────────────────────────────────
           safeCall(() =>
-            this.observer.onHookDone(hook, point, blocks, durationMs, hook.cacheStrategy),
+            this.observer.onHookDone(hook, point, blocks, durationMs, hook.cacheStrategy, ctx.metadata),
           );
 
           results.push({
@@ -237,7 +239,7 @@ export class InjectionPipeline {
           );
 
           // ── Observer: hook error ────────────────────────────────────────
-          safeCall(() => this.observer.onHookError(hook, point, error, durationMs));
+          safeCall(() => this.observer.onHookError(hook, point, error, durationMs, ctx.metadata));
 
           results.push({
             hookId: hook.id,

@@ -616,6 +616,17 @@ export interface InjectionConfig {
   assetReflection?: {
     markerOptIn: boolean;
   };
+  /**
+   * v1 S2 归因事件捕获（EventObserver）。默认关闭：未配 = 注入行为与现状逐字节等价
+   * （observer 选型保持 langfuse → logging → noop，EventObserver 只叠加不替换）。
+   *
+   * `true` 时：每次注入请求的 pipeline/hook 生命周期写入本地 `attribution_events` 表，
+   * 产资产 hook 的 done 事件按 metadata.assets 摊行、带真实 asset_id。
+   * 见 docs/implementation/20-event-observer.md。
+   */
+  attributionEvents?: {
+    enabled: boolean;
+  };
 }
 
 /**
@@ -822,6 +833,9 @@ export interface RawYamlConfig {
     externalGatewayUrl?: string;
     assetReflection?: {
       markerOptIn?: boolean;
+    };
+    attributionEvents?: {
+      enabled?: boolean;
     };
   };
   extraction?: {
