@@ -261,6 +261,8 @@ assets: Object.entries(contributorByAgent).map(([agentId, { itemLines, ctx }]) =
   - skill：fake `ListingResult` → refs = hits 的 identity（无 spans），`skillCount/mode` 保留。
 - **fixed-asset ctx**：fake detail 含 self chat_memory 绑定 + 两个 imported → 各 ctx
   `memoryAssetId` 正确（self=合成、imported=item.asset_id）；无 client 兜底 self-only 路径也合成。
+  ✅ 2026-09-08（s0-s2-review F1 关闭）：直测落地为 `__tests__/tdai-fixed-asset.test.ts`（8 用例，
+  覆盖无 client / self+imported / items=0 修正 team / 降级与缓存），见 s0-s2-review.md §4。
 - **只加不改回归（golden）**：每个产资产 injector 在改动前把典型输入的渲染结果存 golden 字面量，
   改动后断言 content 逐字节不变（防止拼 span 时顺手改文案/换行）。
 - **roundtrip**：把带 `metadata.assets` 的 block 走一遍 `hookCacheRepo.put/get` 的 JSON 序列化，
@@ -283,7 +285,9 @@ assets: Object.entries(contributorByAgent).map(([agentId, { itemLines, ctx }]) =
 ## 8. 验收清单（全部通过 = S0 完成）
 
 - [ ] `asset-refs.ts` 类型/工具/校验器就位，`validateAssets` 过所有产资产 block 的不变式。
-- [ ] `tdai-fixed-asset.ts`：`FixedAssetCtx.memoryAssetId` 三路径正确（self 合成 / imported 绑定 / 兜底）。
+- [x] `tdai-fixed-asset.ts`：`FixedAssetCtx.memoryAssetId` 三路径正确（self 合成 / imported 绑定 / 兜底）。
+  - 2026-09-08（s0-s2-review F1 关闭）：直测落地 `__tests__/tdai-fixed-asset.test.ts`（8 用例）；
+    F3 修复使"修正后 team 合成 self"在 items=0 路径也成立（review F3 已修）。
 - [ ] 四个产资产 injector 全部带 `metadata.assets`；静态能力文档块不带（三态语义成立）。
 - [ ] Tier A（knowledge / profile / l1）spans 通过切片一致性单测；Tier B（skill）身份正确且原因已文档化。
 - [ ] `l1-recall` 的 `sources`（被检索）与 `assets`（被注入）语义可区分且有单测。

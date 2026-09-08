@@ -160,7 +160,7 @@ export class AttributionEventObserver implements InjectionObserver {
       this.emit(base, EVENT_TYPE_HOOK_START, {
         hookId: hook.id,
         point,
-        cacheStrategy: hook.cacheStrategy,
+        cacheStrategy: hook.cacheStrategy ?? "none",
       });
     });
   }
@@ -182,7 +182,9 @@ export class AttributionEventObserver implements InjectionObserver {
         point,
         blockCount: blocks.length,
         durationMs,
-        cacheStrategy,
+        // 与 Logging/Langfuse/pipeline.done 同口径：未声明 cacheStrategy 归一 "none"
+        // （review F2 —— 否则 hook.* 事件键被 JSON.stringify 丢弃、同体系口径漂移）。
+        cacheStrategy: cacheStrategy ?? hook.cacheStrategy ?? "none",
       };
       const source = blockSourceOf(blocks);
       if (source !== undefined) payloadBase.blockSource = source;

@@ -182,6 +182,8 @@
 - hook done 多 block 资产重叠 → 去重摊成 K 行，每行 asset 列正确、payload 摘要一致；
 - hook done `assets: []`（产资产块但无可解析资产）→ 1 行空资产；
 - meta 缺 sessionKey / hook 回调无 meta → 整段不写（不 throw）；
+- hook start/done cacheStrategy 归一（review F2）：hook 未声明 cacheStrategy 时 payload 写
+  `"none"`，键不被 JSON.stringify 丢弃；
 - repo.append 抛错 → observer 方法不 throw（错误隔离）；
 - composite：两个 child 都收到事件；child1 抛错不影响 child2（转发器错误隔离）。
 
@@ -212,6 +214,9 @@
       请求 #1 → 24 事件行、13 行带真实 asset_id（skill/llm_wiki/code_graph/chat_memory 全类型）；
       请求 #2 → 48 事件行，纯追加无改写。
 - [x] 默认 config（开关未开）→ observer 选择链与现状一致（零行为回归，代码走读 + 57/57 回归确认）。
+- [x] 2026-09-08（s0-s2-review F2 关闭）：hook.start / hook.done 的 cacheStrategy 归一
+  `?? hook.cacheStrategy ?? "none"`（与 Logging/Langfuse/pipeline.done 同口径，未声明策略不再
+  被 JSON.stringify 丢键）；observer 单测 +2（17→19，§6 同步）。
 
 ## 9. 开放问题
 
