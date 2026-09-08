@@ -59,8 +59,15 @@ export interface InjectionObserver {
   /** 管线级错误（如未知协议、适配器缺失），请求未能进入钩子执行阶段。 */
   onPipelineError(meta: AgentContextMetadata, error: Error): void;
 
-  /** 单个钩子开始执行。 */
-  onHookStart(hook: InjectionHook, point: InjectionPoint): void;
+  /**
+   * 单个钩子开始执行。
+   *
+   * `meta` 由 pipeline 在调用点透传（同一次请求的 `AgentContextMetadata`）。
+   * 为什么透传而不是 observer 在 onPipelineStart 里 latch：pipeline 实例是全局缓存的，
+   * 同一 observer 服务并发请求，latch 会串台（见 docs/implementation/20-event-observer.md §3.1）。
+   * 可选参数 → 现有少参实现（Noop/Logging/Langfuse）签名不受影响。
+   */
+  onHookStart(hook: InjectionHook, point: InjectionPoint, meta?: AgentContextMetadata): void;
 
   /** 单个钩子执行完成（包括返回空 blocks 的情况）。 */
   onHookDone(
@@ -69,6 +76,7 @@ export interface InjectionObserver {
     blocks: ContextBlock[],
     durationMs: number,
     cacheStrategy?: string,
+    meta?: AgentContextMetadata,
   ): void;
 
   /** 单个钩子执行异常（会由 error start→error/done 记录）。 */
@@ -77,6 +85,7 @@ export interface InjectionObserver {
     point: InjectionPoint,
     error: Error,
     durationMs: number,
+    meta?: AgentContextMetadata,
   ): void;
 }
 
@@ -404,5 +413,82 @@ export class LangfuseInjectionObserver implements InjectionObserver {
   private getLangfuseTraceId(): string | null {
     if (!this.meta?.sessionKey || this.meta.turnSeq === undefined) return null;
     return deriveLangfuseTraceId(this.meta.sessionKey, this.meta.turnSeq);
+  }
+}
+
+// ── Composite implementation ─────────────────────────────────────────────────
+
+/**
+ * 复合观察者 —— 把同一事件转发给多个 child observer，逐个 try/catch。
+ *
+ * 用途（20-event-observer.md §4.6）：EventObserver 需要与既有
+ * langfuse → logging → noop 选择链**叠加**而非替换，保证"开了归因捕获的用户不会
+ * 静默丢掉原有的观测"。单个 child 抛错不影响其它 child（fire-and-forget 纪律）。
+ *
+ * 注意：child 之间的状态互不可见；需要跨 child 共享状态的实现必须自己保证线程安全
+ * （本类不做任何 latch —— pipeline 实例全局缓存，见接口注释）。
+ */
+export class CompositeInjectionObserver implements InjectionObserver {
+  constructor(private children: InjectionObserver[]) {}
+
+  onPipelineStart(meta: AgentContextMetadata): void {
+    for (const child of this.children) {
+      try {
+        child.onPipelineStart(meta);
+      } catch { /* observer must never throw */ }
+    }
+  }
+
+  onPipelineEnd(meta: AgentContextMetadata, durationMs: number, results: HookResult[]): void {
+    for (const child of this.children) {
+      try {
+        child.onPipelineEnd(meta, durationMs, results);
+      } catch { /* observer must never throw */ }
+    }
+  }
+
+  onPipelineError(meta: AgentContextMetadata, error: Error): void {
+    for (const child of this.children) {
+      try {
+        child.onPipelineError(meta, error);
+      } catch { /* observer must never throw */ }
+    }
+  }
+
+  onHookStart(hook: InjectionHook, point: InjectionPoint, meta?: AgentContextMetadata): void {
+    for (const child of this.children) {
+      try {
+        child.onHookStart(hook, point, meta);
+      } catch { /* observer must never throw */ }
+    }
+  }
+
+  onHookDone(
+    hook: InjectionHook,
+    point: InjectionPoint,
+    blocks: ContextBlock[],
+    durationMs: number,
+    cacheStrategy?: string,
+    meta?: AgentContextMetadata,
+  ): void {
+    for (const child of this.children) {
+      try {
+        child.onHookDone(hook, point, blocks, durationMs, cacheStrategy, meta);
+      } catch { /* observer must never throw */ }
+    }
+  }
+
+  onHookError(
+    hook: InjectionHook,
+    point: InjectionPoint,
+    error: Error,
+    durationMs: number,
+    meta?: AgentContextMetadata,
+  ): void {
+    for (const child of this.children) {
+      try {
+        child.onHookError(hook, point, error, durationMs, meta);
+      } catch { /* observer must never throw */ }
+    }
   }
 }

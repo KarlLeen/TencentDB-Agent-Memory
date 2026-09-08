@@ -59,7 +59,8 @@ export { InjectionPipeline } from "./pipeline.js";
 
 // Observer (injection pipeline observability)
 export type { InjectionObserver, HookResult } from "./observer.js";
-export { NoopInjectionObserver, LoggingInjectionObserver } from "./observer.js";
+export { NoopInjectionObserver, LoggingInjectionObserver, CompositeInjectionObserver } from "./observer.js";
+export { AttributionEventObserver } from "./attribution-event-observer.js";
 
 // Prewarm runner
 export { prewarmAll } from "./prewarm.js";
@@ -132,7 +133,14 @@ import { FsStorage } from "../storage/fs-storage.js";
 import { getSessionStore } from "../session/store.js";
 import type { HookRegistry, PrewarmInput } from "./types.js";
 import { prewarmAll, type PrewarmOptions, type PrewarmResult } from "./prewarm.js";
-import { LoggingInjectionObserver, NoopInjectionObserver, LangfuseInjectionObserver } from "./observer.js";
+import type { InjectionObserver } from "./observer.js";
+import {
+  LoggingInjectionObserver,
+  NoopInjectionObserver,
+  LangfuseInjectionObserver,
+  CompositeInjectionObserver,
+} from "./observer.js";
+import { AttributionEventObserver } from "./attribution-event-observer.js";
 
 // ... (rest)
 
@@ -400,13 +408,23 @@ function buildPipelineBundle(config: ProxyConfig): PipelineBundle {
 
   const hookCacheRepo = tryLoadHookCacheRepo();
 
-  // Observer: prefer Langfuse (injection spans under LLM trace) when enabled;
-  // fall back to structured logging when log level ≤ info; else noop.
-  const observer = config.langfuse?.enabled
-    ? new LangfuseInjectionObserver()
-    : (config.log?.level === "debug" || config.log?.level === "info")
-      ? new LoggingInjectionObserver()
-      : new NoopInjectionObserver();
+  // Observer selection (S2 additive design — see 20-event-observer.md §4.6):
+  // the original langfuse → logging → noop chain is preserved byte-for-byte;
+  // EventObserver is *added on top* when attributionEvents.enabled, never
+  // replacing an existing observer. >1 observers are forwarded by a composite.
+  const observers: InjectionObserver[] = [];
+  if (config.injection?.attributionEvents?.enabled) {
+    observers.push(new AttributionEventObserver());
+  }
+  if (config.langfuse?.enabled) {
+    observers.push(new LangfuseInjectionObserver());
+  } else if (config.log?.level === "debug" || config.log?.level === "info") {
+    observers.push(new LoggingInjectionObserver());
+  }
+  if (observers.length === 0) {
+    observers.push(new NoopInjectionObserver());
+  }
+  const observer = observers.length === 1 ? observers[0] : new CompositeInjectionObserver(observers);
 
   const pipeline = new InjectionPipeline(registry, adapters, {
     hookCacheRepo,

@@ -80,6 +80,8 @@ export const DEFAULT_CONFIG: ProxyConfig = {
     // AssetReflectionInjector 被注册。marker 仍是 opt-in（不带 `/analyse/` 段
     // 的请求完全无感），只是把「必须显式开启」的负担从运营侧移除。
     assetReflection: { markerOptIn: true },
+    // S2 EventObserver 默认关闭 —— 未配置 = observer 选型与现状逐字节等价（叠加不替换）。
+    attributionEvents: { enabled: false },
   },
   // Extraction (write-side) defaults to fully permissive so that a config
   // without the `extraction:` block behaves identically to the pre-gate
@@ -408,6 +410,12 @@ export function buildConfig(overrides: CliOverrides = {}): ProxyConfig {
         markerOptIn: typeof yaml.injection?.assetReflection?.markerOptIn === "boolean"
           ? yaml.injection.assetReflection.markerOptIn
           : DEFAULT_CONFIG.injection.assetReflection!.markerOptIn,
+      },
+      // 只接受 boolean；yaml 缺省或类型错走 default（关）→ 零行为回归。
+      attributionEvents: {
+        enabled: typeof yaml.injection?.attributionEvents?.enabled === "boolean"
+          ? yaml.injection.attributionEvents.enabled
+          : DEFAULT_CONFIG.injection.attributionEvents!.enabled,
       },
     },
     extraction: {
