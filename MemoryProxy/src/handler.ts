@@ -1087,6 +1087,44 @@ export async function handleChatCompletions(
         messages = initResult.messages as unknown[];
       }
 
+      // P0 档① 合成块捕获（openai 对称点，40 spec §3 接缝 B）：session_context 以注入消息
+      // 形态进入 messages（codebuddy init / recovery 分支均收敛到此）。复用与注入同一
+      // builder 重建 block —— 内容逐字节一致；bypassed 分支不注入 → 跳过。缺省 off 零开销。
+      if (
+        config.injection?.visibleArchive?.enabled &&
+        !initResult.bypassed &&
+        !!initResult.sessionInfo &&
+        Array.isArray(messages) &&
+        messages.length > 0
+      ) {
+        try {
+          const [{ recordSessionContextBlock }, { buildSessionContextBlockWithToggles }] =
+            await Promise.all([
+              import("./injection/visible-block-archive-observer.js"),
+              import("./session/context-injector.js"),
+            ]);
+          const block = buildSessionContextBlockWithToggles(
+            initResult.agentDetail ?? null,
+            initResult.taskDetail ?? null,
+            config.sessionInit,
+            sessionKey,
+          );
+          if (typeof block === "string" && block.length > 0) {
+            recordSessionContextBlock({
+              sessionKey,
+              turnSeq: countHumanTurns(messages, "openai"),
+              content: block,
+              maxBlockChars: config.injection.visibleArchive.maxBlockChars,
+            });
+          }
+        } catch (err) {
+          console.warn(
+            "[visible-archive] session-context capture skipped (best-effort):",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }
+
       sessionInfo = initResult.sessionInfo as Record<string, unknown> | null | undefined;
       // Belt-and-suspenders: also restore on the local `sessionInfo` alias.
       // In practice this is the same object reference as
@@ -1145,6 +1183,33 @@ export async function handleChatCompletions(
     } catch (err: unknown) {
       console.error(
         "[decision-unit] extraction skipped (best-effort):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  // ── 档② 消息增量归档（P0，best-effort；40 spec §4）────────────────────────
+  // 与 extraction 同调用区同守卫（decisionUnitExtractor 激活 → 档② 才可运行，§1b 组合
+  // 行为）；内部按 visibleArchive.enabled 独立门控，缺省 off → 零开销。
+  if (
+    !_dshHeadless &&
+    !isAuxiliary &&
+    !!conversationId &&
+    config.injection?.decisionUnitExtractor?.enabled === true
+  ) {
+    try {
+      const { archiveMessageIncrement } = await import(
+        "./decision-units/message-increment-archive.js"
+      );
+      archiveMessageIncrement({
+        config,
+        protocol: "openai",
+        messages: messages as unknown[],
+        sessionKey,
+      });
+    } catch (err: unknown) {
+      console.warn(
+        "[visible-archive] message increment skipped (best-effort):",
         err instanceof Error ? err.message : String(err),
       );
     }

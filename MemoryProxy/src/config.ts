@@ -6,6 +6,11 @@ import type { CostGuardConfig, ProxyConfig, RawYamlConfig } from "./types.js";
 
 const DEFAULT_UPSTREAM = "https://llm-upstream.example.com/v2/chat/completions";
 
+/** 正整数或缺省；yaml 值非法/非正数 → default（40 spec §6c cap 门控同 boolean 姿势）。 */
+function positiveIntOrDefault(v: unknown, def: number): number {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : def;
+}
+
 export const DEFAULT_CONFIG: ProxyConfig = {
   server: { host: "0.0.0.0", port: 8096, forwardTimeoutMs: 600_000 },
   upstream: { url: DEFAULT_UPSTREAM, apiKey: "", agents: {} },
@@ -84,6 +89,8 @@ export const DEFAULT_CONFIG: ProxyConfig = {
     attributionEvents: { enabled: false },
     // S3 决策单元抽取器默认关闭 —— 未配置 = 不抽、不写，零行为回归。
     decisionUnitExtractor: { enabled: false },
+    // P0 可见正文归档默认关闭 —— 未配置 = 不装配、零新表访问（40 spec §6c）。
+    visibleArchive: { enabled: false, maxBlockChars: 32_768, maxMessageChars: 65_536 },
   },
   // Extraction (write-side) defaults to fully permissive so that a config
   // without the `extraction:` block behaves identically to the pre-gate
@@ -424,6 +431,21 @@ export function buildConfig(overrides: CliOverrides = {}): ProxyConfig {
         enabled: typeof yaml.injection?.decisionUnitExtractor?.enabled === "boolean"
           ? yaml.injection.decisionUnitExtractor.enabled
           : DEFAULT_CONFIG.injection.decisionUnitExtractor!.enabled,
+      },
+      // P0 可见正文归档（40 spec §6c）。boolean 门控同前；cap 只接受正整数，
+      // yaml 缺省/类型错走 default。
+      visibleArchive: {
+        enabled: typeof yaml.injection?.visibleArchive?.enabled === "boolean"
+          ? yaml.injection.visibleArchive.enabled
+          : DEFAULT_CONFIG.injection.visibleArchive!.enabled,
+        maxBlockChars: positiveIntOrDefault(
+          yaml.injection?.visibleArchive?.maxBlockChars,
+          DEFAULT_CONFIG.injection.visibleArchive!.maxBlockChars!,
+        ),
+        maxMessageChars: positiveIntOrDefault(
+          yaml.injection?.visibleArchive?.maxMessageChars,
+          DEFAULT_CONFIG.injection.visibleArchive!.maxMessageChars!,
+        ),
       },
     },
     extraction: {

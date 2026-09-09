@@ -141,6 +141,7 @@ import {
   CompositeInjectionObserver,
 } from "./observer.js";
 import { AttributionEventObserver } from "./attribution-event-observer.js";
+import { VisibleBlockArchiveObserver } from "./visible-block-archive-observer.js";
 
 // ... (rest)
 
@@ -415,6 +416,13 @@ function buildPipelineBundle(config: ProxyConfig): PipelineBundle {
   const observers: InjectionObserver[] = [];
   if (config.injection?.attributionEvents?.enabled) {
     observers.push(new AttributionEventObserver());
+  }
+  if (config.injection?.visibleArchive?.enabled) {
+    observers.push(
+      new VisibleBlockArchiveObserver({
+        maxBlockChars: config.injection.visibleArchive.maxBlockChars,
+      }),
+    );
   }
   if (config.langfuse?.enabled) {
     observers.push(new LangfuseInjectionObserver());

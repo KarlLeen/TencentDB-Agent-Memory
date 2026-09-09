@@ -94,4 +94,52 @@ CREATE INDEX IF NOT EXISTS idx_ae_type          ON attribution_events(event_type
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ae_unit_dedupe
   ON attribution_events(session_key, turn_seq, msg_seq)
   WHERE msg_seq IS NOT NULL;
+
+-- ── P0 visible-text archive（docs/implementation/40-visible-text-archive.md §6，命名冻结）──
+-- 档① = 注入渲染 block 全文（含 session-context 合成块）；档② = 消息流增量快照（epoch/compaction
+-- 镜像 decision-unit-runner 内存水位语义）。纯 additive DDL：SCHEMA_VERSION 仍为 1。
+CREATE TABLE IF NOT EXISTS attribution_block_text (
+  content_id   INTEGER PRIMARY KEY,
+  source       TEXT NOT NULL,          -- §3 规则 3：block.metadata.source ?? hook.id（合成块 session.context）
+  content_hash TEXT NOT NULL UNIQUE,   -- sha256(utf8(content))，跨会话/跨轮去重键
+  content_utf8 TEXT NOT NULL,
+  chars        INTEGER NOT NULL,
+  bytes        INTEGER NOT NULL,
+  truncated    INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS attribution_block_seen (
+  seen_id     INTEGER PRIMARY KEY,
+  session_key TEXT NOT NULL,
+  turn_seq    INTEGER NOT NULL,        -- countHumanTurns 窗口计数口径，compaction 后重算
+  hook_id     TEXT NOT NULL,
+  point       TEXT NOT NULL,
+  content_id  INTEGER NOT NULL REFERENCES attribution_block_text(content_id),
+  block_idx   INTEGER NOT NULL,
+  asset_ids   TEXT,                    -- JSON：collectAssets identity 摘要（无 spans）
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ablk_seen ON attribution_block_seen(session_key, turn_seq);
+
+CREATE TABLE IF NOT EXISTS attribution_message_snap (
+  msg_id        INTEGER PRIMARY KEY,
+  session_key   TEXT NOT NULL,
+  epoch         INTEGER NOT NULL DEFAULT 0,   -- compaction 时 +1（镜像 runner.ts:126-127 判定）
+  turn_seq      INTEGER NOT NULL,             -- §4.2：与 extractor 同源前缀计数
+  message_index INTEGER NOT NULL,
+  role          TEXT NOT NULL,                -- user/assistant/tool（system 行不入档，见 §3a/§4.3）
+  content_hash  TEXT NOT NULL,                -- read 期跨档去重选项用（§5）
+  content_json  TEXT NOT NULL,
+  chars         INTEGER NOT NULL,
+  truncated     INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(session_key, epoch, message_index)
+);
+
+CREATE TABLE IF NOT EXISTS attribution_archive_watermark (
+  session_key     TEXT PRIMARY KEY,
+  epoch           INTEGER NOT NULL DEFAULT 0,
+  last_seen_count INTEGER NOT NULL DEFAULT 0   -- 镜像 runner 内存"已见消息条数"语义（B4）
+);
 `;

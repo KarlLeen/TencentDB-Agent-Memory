@@ -964,6 +964,27 @@ export async function handleAnthropicMessages(
       if (initResult.systemAppend) {
         const { appendBlockToAnthropicSystem } = await import("./session/context-injector.js");
         body = { ...body, system: appendBlockToAnthropicSystem(body.system, initResult.systemAppend) };
+
+        // P0 档① 合成块捕获（40 spec §3 接缝 B）：session_context 直拼 body.system、
+        // 不经任何 hook —— 在此合并点捕获与合入正文逐字节相同的内容。缺省 off → 零开销。
+        if (config.injection?.visibleArchive?.enabled) {
+          try {
+            const { recordSessionContextBlock } = await import(
+              "./injection/visible-block-archive-observer.js"
+            );
+            recordSessionContextBlock({
+              sessionKey,
+              turnSeq: countHumanTurns(messages, "anthropic"),
+              content: initResult.systemAppend,
+              maxBlockChars: config.injection.visibleArchive.maxBlockChars,
+            });
+          } catch (err) {
+            console.warn(
+              "[visible-archive] session-context capture skipped (best-effort):",
+              err instanceof Error ? err.message : String(err),
+            );
+          }
+        }
       }
 
       sessionInfo = initResult.sessionInfo as Record<string, unknown> | null | undefined;
@@ -1021,6 +1042,32 @@ export async function handleAnthropicMessages(
     } catch (err: unknown) {
       console.error(
         "[decision-unit] extraction skipped (best-effort):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  // ── 档② 消息增量归档（P0，best-effort；40 spec §4）────────────────────────
+  // 与 extraction 同调用区同守卫（decisionUnitExtractor 激活 → 档② 才可运行，见 §1b 组合
+  // 行为）；内部按 visibleArchive.enabled 独立门控，缺省 off → 零开销。
+  if (
+    requestKind === "main" &&
+    !!conversationId &&
+    config.injection?.decisionUnitExtractor?.enabled === true
+  ) {
+    try {
+      const { archiveMessageIncrement } = await import(
+        "./decision-units/message-increment-archive.js"
+      );
+      archiveMessageIncrement({
+        config,
+        protocol: "anthropic",
+        messages: messages as unknown[],
+        sessionKey,
+      });
+    } catch (err: unknown) {
+      console.warn(
+        "[visible-archive] message increment skipped (best-effort):",
         err instanceof Error ? err.message : String(err),
       );
     }

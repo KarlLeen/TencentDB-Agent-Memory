@@ -656,6 +656,24 @@ export interface InjectionConfig {
   decisionUnitExtractor?: {
     enabled: boolean;
   };
+  /**
+   * P0 可见正文归档。默认关闭：未配 = 模块不装配、零新表访问。
+   *
+   * `true` 时两档开捕：
+   *   - 档① 渲染 block 全文 + session-context 合成块（session-context 不经 hook，
+   *     由 handler 在 body 合并点合成捕获）→ attribution_block_text / _seen；
+   *   - 档② 消息流增量（含 epoch/compaction，水位镜像 decision-unit-runner 内存语义；
+   *     **依赖 decisionUnitExtractor 调用区被激活**，decisionUnitExtractor 关 → 档②不写、
+   *     档①照常）→ attribution_message_snap / _watermark。
+   * 见 docs/implementation/40-visible-text-archive.md。
+   */
+  visibleArchive?: {
+    enabled: boolean;
+    /** 档① 单 block cap（字符），超限存前段 + truncated。缺省 32768。 */
+    maxBlockChars?: number;
+    /** 档② 单消息正文 cap（字符），超限截断 + truncated。缺省 65536。 */
+    maxMessageChars?: number;
+  };
 }
 
 /**
@@ -895,6 +913,11 @@ export interface RawYamlConfig {
     };
     decisionUnitExtractor?: {
       enabled?: boolean;
+    };
+    visibleArchive?: {
+      enabled?: boolean;
+      maxBlockChars?: number;
+      maxMessageChars?: number;
     };
   };
   extraction?: {
