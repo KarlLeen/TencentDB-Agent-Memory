@@ -627,6 +627,17 @@ export interface InjectionConfig {
   attributionEvents?: {
     enabled: boolean;
   };
+  /**
+   * v1 S3 决策单元抽取器。默认关闭：未配 = 不抽、不写，行为与现状等价。
+   *
+   * `true` 时：主对话请求在 session-init 之后把窗口内**密封**的决策单元
+   * （code_change / key_tool_call / restraint）写入 `attribution_events` 表
+   * （eventType=`decision_unit.created`）。
+   * 见 docs/implementation/30-decision-unit-extractor.md。
+   */
+  decisionUnitExtractor?: {
+    enabled: boolean;
+  };
 }
 
 /**
@@ -835,6 +846,9 @@ export interface RawYamlConfig {
       markerOptIn?: boolean;
     };
     attributionEvents?: {
+      enabled?: boolean;
+    };
+    decisionUnitExtractor?: {
       enabled?: boolean;
     };
   };

@@ -24,6 +24,14 @@ require_vars \
 # 与 memory-core 保持一致的 gateway 内部凭据（默认 local，仅本地体验）
 MEMORY_CORE_GATEWAY_API_KEY="${MEMORY_CORE_GATEWAY_API_KEY:-local}"
 
+# proxy 在容器里跑，自己探测不到宿主机地址（node:os.networkInterfaces() 只能看到
+# docker 网桥内网 IP，例如 172.x.x.x）。未显式配置 injection.externalGatewayUrl 时，
+# <skill_tools>/<tdai_memory_tools> 里塞给 LLM 的 curl 目标会是这个内网 IP——
+# Harness 在宿主机上执行 curl 时连不上，报"记忆/技能服务不可达"。
+# 本地单机部署默认指向宿主机的 127.0.0.1:${PROXY_PORT}（已通过 -p 端口映射可达）；
+# 多节点/生产部署需要显式覆盖成真实对外网关域名（PROXY_EXTERNAL_GATEWAY_URL=https://gateway.example.com）。
+PROXY_EXTERNAL_GATEWAY_URL="${PROXY_EXTERNAL_GATEWAY_URL:-http://127.0.0.1:${PROXY_PORT}}"
+
 CONTAINER=tdai-proxy
 NETWORK=tdai-memory-stack
 
