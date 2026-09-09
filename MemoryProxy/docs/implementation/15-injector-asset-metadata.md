@@ -284,17 +284,41 @@ assets: Object.entries(contributorByAgent).map(([agentId, { itemLines, ctx }]) =
 
 ## 8. 验收清单（全部通过 = S0 完成）
 
-- [ ] `asset-refs.ts` 类型/工具/校验器就位，`validateAssets` 过所有产资产 block 的不变式。
+- [x] `asset-refs.ts` 类型/工具/校验器就位，`validateAssets` 过所有产资产 block 的不变式。
+  - 2026-09-08 回填：直测背书 `src/injection/injectors/__tests__/asset-metadata.test.ts` ——
+    joinLinesWithOffsets/spanOfLines 纯工具用例 + validateAssets 检出重复/越界/重叠/空切片用例 +
+    knowledge/profile/l1 三处产资产路径 `validateAssets(content, assets)` 返回 [] 的不变式断言。
 - [x] `tdai-fixed-asset.ts`：`FixedAssetCtx.memoryAssetId` 三路径正确（self 合成 / imported 绑定 / 兜底）。
   - 2026-09-08（s0-s2-review F1 关闭）：直测落地 `__tests__/tdai-fixed-asset.test.ts`（8 用例）；
     F3 修复使"修正后 team 合成 self"在 items=0 路径也成立（review F3 已修）。
-- [ ] 四个产资产 injector 全部带 `metadata.assets`；静态能力文档块不带（三态语义成立）。
-- [ ] Tier A（knowledge / profile / l1）spans 通过切片一致性单测；Tier B（skill）身份正确且原因已文档化。
-- [ ] `l1-recall` 的 `sources`（被检索）与 `assets`（被注入）语义可区分且有单测。
+- [x] 四个产资产 injector 全部带 `metadata.assets`；静态能力文档块不带（三态语义成立）。
+  - 2026-09-08 回填：直测背书每个产资产路径（knowledge 渲染产出 spans / profile 三态 / l1 命中态 /
+    skill execute 后 `md.assets` == identity），单测中空态/未命中态不出资产；
+    "静态能力文档块不带"由非产资产 injector 保持原 block（无 assets 维度）的默认路径 +
+    S2 真实冒烟佐证：24 条 hook.done 中仅四种产资产类型带 asset_id，其余（含静态能力类块）无资产维度。
+- [x] Tier A（knowledge / profile / l1）spans 通过切片一致性单测；Tier B（skill）身份正确且原因已文档化。
+  - 2026-09-08 回填：asset-metadata.test.ts 的 Tier A 切片一致性用例（三类 producer 全过）；
+    Tier B 身份由 skill 用例断言（identity 与 listing 一致）+ skill-injector.ts 行内注释与
+    spec §4.1"skill 只产 identity、不产 spans"的既有决策文档化。
+- [x] `l1-recall` 的 `sources`（被检索）与 `assets`（被注入）语义可区分且有单测。
+  - 2026-09-08 回填：asset-metadata.test.ts 的 l1 用例（命中 agent 进 assets；
+    "0 命中的 agent 不进入 assets，sources 语义保留在其调用方"）背书区分成立。
 - [ ] golden 回归：四个 injector 改前改后渲染文本逐字节一致。
-- [ ] hook-cache roundtrip 单测通过（assets 随缓存存活）。
+  - 2026-09-08 复查留白：暂无"改前 vs 改后"双版本字节对比 harness；当前旁证为各 injector 渲染
+    框架/行格式断言 + S0 diff 走读（s0-s2-review）确认文本构造行未动。如需正式背书需两版本
+    worktree 渲染对比，可选再补。
+- [x] hook-cache roundtrip 单测通过（assets 随缓存存活）。
+  - 2026-09-08 回填：asset-metadata.test.ts 的整块 JSON roundtrip 用例（hook-cache 同款
+    JSON.stringify 序列化后 metadata.assets 不丢）；roundtrip 机制对任意 block payload 统一，
+    故以 knowledge 块整块用例背书。
 - [ ] §7 真实会话冒烟 1–4 全过（含 self chat_memory 回查）。
-- [ ] 未接 S2 → 运行行为与改前完全一致（assets 只是数据，无消费方，零行为回归）。
+  - 2026-09-08 复查：S2 冒烟已实证真实会话里四种产资产类型全部带真实 asset_id（含 self
+    chat_memory 合成 id 存在），但 hook_cache.blocks_json 逐块冒烟 / l1 召回轮 / system prompt
+    字节 diff 三项未逐一执行 → 保留未勾，完整 1–4 属可选加分（勿重复造轮子）。
+- [x] 未接 S2 → 运行行为与改前完全一致（assets 只是数据，无消费方，零行为回归）。
+  - 2026-09-08 回填（时点性结论）：S0 落地提交 `ead8126` 先于 S2 接线（`cdfca0c`），当时 assets
+    无消费方（纯数据）；随后每步提交均有 vitest 104/104 + tsc 恒定门控，S2 §8 默认 config 勾项
+    亦背书零行为回归；S3 冒烟 noop 轮再次实测 feature 开关默认关时 decision 0 行、注入侧足迹照常。
 
 ## 9. 开放问题
 
