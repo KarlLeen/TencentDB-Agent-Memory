@@ -132,4 +132,4 @@ unknown tombstone、vocab 命中矩阵 corpus、开启 checklist / 组合矩阵 
 - `15-injector-asset-metadata.md` — S0
 - `20-event-observer.md` — S2
 - `30-decision-unit-extractor.md` — S3
-- （v2 起）`40-bridge-telemetry-sink.md` / `50-attribution-judge-worker.md` / `60-corrected-rules.md` / `70-receipt-panel.md`
+- （v2 起）`40-visible-text-archive.md`（P0：可见证据统一归档，两档 + 拼接窗口）/ `45-bridge-telemetry-sink.md` / `50-attribution-judge-worker.md` / `60-corrected-rules.md` / `70-receipt-panel.md`
