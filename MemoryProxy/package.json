@@ -10,7 +10,10 @@
     "dev:config": "node --import tsx/esm --watch src/index.ts --config config.yaml",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:baseline": "node scripts/qa/tsc-baseline-check.mjs",
+    "typecheck:baseline:update": "node scripts/qa/tsc-baseline-check.mjs --update",
+    "record:render-golden": "tsx scripts/qa/record-render-golden.ts"
   },
   "optionalDependencies": {
     "better-sqlite3": "^11.5.0",

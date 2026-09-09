@@ -265,6 +265,8 @@ assets: Object.entries(contributorByAgent).map(([agentId, { itemLines, ctx }]) =
   覆盖无 client / self+imported / items=0 修正 team / 降级与缓存），见 s0-s2-review.md §4。
 - **只加不改回归（golden）**：每个产资产 injector 在改动前把典型输入的渲染结果存 golden 字面量，
   改动后断言 content 逐字节不变（防止拼 span 时顺手改文案/换行）。
+  - 2026-09-09 落地：`render-golden.snap.json` 快照 + `render-golden.test.ts`（§8 golden 行已勾，
+    刷新命令 `npm run record:render-golden`）。
 - **roundtrip**：把带 `metadata.assets` 的 block 走一遍 `hookCacheRepo.put/get` 的 JSON 序列化，
   读回后 assets 完整。
 
@@ -303,10 +305,16 @@ assets: Object.entries(contributorByAgent).map(([agentId, { itemLines, ctx }]) =
 - [x] `l1-recall` 的 `sources`（被检索）与 `assets`（被注入）语义可区分且有单测。
   - 2026-09-08 回填：asset-metadata.test.ts 的 l1 用例（命中 agent 进 assets；
     "0 命中的 agent 不进入 assets，sources 语义保留在其调用方"）背书区分成立。
-- [ ] golden 回归：四个 injector 改前改后渲染文本逐字节一致。
-  - 2026-09-08 复查留白：暂无"改前 vs 改后"双版本字节对比 harness；当前旁证为各 injector 渲染
-    框架/行格式断言 + S0 diff 走读（s0-s2-review）确认文本构造行未动。如需正式背书需两版本
-    worktree 渲染对比，可选再补。
+- [x] golden 回归：四个 injector 改前改后渲染文本逐字节一致。
+  - 2026-09-09 勾回：`__tests__/render-golden-cases.ts`（4 组 canonical case：knowledge/
+    profile/l1/skill）+ `__tests__/render-golden.test.ts`（content 逐字节 == `render-golden.snap.json`，
+    9 用例）+ `scripts/qa/record-render-golden.ts`（`npm run record:render-golden` 刷新快照）。
+    只锁 content 字节，metadata.assets 是合法增量不进比对。
+  - 双版本字节背书：knowledge/skill 在 pre-S0（`c0cf94f` worktree）以同签名纯函数实测
+    content 与快照逐字节一致（2720 / 1577 chars）；profile/l1 的 S0 改前组装内联于类方法
+    （无独立纯函数出口），以 S0 diff 走读 + `joinLinesWithOffsets`≡`lines.join("\n")`（asset-refs.ts）
+    论证搬迁等价；快照再锁死最终字节，任何未来 drift 即红。
+  - 历史注记（2026-09-08）：当时为留白，旁证 = 渲染框架/行格式断言 + S0 diff 走读。
 - [x] hook-cache roundtrip 单测通过（assets 随缓存存活）。
   - 2026-09-08 回填：asset-metadata.test.ts 的整块 JSON roundtrip 用例（hook-cache 同款
     JSON.stringify 序列化后 metadata.assets 不丢）；roundtrip 机制对任意 block payload 统一，
