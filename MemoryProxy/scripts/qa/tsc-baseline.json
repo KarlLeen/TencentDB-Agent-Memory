@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "command": "tsc --noEmit",
+  "note": "允许错清单（BP2）。只允许历史基线文件既有的错误码；新增文件/错误码立即 fail。修复后用 `npm run typecheck:baseline:update` 收紧。",
+  "generatedAt": "2026-09-09",
+  "allow": {
+    "src/anthropicHandler.ts": [
+      "TS2322",
+      "TS2339",
+      "TS2352"
+    ],
+    "src/codexHandler.ts": [
+      "TS2339",
+      "TS2352",
+      "TS2353"
+    ],
+    "src/handler.ts": [
+      "TS2339",
+      "TS2352"
+    ],
+    "src/memory/memory-bridge.ts": [
+      "TS2339"
+    ],
+    "src/session/codebuddy/init.ts": [
+      "TS2353"
+    ],
+    "src/storage/factory.ts": [
+      "TS2307"
+    ],
+    "src/workbuddyHandler.ts": [
+      "TS2339",
+      "TS2352"
+    ]
+  }
+}
