@@ -575,6 +575,11 @@ if (
 
 ## 7. 真实会话冒烟
 
+> **验收状态（2026-09-08）：已执行。** 两轮真实会话决策任务（code_change + test.run +
+> git.commit 单元）、同进程/跨进程原样重放、第二轮行数增长（3→6）、A1 join（ev1=39 →
+> ev5=195）、noop 默认关闭实测（decision 0 行）全部通过；逐条断言与原始数字见
+> `codebuddy-scratch/s3-smoke/S3-smoke-evidence.md`（仓库外 scratch，不随本仓库分发）。
+
 复用 codebuddy-scratch/s0-smoke + s2-smoke 的编排姿势（源码实例 + 本机 docker 栈 +
 真实 CodeBuddy 协议 `/codebuddy/default/v1/chat/completions`）。scratch 配置额外开
 `injection.decisionUnitExtractor.enabled: true`，独立 `PROXY_DB_PATH`。
