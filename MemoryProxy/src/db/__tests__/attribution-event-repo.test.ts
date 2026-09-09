@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetAttributionEventRepoForTests,
   getAttributionEventRepo,
+  getAttributionWriteCounters,
   type NewAttributionEvent,
 } from "../attributionEventRepo.js";
 import { __resetDbForTests, getDb } from "../index.js";
@@ -160,26 +161,34 @@ describe("dedupe anchor (idx_ae_unit_dedupe)", () => {
       payload: { messages: [msgSeq] },
     });
 
-  it("swallows a repeated single append (crash replay)", () => {
+  it("swallows a repeated single append (crash replay) at info level, counted as dedupe", () => {
     const repo = getAttributionEventRepo();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     repo.append(unit(2));
     repo.append(unit(2)); // same (session_key, turn_seq, msg_seq) → dedupe
     expect(repo.listBySession("sess-1")).toHaveLength(1);
-    expect(warn).toHaveBeenCalled(); // one warn, never an error
+    expect(info).toHaveBeenCalled(); // 预期去重 = info（v1.1 观测：与真实失败 warn 区分）
+    expect(warn).not.toHaveBeenCalled(); // 绝不 upgrade 成 error/warn 噪音
+    expect(getAttributionWriteCounters()).toMatchObject({ appended: 1, dedupeConflicts: 1, failures: 0 });
+    info.mockRestore();
     warn.mockRestore();
   });
 
   it("appendMany skips conflicting rows but keeps the rest", () => {
     const repo = getAttributionEventRepo();
     repo.append(unit(1)); // baseline anchor (turn_seq=5, msg_seq=1)
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     repo.appendMany([unit(1), unit(2), unit(3)]); // 1 conflicts, 2/3 are new
     const rows = repo.listBySession("sess-1");
     expect(rows).toHaveLength(3); // baseline + 2 new; dup row skipped
     expect(rows.some((r) => r.msg_seq === 2)).toBe(true);
     expect(rows.some((r) => r.msg_seq === 3)).toBe(true);
-    expect(warn).toHaveBeenCalled();
+    expect(info).toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(getAttributionWriteCounters()).toMatchObject({ appended: 3, dedupeConflicts: 1, failures: 0 });
+    info.mockRestore();
     warn.mockRestore();
   });
 

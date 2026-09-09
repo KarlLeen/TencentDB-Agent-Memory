@@ -9,7 +9,8 @@
  *
  * Failure semantics: any DB error degrades silently (no throw). SQLite unique
  * violations on the S3 dedupe anchor `idx_ae_unit_dedupe` are *expected* on
- * crash replay — they are swallowed with a single warn (never error level).
+ * crash replay — they are swallowed at **info** level (dedupe = 预期路径, 与真实
+ * 失败区分开：真实失败才 warn，见 v1.1 最小观测 / getAttributionWriteCounters)。
  *
  * Row shape follows the repo convention: snake_case columns returned as-is;
  * `payload_json` is handed to the caller, who parses it (repo layer does not
@@ -70,6 +71,22 @@ export interface AttributionEventRepo {
 }
 
 const DEFAULT_SPACE_ID = "_default";
+
+/**
+ * v1.1 最小观测（二轮评审 R1）：写路径计数，让"预期去重（dedupe）"与"真实失败"
+ * 在运行时可区分 —— 退化开始时不再是静默的。
+ */
+export interface AttributionWriteCounters {
+  appended: number;
+  dedupeConflicts: number;
+  failures: number;
+}
+const writeCounters: AttributionWriteCounters = { appended: 0, dedupeConflicts: 0, failures: 0 };
+
+/** 读写路径计数快照（开启 checklist / 观测用；失败 > 0 即需人工介入）。 */
+export function getAttributionWriteCounters(): AttributionWriteCounters {
+  return { ...writeCounters };
+}
 
 /** SQLite throws SQLITE_CONSTRAINT_* for UNIQUE/PRIMARY KEY violations. */
 function isConstraintViolation(err: unknown): boolean {
@@ -148,14 +165,17 @@ class SqliteAttributionEventRepo implements AttributionEventRepo {
   append(e: NewAttributionEvent): void {
     try {
       this.insertStmt.run(toInsertParams(e));
+      writeCounters.appended += 1;
     } catch (err) {
       if (isConstraintViolation(err)) {
-        // 幂等重放是预期路径（S3 崩溃重放），单条冲突静默跳过，不打 error。
-        console.warn(
+        // 幂等重放是预期路径（S3 崩溃重放）：info 级（与真实失败 warn 区分开）。
+        writeCounters.dedupeConflicts += 1;
+        console.info(
           `[attribution-events] append skipped dedupe conflict (session=${e.sessionKey} type=${e.eventType})`,
         );
         return;
       }
+      writeCounters.failures += 1;
       console.warn(
         `[attribution-events] append failed (session=${e.sessionKey} type=${e.eventType}):`,
         err instanceof Error ? err.message : String(err),
@@ -171,6 +191,7 @@ class SqliteAttributionEventRepo implements AttributionEventRepo {
         for (const e of items) {
           try {
             this.insertStmt.run(toInsertParams(e));
+            writeCounters.appended += 1;
           } catch (err) {
             // 唯一索引冲突（idx_ae_unit_dedupe）在崩溃重放是预期路径：跳过该行，
             // 其余行照常落库（单事务不能因一行重复把整批回滚）。非约束错误上抛。
@@ -184,12 +205,14 @@ class SqliteAttributionEventRepo implements AttributionEventRepo {
         return conflicts;
       });
       const conflicts = tx(events);
+      writeCounters.dedupeConflicts += conflicts;
       if (conflicts > 0) {
-        console.warn(
+        console.info(
           `[attribution-events] appendMany skipped ${conflicts}/${events.length} dedupe-conflict row(s)`,
         );
       }
     } catch (err) {
+      writeCounters.failures += 1;
       console.warn(
         `[attribution-events] appendMany failed (count=${events.length}):`,
         err instanceof Error ? err.message : String(err),
@@ -252,4 +275,7 @@ export function setAttributionEventRepo(repo: AttributionEventRepo): void {
 /** Reset singleton — tests only. */
 export function __resetAttributionEventRepoForTests(): void {
   _repo = null;
+  writeCounters.appended = 0;
+  writeCounters.dedupeConflicts = 0;
+  writeCounters.failures = 0;
 }

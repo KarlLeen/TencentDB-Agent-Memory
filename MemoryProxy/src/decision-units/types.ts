@@ -73,6 +73,14 @@ export interface KeyToolCallPayload extends BasePayload {
   matchedBy: string; // 命中的 matcher label（确定性可审计）
   resultStatus: KeyToolResultStatus;
   resultSnippet?: string; // 截断
+  /**
+   * 撕裂窗口 tombstone（v1.1，spec §4.4 / §9 开放问题 5）：risky 工具执行已发生但
+   * 配对结果被客户端丢弃/从未到达。此时 resultStatus 恒 "unknown" 且无 resultSnippet
+   * —— 与"结果到达但为空文本（同样 unknown）"区分：resultMissing 指结果整体缺失，
+   * 供审计对账（v2 judge 不得把 unknown+resultMissing 当"未执行"而漏判，也不得当
+   * "克制成功"而伪报）。
+   */
+  resultMissing?: boolean;
 }
 
 export interface RestraintPayload extends BasePayload {

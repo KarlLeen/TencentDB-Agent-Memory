@@ -10,6 +10,10 @@
  *  - restraint 的"链内 risky 执行未发生"用与 key_tool_call 推导**同一个**
  *    `findPairedResult` helper 数据扫描（单一配对结论源，跨轮 pending 不漂移），
  *    再交给 `classifyRestraint`（B3 的 API 契约不变，只看列表里有没有 success）。
+ *  - v1.1 tombstone：已执行 risky 工具的结果被客户端丢弃/从未到达（窗口已越过该调用
+ *    仍无配对结果）→ 落 resultStatus:"unknown" + resultMissing 的"不可知"key 单元供
+ *    审计对账，而不是让该动作在 key/restraint 两义里都消失（二轮评审 R2 哑洞修复，
+ *    §4.4 撕裂窗口 / §9 开放问题 5 的第三种状态）。
  */
 import { createHash } from "node:crypto";
 
@@ -17,6 +21,7 @@ import { countHumanTurns, isHumanUserContent } from "../turnSeq.js";
 import {
   commandSurfaceTextOf,
   isFileEditTool,
+  isRiskyMatcherLabel,
   matchHumanSeeds,
   matchKeyToolFirst,
   matchRiskyToolLabels,
@@ -628,11 +633,50 @@ export function deriveDecisionUnits(
       // N2：在解码后的命令串上匹配（真换行），不在 JSON 转义串上做 \b 正则。
       const matchedBy = matchKeyToolFirst(surface);
       if (!matchedBy) continue;
-      const paired = findPairedResult(messages, msg.index, tool.id);
-      if (!paired) continue; // 结果未到 → 未密封（宁缺不伪造，spec §9 开放问题 5）
-      const status = resultStatusOf(paired);
       const toolParam = truncate(surface);
-      const resultSnippet = truncate(paired.text, 2000);
+      const pair = findPairedResult(messages, msg.index, tool.id);
+      if (!pair) {
+        // v1.1 撕裂窗口 tombstone（R2 哑洞修复，spec §4.4 / §9 开放问题 5）：
+        // 已执行 risky 工具的结果被客户端丢弃/从未到达 → 落一行
+        // resultStatus:"unknown" + resultMissing 的"不可知"事件供审计对账，
+        // 而不是让该动作在 key / restraint 两义里都消失。
+        //   - 只对 risky 落：safe 命令丢结果仍宁缺（无审计价值，留日志级）。
+        //   - 密封边界 = 工具调用所在消息的下一条：窗口已越过该调用才证明结果
+        //     确实不来；工具在窗口末条（结果在途）不落，避免与晚到结果双行。
+        if (!isRiskyMatcherLabel(matchedBy)) continue;
+        if (msg.index >= lastMessageIndex) continue;
+        keySeeds.push({
+          kind: "key_tool_call",
+          anchorMessageIndex: msg.index,
+          kindRank: 1,
+          seq: ev.eventPos,
+          sealMessageIndex: msg.index + 1,
+          payloadParts: () => {
+            const essence = ["key_tool_call", tool.id, tool.name, matchedBy, toolParam];
+            return {
+              essence,
+              payload: {
+                version: DECISION_UNIT_VERSION,
+                unitType: "key_tool_call",
+                unitId: "",
+                protocol,
+                anchorMessageIndex: msg.index,
+                turnSeq: 0,
+                toolUseId: tool.id,
+                toolName: tool.name,
+                toolParamText: toolParam,
+                chars: surface.length,
+                matchedBy,
+                resultStatus: "unknown",
+                resultMissing: true,
+              } as DecisionUnitPayload,
+            };
+          },
+        });
+        continue;
+      }
+      const status = resultStatusOf(pair);
+      const resultSnippet = truncate(pair.text, 2000);
       keySeeds.push({
         kind: "key_tool_call",
         anchorMessageIndex: msg.index,

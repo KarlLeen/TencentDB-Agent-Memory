@@ -4,7 +4,8 @@
  *
  * 职责（全部 best-effort，绝不 throw 中断请求）：
  *   1. config 开关 + 主对话守卫自检；
- *   2. 进程内水位线（sessionKey → 已处理消息数；compaction 时重置全量重放）；
+ *   2. 进程内水位线（sessionKey → 已处理消息数；compaction 时重置全量重放；
+ *      按会话上限淘汰）＋运行统计（v1.1 最小观测，见 getDecisionUnitRunStats）；
  *   3. 以 `minIndex = max(0, watermark-1)` 调纯函数推导 —— 只回吐"本轮新密封"单元；
  *   4. 对密封 restraint 调 loadVisibleAssets（A2：只读 S2 已落行快照，读不到就省略）；
  *   5. getAttributionEventRepo().appendMany(...) 一次事务落库。
@@ -40,9 +41,48 @@ export interface RunDecisionUnitExtractionParams {
 /** 进程内水位线：sessionKey → 已处理消息条数（含当前轮）。 */
 const watermarks = new Map<string, number>();
 
-/** 测试专用：清空水位线，使下次调用从全量重放开始。 */
+/** 水位线会话上限：淘汰最早一条，防长跑 server 无限增长（二轮评审 R4）。 */
+const MAX_WATERMARK_SESSIONS = 2048;
+
+function evictOldestWatermark(): void {
+  while (watermarks.size > MAX_WATERMARK_SESSIONS) {
+    const oldest = watermarks.keys().next();
+    if (oldest.done) break;
+    watermarks.delete(oldest.value);
+  }
+}
+
+/** S3 最小观测（二轮评审 R1）：进程内运行计数，供开启 checklist / 测试断言。 */
+export interface DecisionUnitRunStats {
+  runs: number;
+  /** 本轮推导出的密封单元数（含 tombstone）。 */
+  sealedUnits: number;
+  /** 撕裂窗口 unknown 留痕（payload.resultMissing === true）条数。 */
+  tombstones: number;
+  deriveErrors: number;
+  /** live：当前水位线会话数（上限 MAX_WATERMARK_SESSIONS，超过即淘汰最早者）。 */
+  activeWatermarkSessions: number;
+}
+const runStats: DecisionUnitRunStats = {
+  runs: 0,
+  sealedUnits: 0,
+  tombstones: 0,
+  deriveErrors: 0,
+  activeWatermarkSessions: 0,
+};
+
+/** 读运行统计快照（activeWatermarkSessions 取 live 值）。 */
+export function getDecisionUnitRunStats(): DecisionUnitRunStats {
+  return { ...runStats, activeWatermarkSessions: watermarks.size };
+}
+
+/** 测试专用：清空水位线与运行统计，使下次调用从全量重放开始。 */
 export function __resetDecisionUnitStateForTests(): void {
   watermarks.clear();
+  runStats.runs = 0;
+  runStats.sealedUnits = 0;
+  runStats.tombstones = 0;
+  runStats.deriveErrors = 0;
 }
 
 /** A2（spec §4.9）：restraint 密封时读同会话同锚点轮 S2 注入可见切片快照。 */
@@ -64,8 +104,12 @@ function loadVisibleAssets(
       out.push({ assetId: row.asset_id, assetType: row.asset_type });
     }
     return out.length > 0 ? out : undefined;
-  } catch {
-    // repo 已是 Null 降级 / 读失败静默 → runner 拿不到就省略，绝不 throw
+  } catch (err) {
+    // repo 读失败（非 Null 空表）→ 降级省略 visibleAssets，但留下告警便于观测退化。
+    console.warn(
+      `[decision-unit] visibleAssets load failed (best-effort) session=${sessionKey} turn=${turnSeq}:`,
+      err instanceof Error ? err.message : String(err),
+    );
     return undefined;
   }
 }
@@ -75,6 +119,7 @@ export function runDecisionUnitExtraction(params: RunDecisionUnitExtractionParam
   if (!enabled) return;
   if (!params.mainDialog || !params.hasConversation || !params.sessionKey) return;
   if (!Array.isArray(params.messages) || params.messages.length === 0) return;
+  runStats.runs += 1;
 
   const messageCount = params.messages.length;
   let watermark = watermarks.get(params.sessionKey) ?? 0;
@@ -89,6 +134,7 @@ export function runDecisionUnitExtraction(params: RunDecisionUnitExtractionParam
     units = deriveDecisionUnits(params.messages, params.protocol, { minIndex });
   } catch (err) {
     // 纯函数理论上不 throw；任何异常都 best-effort 降级，不中断请求。
+    runStats.deriveErrors += 1;
     console.error(
       `[decision-unit] derive error (best-effort) session=${params.sessionKey}:`,
       err instanceof Error ? err.message : String(err),
@@ -97,6 +143,10 @@ export function runDecisionUnitExtraction(params: RunDecisionUnitExtractionParam
   }
 
   if (units.length > 0) {
+    runStats.sealedUnits += units.length;
+    runStats.tombstones += units.filter(
+      (u) => (u.payload as { resultMissing?: boolean }).resultMissing === true,
+    ).length;
     const repo = getAttributionEventRepo();
     const events: NewAttributionEvent[] = units.map((unit) => {
       let payload = unit.payload;
@@ -122,4 +172,5 @@ export function runDecisionUnitExtraction(params: RunDecisionUnitExtractionParam
   }
 
   watermarks.set(params.sessionKey, messageCount);
+  evictOldestWatermark();
 }

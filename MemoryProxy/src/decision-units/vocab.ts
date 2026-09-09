@@ -114,6 +114,11 @@ export function matchRiskyToolLabels(testText: string): string[] {
   return labels;
 }
 
+/** label 是否属 risky 子集（tombstone 判定用：safe 命令丢结果宁缺，不落 unknown）。 */
+export function isRiskyMatcherLabel(label: string): boolean {
+  return RISKY_KEY_TOOL_MATCHERS.some((m) => m.label === label);
+}
+
 // ── 命令面门控（2026-09-08 评审收编 N1/N2）──────────────────────────────────────
 
 /**

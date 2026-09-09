@@ -17,6 +17,7 @@ import { deriveDecisionUnits } from "../decision-unit-extractor.js";
 import {
   __resetDecisionUnitStateForTests,
   EVENT_TYPE_DECISION_UNIT_CREATED,
+  getDecisionUnitRunStats,
   runDecisionUnitExtraction,
   type RunDecisionUnitExtractionParams,
 } from "../decision-unit-runner.js";
@@ -358,4 +359,69 @@ describe("runner · A2 可见切片快照（§6 用例 15b/15c）", () => {
     expect(restraint).toBeDefined();
     expect((restraint.payload as { visibleAssets?: unknown }).visibleAssets).toBeUndefined();
   });
+});
+
+// ── v1.1：tombstone 落库 + 最小观测（二轮评审 R1/R2/R4）──────────────────────────
+
+describe("runner · tombstone 落库（v1.1 R2）", () => {
+  it("risky 工具丢结果：R1 止于工具不落；R2 窗口越过 → 落 unknown 行一次；R3 重放不重落", () => {
+    const r1: unknown[] = [uText("清掉临时目录"), aTool("b1", "Bash", { command: "rm -rf ./tmp" })];
+    run({ messages: r1 });
+    expect(repo.events).toHaveLength(0);
+
+    const r2: unknown[] = [...r1, uText("继续")];
+    run({ messages: r2 });
+    const keyUnits = unitsOfType("key_tool_call");
+    expect(keyUnits).toHaveLength(1);
+    const ev = keyUnits[0]!;
+    expect(ev.payload).toMatchObject({
+      unitType: "key_tool_call",
+      matchedBy: "shell.rm_rf",
+      resultStatus: "unknown",
+      resultMissing: true,
+    });
+    expect(ev.turnSeq).toBe(1);
+    expect(ev.msgSeq).toBe(1 * 16);
+
+    // 原样重放（水位线已过）→ 密封边界过滤，不重复
+    run({ messages: r2 });
+    expect(unitsOfType("key_tool_call")).toHaveLength(1);
+  });
+});
+
+describe("runner · 观测统计与水位上限（v1.1 R1/R4）", () => {
+  it("run/sealed/tombstone 计数随轮累积；reset 清零", () => {
+    expect(getDecisionUnitRunStats()).toMatchObject({ runs: 0, sealedUnits: 0, tombstones: 0 });
+    // 同会话内 transcript 逐轮追加（模拟真实请求流）；水位线只回吐新密封单元。
+    let transcript: unknown[] = [
+      uText("改 a.ts"),
+      aTool("e1", "Edit", { file_path: "a.ts", new_string: "x" }),
+      uResult("e1"),
+    ];
+    run({ messages: transcript });
+    transcript = [...transcript, uText("跑下测试"), aTool("t1", "Bash", { command: "npm test" }), uResult("t1")];
+    run({ messages: transcript });
+    let s = getDecisionUnitRunStats();
+    expect(s.runs).toBe(2);
+    expect(s.sealedUnits).toBe(2); // code_change + key_tool_call
+    expect(s.tombstones).toBe(0);
+
+    transcript = [...transcript, uText("删目录"), aTool("b1", "Bash", { command: "rm -rf ./tmp" }), uText("好")];
+    run({ messages: transcript });
+    s = getDecisionUnitRunStats();
+    expect(s.sealedUnits).toBe(3);
+    expect(s.tombstones).toBe(1);
+    expect(s.activeWatermarkSessions).toBeGreaterThanOrEqual(1);
+
+    __resetDecisionUnitStateForTests();
+    expect(getDecisionUnitRunStats().runs).toBe(0);
+    expect(getDecisionUnitRunStats().tombstones).toBe(0);
+  });
+
+  it("水位线会话超过上限淘汰最早者（不无限增长：activeWatermarkSessions ≤ 2048）", () => {
+    for (let i = 0; i < 2100; i += 1) {
+      run({ messages: [uText(`t${i}`)], sessionKey: `many-sess-${i}` });
+    }
+    expect(getDecisionUnitRunStats().activeWatermarkSessions).toBe(2048);
+  }, 30000);
 });
