@@ -18,8 +18,9 @@
  * turnSeq 可能偏移，但同一 turn 内仍保持一致（只是绝对值漂移），不影响"同 turn 归一 trace"。
  */
 
-/** 判断单条 user 消息内容是否为人类输入（非工具循环延续）。 */
-function isHumanUserContent(content: unknown): boolean {
+/** 判断单条 user 消息内容是否为人类输入（非工具循环延续）。
+ *  S3 decision-unit 复用同一语义（restraint 候选面 + 轮次口径一致）。 */
+export function isHumanUserContent(content: unknown): boolean {
   if (typeof content === "string") {
     return !content.startsWith("<system-reminder>");
   }
