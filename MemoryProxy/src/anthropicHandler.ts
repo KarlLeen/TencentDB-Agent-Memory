@@ -997,6 +997,35 @@ export async function handleAnthropicMessages(
     }
   }
 
+  // ── decision-unit 抽取（S3，best-effort 叠加；见 30 spec §5.2）────────────────
+  // 位置语义：session-init 之后、mem 命令拦截返回之前 —— 提前 return 的拦截路径
+  // 也覆盖（抽取只看已发生的历史，不需要本请求被真实转发到上游）。
+  if (
+    requestKind === "main" &&
+    !!conversationId &&
+    config.injection?.decisionUnitExtractor?.enabled === true
+  ) {
+    try {
+      const { runDecisionUnitExtraction } = await import("./decision-units/decision-unit-runner.js");
+      runDecisionUnitExtraction({
+        config,
+        protocol: "anthropic",
+        mainDialog: requestKind === "main",
+        hasConversation: !!conversationId,
+        messages: messages as unknown[],
+        sessionKey,
+        spaceId,
+        userId: userId || null,
+        agentSource,
+      });
+    } catch (err: unknown) {
+      console.error(
+        "[decision-unit] extraction skipped (best-effort):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
   // ── mem:session-reset 完成确认 ─────────────────────────────────────────────
   // session-reset 的交互流程：pre-hook 改 state → form 弹出 → 用户答完 form →
   // completeRegistration → prewarm → 到这里。此时用户的原始消息 "mem:session-reset"

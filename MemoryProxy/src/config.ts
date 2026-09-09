@@ -82,6 +82,8 @@ export const DEFAULT_CONFIG: ProxyConfig = {
     assetReflection: { markerOptIn: true },
     // S2 EventObserver 默认关闭 —— 未配置 = observer 选型与现状逐字节等价（叠加不替换）。
     attributionEvents: { enabled: false },
+    // S3 决策单元抽取器默认关闭 —— 未配置 = 不抽、不写，零行为回归。
+    decisionUnitExtractor: { enabled: false },
   },
   // Extraction (write-side) defaults to fully permissive so that a config
   // without the `extraction:` block behaves identically to the pre-gate
@@ -416,6 +418,12 @@ export function buildConfig(overrides: CliOverrides = {}): ProxyConfig {
         enabled: typeof yaml.injection?.attributionEvents?.enabled === "boolean"
           ? yaml.injection.attributionEvents.enabled
           : DEFAULT_CONFIG.injection.attributionEvents!.enabled,
+      },
+      // 只接受 boolean；yaml 缺省或类型错走 default（关）→ 零行为回归。
+      decisionUnitExtractor: {
+        enabled: typeof yaml.injection?.decisionUnitExtractor?.enabled === "boolean"
+          ? yaml.injection.decisionUnitExtractor.enabled
+          : DEFAULT_CONFIG.injection.decisionUnitExtractor!.enabled,
       },
     },
     extraction: {

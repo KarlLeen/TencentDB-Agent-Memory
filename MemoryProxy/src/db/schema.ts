@@ -5,9 +5,9 @@
  *   - sessions:            persists session metadata (sessionInfo / agentDetail / taskDetail).
  *   - hook_cache:          persists prewarmed injection blocks per (session_id, hook_id).
  *   - attribution_events:  persists injection lifecycle / decision-unit events produced by
- *                          the attribution capture chain (v1 S2 EventObserver / S3 extractor).
- *                          No producer is wired yet (S1 is the receiver only), so the table is
- *                          intentionally dormant — nobody writes, nobody reads.
+ *                          the attribution capture chain (v1 S1 table → S2 EventObserver →
+ *                          S3 decision-unit extractor). Producers are wired as of S2/S3;
+ *                          when attribution capture is disabled the table stays dormant.
  *
  * Schema is created with `IF NOT EXISTS` so it's safe to call on every startup.
  * `schema_version` row in `meta` table allows future migrations.
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS attribution_events (
   agent_source TEXT,               -- codebuddy / claude-code / ...
   session_key  TEXT NOT NULL,      -- 会话隔离键（同 anthropicHandler resolveSessionKey）
   turn_seq     INTEGER,            -- 轮次；同 observer metadata.turnSeq 口径，类型事件可空
-  msg_seq      INTEGER,            -- 决策单元首条消息下标（S3 幂等用），非决策事件为 NULL
+  msg_seq      INTEGER,            -- 决策单元编码 msg_seq = anchor×16 + slot（S3 幂等用），非决策事件为 NULL
   event_type   TEXT NOT NULL,      -- v1 词汇表见 00-master-spec §3
   asset_id     TEXT,               -- 真实资产外部 id（docs §4.1：skill_id / knowledge_id / chat_memory- 复合 id）
   asset_type   TEXT,               -- skill / llm_wiki / code_graph / chat_memory
