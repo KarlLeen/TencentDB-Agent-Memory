@@ -192,7 +192,7 @@ S1 无行为，真实会话演示不到——冒烟即"手插一行 → SELECT �
     （anthropicHandler/workbuddyHandler，本次未触碰，与 S1 无关）。
 - [x] **v1.1 观测补丁（2026-09-09，S3 二轮评审 R1）**：`getAttributionWriteCounters()`
   + dedupe 冲突降 `console.info` / 真实失败才 `console.warn`；attribution-event-repo
-  测试补 spy 断言（`warn` 不被调 + 计数吻合），repo 侧 13 用例全绿。接口行为零变化。
+  测试补 spy 断言（`warn` 不被调 + 计数吻合），repo 侧 11 用例全绿。接口行为零变化。
 
 ## 9. 开放问题
 
