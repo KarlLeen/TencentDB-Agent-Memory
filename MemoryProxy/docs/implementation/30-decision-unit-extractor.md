@@ -21,6 +21,16 @@
 > `rm -f x`/`rm -r x` 单旗标与 `rm -r a && rm -f b` 跨段不命中）—— 均见 §4.4 末注与
 > §6 用例 18。命令面内 echo/heredoc 写文件文本仍按命令串命中 = v1 词法残余边界
 > （§4.4 末注），结构性解析留 v2。
+> 2026-09-09 二轮评审收编（v1.1 补丁，H1/H2/H3，落点 §4.4/§4.7/§4.10/§5.1/§5.6/§6/§9/§11）：
+>   - H1 最小观测 + 撕裂窗口 tombstone：已执行 risky 工具的结果被客户端丢弃/从未到达 →
+>     落 `resultStatus:"unknown"` + `resultMissing:true` 的可审计 tombstone（key 侧不再
+>     让动作消失，restraint 仍抑制）；观测计数（runner `getDecisionUnitRunStats` + repo
+>     `getAttributionWriteCounters`）、dedupe 冲突降 info / 真实失败才 warn、水位线会话
+>     上限 2048。
+>   - H2 vocab 命中矩阵 corpus fixture + 数据驱动测试（`vocab-corpus-fixtures.ts` /
+>     `vocab-corpus.test.ts`，§6 用例 22）—— 词法一改，recall/precision 移动即红。
+>   - H3 开启 checklist / 组合矩阵 / DB 清理说明 → §11（验收清单 11.1、组合矩阵 11.2、
+>     DB 清理 11.3；事件表清理口径见 10-event-table.md §10）。
 > 本文件回答 00-master-spec §8 的 S3 开放问题 ①②（③为 S0/S2 已决项，不在此列）。
 
 ## 1. 目标
@@ -226,8 +236,29 @@ restraint 判定细节（报告规则 3 落地；2026-09-08 brainstorm 收编 B1
     （§9 开放问题 2）。
 - **链撕裂（torn）宁缺不伪造（2026-09-08 二轮评审 N3 收编）**：B3 链扫时若链内出现
   risky 命令工具但其配对结果缺失/未达（撕裂窗口/丢结果），则"是否真执行"未知 ——
-  本轮**不产 restraint**，结果补上后由 key_tool_call 记录真实执行（与 key 侧"无配对
-  不落"同一口径，防"伪克制"与真实执行并存的双结论）。
+  本轮**不产 restraint**（无法证明克制确实发生，防"伪克制"与真实执行并存的双结论）。
+- **撕裂窗口 tombstone（v1.1，2026-09-09 二轮评审 R2 哑洞修复，key 侧不再让动作消失）**：
+  撕裂窗口 = 已执行 risky 工具的配对结果被客户端丢弃 / 从未到达。v1 的"无配对不落"
+  会让该动作在 **key / restraint 两义里都消失** —— 审计看不到"发生过但结果未知"。
+  v1.1 在 key 侧落一行可审计的 **unknown tombstone**：
+  - **只对 risky 落**（`isRiskyMatcherLabel(matchedBy)`）：safe 命令（`git commit -s` /
+    跑测试等）丢结果仍宁缺不伪造 —— 无审计价值，不制造噪声行（见 §6 用例 19(ii)/g5）。
+  - **密封边界 = 工具调用所在消息的下一条**（`sealMessageIndex = msg.index + 1`）：
+    只有窗口**已越过**该调用（其后又出现消息、配对仍未来）才证明结果确实不来。工具
+    在窗口**末条**（结果在途）不落 —— 防与"晚到的配对 success 行"重复双行（跨请求
+    R1 止于工具不落 → R2 越过才落一次，§6 用例 19(i)/runner 用例 20）。
+  - **restraint 仍被抑制**：链内出现 risky 工具调用（结果是否到达不影响"执行已发生"
+    的结论）→ 克制未发生 → 不产 restraint。机制 = restraint 链扫在发现"risky 工具
+    无配对"时置 `chainTorn` 直接跳过该候选（N3，§6 用例 16(iv)），与 key 侧用**同一个
+    `findPairedResult` 单源结论** —— tombstone 与 restraint 的互斥由这份共享的配对
+    扫描保证，不会同一链既落 tombstone 又产克制。
+  - **essence 不含结果状态**（§4.6 组件不变）→ 若结果违反协议晚到、后续全窗口重放
+    推导出 success 行时，其 `unit_id` 与早先 tombstone **相同** —— 同锚幂等键
+    `(session_key, turn_seq, msg_seq)` 由 DB 唯一索引兜底，消费端按 `unit_id` 合并，
+    不会出现"一行 tombstone + 一行 success"的重复事实（§6 用例 19(iii)）。
+  - payload = `resultStatus:"unknown"` + `resultMissing:true`（无 `resultSnippet`），与
+    "结果到达但为空文本（同样 unknown）"靠 `resultMissing` 区分，供 v2 审计对账：
+    judge 既不得把 unknown+resultMissing 当"未执行"漏判，也不得当"克制成功"伪报（§4.7）。
 - **未关闭不落（pending 语义）**：候选是窗口最后消息、或其响应链尚未被下一条人类
   消息关闭 → 本轮不产。后续请求带新窗口时，该候选仍在窗口内（水位线只回看 1 条，
   候选在窗口深处也一样被全窗口推导重评估），一旦闭合即补落。**实现选择 = 不设显式
@@ -321,6 +352,9 @@ restraint 种子命中 + 命令命中 label 等）。作用：
   matchedBy: string;              // 命中的 matcher label（确定性可审计）
   resultStatus: "success" | "error" | "unknown",   // 只按配对的 is_error/粗字段判，不看语义
   resultSnippet?: string,         // 截断
+  resultMissing?: boolean,        // v1.1 tombstone（§4.4）：配对结果整体缺失/被客户端丢弃
+                                  //   （撕裂窗口）→ resultStatus 恒 "unknown" 且无 resultSnippet；
+                                  //   与"结果到达但为空文本（同样 unknown）"区分，供审计对账
 
   // restraint:
   matchedSeeds: string[],         // 命中的口语种子
@@ -406,6 +440,35 @@ restraint 种子命中 + 命令命中 label 等）。作用：
   - **unit_id 不受影响**：visibleAssets 是快照增强、不进 essence（§4.6），同候选
     重放推导出的 unit_id 不变（幂等键只锚定"决策本身"，资产切片可随时间补充）。
 
+### 4.10 最小观测（v1.1，2026-09-09 二轮评审 R1/R4 收编）
+
+"无观测 = 退化静默"：v1 里 derive 异常只 `console.error`、visibleAssets 读失败完全
+静默、dedupe 冲突与真实失败同打 warn —— server 跑着跑着捕获悄悄坏了没人知道。v1.1
+补两层最小观测（**纯进程内计数，不落盘、不加表**，重启即清零 —— 只需发现"当下是否
+在退化"，持久指标留 v2）：
+
+- **runner 运行统计**（`getDecisionUnitRunStats()`，`decision-unit-runner.ts`）：
+  | 字段 | 含义 |
+  |---|---|
+  | `runs` | runner 通过守卫进入推导的次数 |
+  | `sealedUnits` | 本轮推导出的密封单元数（含 tombstone） |
+  | `tombstones` | 撕裂窗口 unknown 留痕条数（`payload.resultMissing === true`） |
+  | `deriveErrors` | derive 抛错降级次数（原来只有 console.error，现在可断言/告警） |
+  | `activeWatermarkSessions` | live 读：当前水位线会话数（见下，非快照） |
+  - `loadVisibleAssets` 读失败从"静默降级"改为 `console.warn`（best-effort 语义不变：
+    降级省略 visibleAssets、绝不 throw，但留下告警便于观测退化）。
+  - 每次写水位线后调 `evictOldestWatermark()`。
+- **repo 写路径计数**（`getAttributionWriteCounters()`，`src/db/attributionEventRepo.ts`）：
+  `appended` / `dedupeConflicts` / `failures`。**分级日志**：dedupe 冲突是崩溃重放的
+  **预期路径**，降为 `console.info`（不再误报 warn）；真实失败才 `console.warn`
+  （`failures > 0` 即需人工介入）。测试断言见 §6 用例 21(iii)。
+- **水位线会话上限（R4）**：`MAX_WATERMARK_SESSIONS = 2048`，超限即
+  `evictOldestWatermark()` 淘汰最早一条 —— 长跑 server 的水位线 Map 不无限增长。
+  淘汰会话下次请求全窗口重放即可重建（幂等由 DB 唯一索引兜底，§4.2），零数据风险。
+- **观测接入点（开启 checklist 的一部分，见 §11.1）**：跑一轮真实任务后
+  `getDecisionUnitRunStats()` / `getAttributionWriteCounters()` 各打一次；`deriveErrors
+  + failures === 0` 且 `sealedUnits > 0`（有任务时）即捕获链路健康。
+
 ## 5. 改动清单
 
 ### 5.1 新模块 `src/decision-units/`（命名：决策统一 `decision-unit-` 前缀，避 extraction/judge 撞车）
@@ -413,15 +476,18 @@ restraint 种子命中 + 命令命中 label 等）。作用：
 | 文件 | 内容 |
 |---|---|
 | `types.ts` | `DecisionUnitType`、`DecisionUnit` payload 接口、节选上限常量、`DECISION_SLOTS_PER_MESSAGE = 16` |
-| `vocab.ts` | `EDIT_TOOL_NAMES`、`RISKY_HUMAN_SEEDS`、`KEY_TOOL_MATCHERS`（含测试命令正则）+ 命令面门控（`COMMAND_TOOL_NAMES`/`COMMAND_ARG_KEYS`/`commandSurfaceTextOf`，§4.4）。B1 增补：`KEY_TOOL_MATCHERS` 每条 matcher 带 `risky: boolean` 标注 + label + 可对任意文本执行的匹配器；导出 `RISKY_KEY_TOOL_MATCHERS`（risky 子集）供 restraint 对候选人类消息文本做命令形命中（复用同一 matcher，不另立人类口语词表）—— 全为常量，注释写明"v1 内置，词表动态提取 = v2" |
-| `decision-unit-extractor.ts` | **纯函数核心**：协议归一化（anthropic content blocks / openai content string+tool_calls+role=tool → canonical 序列）+ `deriveDecisionUnits(messages, protocol, options?: { minIndex })`（只产密封单元；每次全窗口推导，`minIndex` 仅做密封边界过滤 —— `sealMessageIndex ≥ minIndex`，restraint 为 `closureIndex ≥ minIndex+1`，见 §4.4 末注）+ `computeUnitId` + 供单测的导出 helper（`mergeFileRuns`、`findPairedResult`、`classifyRestraint(candidate, chain, sealedRiskyKeyToolCalls)`…）。`classifyRestraint` 的"链内 risky 未执行"判定直接以入参 `sealedRiskyKeyToolCalls: Array<{toolUseId, resultStatus}>` 中是否存在 `resultStatus="success"` 条目为准（B3 同轮配对结论，不做二次扫描）。零 IO、零 session 状态 |
-| `decision-unit-runner.ts` | 接缝调用入口 `runDecisionUnitExtraction({config, protocol, mainDialog, hasConversation, messages, sessionKey, spaceId?, userId?, agentSource})`：内部自检 config 开关 → 守卫（§4.1）→ **水位线 Map（进程内，按 sessionKey；不设显式 pending 表，见 §4.4）**，取 `minIndex = watermark - 1` 后把 `messages` 整个交给 extractor 全窗口推导（compaction：`messages.length < watermark` 时水位线清零、全窗口重放）→ 对密封 restraint 调 `loadVisibleAssets(sessionKey, turnSeq)`（§4.9 A2：repo `listBySession` + 按 turn 过滤，读不到就省略）→ `getAttributionEventRepo().appendMany(...)` → 推进水位线。导出 `__resetDecisionUnitStateForTests()`。**同步临界区**（better-sqlite3 同步写 + 模块内 Map，JS 单线程下无并发交错） |
-| `__tests__/decision-unit-extractor.test.ts`、`__tests__/decision-unit-runner.test.ts` | §6 |
+| `vocab.ts` | `EDIT_TOOL_NAMES`、`RISKY_HUMAN_SEEDS`、`KEY_TOOL_MATCHERS`（含测试命令正则）+ 命令面门控（`COMMAND_TOOL_NAMES`/`COMMAND_ARG_KEYS`/`commandSurfaceTextOf`，§4.4）。B1 增补：`KEY_TOOL_MATCHERS` 每条 matcher 带 `risky: boolean` 标注 + label + 可对任意文本执行的匹配器；导出 `RISKY_KEY_TOOL_MATCHERS`（risky 子集）供 restraint 对候选人类消息文本做命令形命中（复用同一 matcher，不另立人类口语词表）；v1.1 增补 `isRiskyMatcherLabel(label)`（label 是否属 risky 子集，tombstone 判定用）—— 全为常量，注释写明"v1 内置，词表动态提取 = v2" |
+| `decision-unit-extractor.ts` | **纯函数核心**：协议归一化（anthropic content blocks / openai content string+tool_calls+role=tool → canonical 序列）+ `deriveDecisionUnits(messages, protocol, options?: { minIndex })`（只产密封单元；每次全窗口推导，`minIndex` 仅做密封边界过滤 —— `sealMessageIndex ≥ minIndex`，restraint 为 `closureIndex ≥ minIndex+1`，见 §4.4 末注）+ `computeUnitId` + 供单测的导出 helper（`mergeFileRuns`、`findPairedResult`、`classifyRestraint(candidate, chain, sealedRiskyKeyToolCalls)`…）。`classifyRestraint` 的"链内 risky 未执行"判定直接以入参 `sealedRiskyKeyToolCalls: Array<{toolUseId, resultStatus}>` 中是否存在 `resultStatus="success"` 条目为准（B3 同轮配对结论，不做二次扫描）。v1.1：key 主块无配对分支按 `isRiskyMatcherLabel` 落撕裂窗口 tombstone（`sealMessageIndex = msg.index+1`，窗口末条不落），见 §4.4。零 IO、零 session 状态 |
+| `decision-unit-runner.ts` | 接缝调用入口 `runDecisionUnitExtraction({config, protocol, mainDialog, hasConversation, messages, sessionKey, spaceId?, userId?, agentSource})`：内部自检 config 开关 → 守卫（§4.1）→ **水位线 Map（进程内，按 sessionKey；不设显式 pending 表，见 §4.4）**，取 `minIndex = watermark - 1` 后把 `messages` 整个交给 extractor 全窗口推导（compaction：`messages.length < watermark` 时水位线清零、全窗口重放）→ 对密封 restraint 调 `loadVisibleAssets(sessionKey, turnSeq)`（§4.9 A2：repo `listBySession` + 按 turn 过滤，读不到就省略）→ `getAttributionEventRepo().appendMany(...)` → 推进水位线 → `evictOldestWatermark()`。v1.1：运行统计 `getDecisionUnitRunStats()`（runs/sealedUnits/tombstones/deriveErrors/activeWatermarkSessions live 读）+ `MAX_WATERMARK_SESSIONS = 2048` 上限淘汰，见 §4.10。导出 `__resetDecisionUnitStateForTests()`（清水位线 + 统计）。**同步临界区**（better-sqlite3 同步写 + 模块内 Map，JS 单线程下无并发交错） |
+| `__tests__/decision-unit-extractor.test.ts`、`__tests__/decision-unit-runner.test.ts` | §6（v1.1 增补：tombstone 用例 19/20、观测用例 21） |
+| `__tests__/vocab-corpus-fixtures.ts`、`__tests__/vocab-corpus.test.ts` | §6 用例 22（v1.1 H2：vocab 命中矩阵 corpus + golden transcript 全管线） |
 
 架构要点（写死，防返工）：
 - **纯函数与状态严格分层**：extractor 无状态、输入 `(messages, protocol, options?)`
   输出单元；runner 只有水位线 Map 这一种跨请求状态（pending 语义由全窗口重推导
-  隐式承担，§4.4），且全部状态都是"丢了可由全窗口重放重建"的缓存而非真值。
+  隐式承担，§4.4），且全部状态都是"丢了可由全窗口重放重建"的缓存而非真值 ——
+  v1.1 的运行统计是**只读观测计数**（非推导真值来源），同样重启清零、可由下一轮
+  重建，不破坏该分层。
 - runner 不 latch 任何跨请求会话态到单例字段之外（每个 sessionKey 独立条目，天然无
   S2 §3.1 那种全局缓存串台问题 —— 按 key 分桶不是共享可变字段）。
 
@@ -479,11 +545,26 @@ if (
 
 `msg_seq` 列注释更新为 §4.5 语义（纯注释，不动 DDL 结构，不动 `SCHEMA_VERSION`）。
 
+### 5.6 `src/db/attributionEventRepo.ts`（S1 已建，v1.1 观测补丁，见 §4.10）
+
+S1 已把本 repo 建好（10-event-table.md §5.2）；v1.1 只补观测，不改接口语义：
+
+- 新增 `AttributionWriteCounters { appended; dedupeConflicts; failures }` +
+  `getAttributionWriteCounters()`（快照返回）—— `append`/`appendMany` 成功、冲突、
+  失败分别计数；
+- **dedupe 冲突日志降级**：唯一索引冲突（崩溃重放预期路径）从 `console.warn` 改
+  `console.info`；**真实失败才 `console.warn`**（`failures += 1`）—— 让"预期去重"
+  与"真实失败"在日志/计数上可区分；
+- 计数清零挂进既有 `__resetAttributionEventRepoForTests()`；
+- 同步小改：接口头注释说明 dedupe = 预期路径 + info 级。行为面零变化（仍静默降级
+  不 throw）；测试断言见 attribution-event-repo.test.ts 与 §6 用例 21(iii)。
+
 ## 6. 测试（单测，映射 master-spec §6 验收四件事）
 
-新建 `src/decision-units/__tests__/` 两个文件；runner 测试用内存 fake repo
+`src/decision-units/__tests__/` 三个测试文件 + 两个 fixture（v1.1 增
+`vocab-corpus-fixtures.ts` / `vocab-corpus.test.ts`）；runner 测试用内存 fake repo
 （仿 `appendMany` 冲突跳过语义：同 `(sessionKey, turnSeq, msgSeq)` 第二次调用不
-落行）直测。
+落行）直测。H1/H2/H3 实测基线：H1 三文件 55 用例、H2 corpus 单文件 51 用例全绿。
 
 **decision-unit-extractor.test.ts（纯函数）**
 1. **同 message 合并**：合成 anthropic assistant（text + 3×Edit `main.go` A/B/C +
@@ -555,7 +636,9 @@ if (
     (ii) Write 文档含 `git push origin main` 字面量 → 无 key，且同场景 restraint 照常
     密封（写文档 ≠ push，restraint 不被文件内容抑制）；(iii) Bash 多行命令行首
     `git push` 在解码串上命中 `git.push` —— JSON 转义串上 `\b` 失效的回归护栏；
-    (iv) 链内 risky Bash 工具无配对结果 + 链已闭合 → 无 key 亦无 restraint（撕裂）；
+    (iv) 链内 risky Bash 工具无配对结果 + 链已闭合 → **不产 restraint**（无法证明克制），
+    且 v1.1 起该 risky 调用以 unknown tombstone 留痕而非在 key/restraint 两义里都消失
+    （撕裂窗口，映射 §4.4；旧语义"无 key 亦无 restraint"已被 v1.1 修正，见用例 19）；
     (v) curl_pipe_sh 选项形态（深挖 FN 修复）：真实 curl 几乎总带选项（`-s`/`-fsSL`/
     `--retry`），原词法只认无选项 `curl <URL> | sh` → 全漏记；词法修为
     `curl\b[^\n]*?https?://…`，带选项/多行 pipe 均命中 shell.curl_pipe_sh。
@@ -572,6 +655,43 @@ if (
     `rm -r -f` 与 `rm --recursive --force` 补中；`rm -f x` / `rm -r x` 单旗标、
     `rm -r a && rm -f b`（跨 `&&` / `;` / `|`）不误报。命令面内 `echo 'rm -r -f'`
     外壳文本仍命中 —— v1 残余（§4.4 末注）。
+
+**v1.1 补丁用例（2026-09-09，映射 §4.4 撕裂窗口 tombstone / §4.10 观测 / H2 corpus）：**
+19. **tombstone · 已执行 risky 工具结果被丢弃（撕裂窗口）**（extractor 纯函数，
+    describe "tombstone · 已执行 risky 工具结果被丢弃"）：
+    (i) 跨请求：R1 窗口止于工具（`rm -rf` 结果在途）→ 不落（密封边界未越过）；
+    R2 窗口补一条人类消息仍无配对 → 越过 `sealMessageIndex = msg.index+1` → 落一行
+    unknown tombstone（`resultStatus:"unknown"` + `resultMissing:true`，无 restraint）；
+    R3 重放越过密封边界 → 不重复产；
+    (ii) safe 命令（`git commit -s`）丢结果 → 不落 tombstone（宁缺；非 risky 无审计价值）；
+    (iii) 结果晚到（协议违规）：后续全窗口重放推导出的 success 行与早先 tombstone
+    **同 `unit_id`**（essence 不含结果状态）—— 同锚幂等键由 DB 唯一索引兜底，消费端
+    按 unit_id 合并，无双行事实；
+    (iv) openai 形状：risky tool 无 role=tool 配对且窗口已越过 → unknown tombstone。
+20. **runner · tombstone 落库（v1.1 R2，映射 §4.4）**：risky 工具丢结果 —— R1 止于工具
+    不落；R2 窗口越过 → 落 unknown 行一次（`turnSeq:1`，fake repo 计数）；R3 原样重放
+    → dedupe 冲突跳过（不重落）。
+21. **runner · 观测统计与水位上限（v1.1 R1/R4，映射 §4.10）**：
+    (i) 同会话逐轮追加 transcript → `runs`/`sealedUnits`/`tombstones` 随轮累积；
+    `__resetDecisionUnitStateForTests()` 清零；
+    (ii) 水位线会话超过 `MAX_WATERMARK_SESSIONS`（构造 2100 会话）→ 淘汰最早者，
+    `activeWatermarkSessions ≤ 2048`（长跑不无限增长）；
+    (iii) repo 写计数与分级日志（attribution-event-repo.test.ts）：重复 append /
+    appendMany 冲突 → spy `console.info` 被调、`console.warn` **不**被调 + 计数吻合
+    （`{appended, dedupeConflicts, failures}`）；真实失败才 warn（`failures` 递增）。
+22. **vocab 命中矩阵 corpus（H2，映射 §5.1 corpus fixture / vocab-corpus.test.ts）**：
+    数据驱动锁定词法命中面（**不经命令面门控** —— 门控由 extractor 侧用例 16 覆盖）：
+    (i) **正例**：每条 `KEY_TOOL_MATCHERS` label 与 `RISKY_HUMAN_SEEDS` 种子在
+    `KEY_POSITIVE_CASES` / `HUMAN_POSITIVE_CASES` ≥1 正例（含 echo 外壳残余形态）；
+    (ii) **覆盖完整性**：新增词法若不补 corpus 用例即红（逐 label 查表，防词表膨胀漏
+    覆盖）；(iii) **反例不误报**：`KEY_NEGATIVE_CASES`（cat/ls/`git status`、无 `|sh`
+    的 curl 下载、`python3 -c`、`merge-base`、`drop user` 等 near-miss）与
+    `HUMAN_NEGATIVE_CASES`（纯中文/安全请求）→ 零命中；(iv) **EXACT_MATCH_CASES 锁
+    精确命中集 + 优先级 + rm 双旗标段切分/单旗标约束**；(v) **GOLDEN_TRANSCRIPTS（g1–g5）
+    全管线**：完整 derive 推导含密封/配对/tombstone/克制 —— g1 编辑+测试双单元无克制、
+    g2 risky push 成功（key success、克制抑制）、g3 risky 被拒（restraint）、g4 rm -rf
+    结果丢弃（key unknown tombstone、无 restraint）、g5 safe commit 结果丢弃（宁缺空
+    expected）。
 
 ## 7. 真实会话冒烟
 
@@ -616,6 +736,34 @@ if (
    未必触发克制），A2 降级断言由 §6 15b/15c 单测兜底，冒烟中明确记录"本轮无
    restraint、A2 以单测覆盖"——不伪造上游行为制造克制。
 
+**v1.1 冒烟补项（2026-09-09 H3，human risky 样本）**：在脚本小任务之外新增带 risky
+意图的人类消息轮（进同一会话或独立会话均可），对照观察三类真实行为，验证撕裂窗口
+tombstone 与 restraint 在真实链路上的留痕（复用 run_s3_smoke 编排，消息形状照
+task_messages 手造 tool_use/tool 配对）：
+7. **撕裂窗口 tombstone 实测**：人类消息"把这个临时目录直接 rm -rf 掉" → assistant
+   发出 `Bash rm -rf` tool_use（**不附 tool 结果**）→ 下一轮人类消息推进窗口 →
+   断言 `attribution_events` 恰好落一行 `key_tool_call`：
+   `resultStatus="unknown"` + `resultMissing:true` + `matchedBy="shell.rm_rf"`，且
+   **无**同链 restraint；safe 对照组（`git commit -s` 丢结果）不落行。
+8. **restraint 实测（自然出现则核对）**：人类 risky 请求被 assistant 实际拒绝（链内无
+   risky 工具执行）→ 密封 `restraint` 行（`riskyExecuted=false`、matchedSeeds/
+   matchedCommands 按命中记录）。真实链路难以稳定制造"代理恰好拒绝" → restraint 冒烟
+   降级规则同 A2：本轮无 restraint 则明确记录"以 §6 用例 + golden g3 单测覆盖"。
+   验证口径与运行数字写入 `S3-smoke-evidence.md` 的 v1.1 小节；受环境限制无法起真实
+   上游时降级为"§6 用例 19/20 + golden g3/g4/g5 已在单元级锁定，冒烟记录降级原因"，
+   不伪造上游行为。
+
+**v1.1 冒烟实测（2026-09-09，独立 run_v11，证据见 S3-smoke-evidence.md §8）**：
+第 7 项**已执行通过** —— human risky 撕裂窗口在真实 proxy 链路上恰好落一行
+tombstone（`resultStatus:"unknown"` + `resultMissing:true` + `matchedBy:"shell.rm_rf"`，
+turn_seq=1，无同链 restraint），同进程重放零新增（`appendMany skipped 1/1`），safe
+对照（`git commit -s` 丢结果）不落行；正常 task 流程 3 决策行 unit_id 与 v1 冒烟
+逐字节一致（零回归）。第 8 项按降级规则记录：本轮无自然 restraint 出现（脚本化
+请求不制造克制），restraint 语义由 §6 用例 15b/15c/16 + golden g3 单测锁定。
+附注：撕裂窗口请求的上游返回 400（assistant tool_calls 无 tool 结果，上游拒绝继续
+生成）—— 决策抽取在转发前完成、tombstone 照落，该 400 正是"窗口已撕裂"在真实
+管线上的可观测症状，非捕获失败。
+
 证据写入 `codebuddy-scratch/s3-smoke/`（不进 git，同 S2 惯例）。
 
 ## 8. 回滚口径（默认关闭 ⇒ Noop 行为）
@@ -650,7 +798,9 @@ if (
    而不是引入跨行复合键。
 5. **OpenAI `role=tool` 中断语义**：CodeBuddy 部分版本可能在工具循环中不连续发送
    `role=tool`（如错误吞掉）。密封规则以"配对结果出现在窗口"为准，若某客户端永远
-   不补结果，则该 key_tool 单元永不落库（宁缺不伪造）；观察到此类客户端后再议。
+   不补结果：**risky 工具** → 窗口越过密封边界即落 unknown tombstone（v1.1，§4.4）；
+   **safe 工具** → 永不落库（宁缺不伪造）。观察到此类客户端后再议是否需要结构性解析
+   确认"工具是否真的发出过"。
 6. **A2 推广面（v2 决策）**：本切片只对 restraint 做可见切片快照（§4.9 理由：
    克制单元与约束资产因果最近、噪声最小）。v2 若把 `visibleAssets` 推广到
    code_change / key_tool_call，只挪 runner 同一密封点 + 同一 `loadVisibleAssets`
@@ -675,3 +825,88 @@ if (
 | 2026-09-08 brainstorm 收编 B3（同轮密封结论机械校验 restraint） | §4.4、§5.1（classifyRestraint 入参） | §6 单测 7b |
 | 2026-09-08 brainstorm 收编 A1（asset↔decision 同表 join 契约） | §4.9、行级 §4.7 | §7 冒烟 5 |
 | 2026-09-08 brainstorm 收编 A2（restraint 可见切片快照） | §4.9、payload §4.7 | §6 单测 8/15b/15c；§7 冒烟 6 |
+| 2026-09-09 二轮评审 R1（无观测 = 退化静默）/ R4（水位线无限增长） | §4.10、§5.6 | §6 单测 21；repo 测试 |
+| 2026-09-09 二轮评审 R2（撕裂窗口 risky 动作在 key/restraint 两义消失） | §4.4（撕裂窗口 tombstone）、§4.7 resultMissing | §6 单测 19/20、16(iv) |
+| 2026-09-09 二轮评审 BP1（vocab 命中矩阵反复人工手验） | §5.1（corpus fixture）、§6 用例 22 | vocab-corpus.test.ts（51 用例） |
+| 2026-09-09 二轮评审 H3（开启 checklist / 组合矩阵 / DB 清理进 spec） | §11 | 评审复查；10-event-table.md §10 |
+
+## 11. 开启 checklist、组合矩阵与 DB 清理（2026-09-09 H3 收编）
+
+> 目标读者：评审 / 后续维护者。**"能否开启"、"各开关组合下应看到什么"、"弄脏了怎么
+> 清"三件事全部落到本 spec，不依赖会话记忆。** 事件表（S1）侧配套口径见
+> 10-event-table.md §10。
+
+### 11.1 开启 checklist（验收门）
+
+逐项打勾，全部通过才可认为某环境上的 S3 处于"可观测的健康开启"状态：
+
+- [ ] **默认关闭回归**：未配 `injection.decisionUnitExtractor.enabled` 时，一次真实请求
+      后 `attribution_events` 里 `event_type='decision_unit.created'` 恒 0 行（noop =
+      行为与现状逐字节等价，回滚口径 §8）—— 对应 §7 冒烟 noop 实测（decision 0 行）。
+- [ ] **开关开启 + 守卫**：`enabled: true` 走真实路径后，`getDecisionUnitRunStats().runs`
+      递增；config 关 / `mainDialog=false` / `hasConversation=false` / 无 sessionKey /
+      空 messages 五态都不进推导（§6 单测 14）。
+- [ ] **脚本化任务可见**：跑固定小任务（读文件→Edit→跑测试→`git commit -s`）后按
+      session_key 查：≥1 `code_change`（filePath=目标文件、edits 含 Edit 的
+      tool_use.id）、≥1 `key_tool_call`（toolUseId=真实工具 id、resultStatus 来自配对）；
+      重放/第二轮行数不重复增长、`unit_id` 稳定、首轮行未改写（append-only）。
+- [ ] **撕裂窗口留痕可解释**：若有 risky 调用结果被丢弃的样本 → 恰好一行
+      `resultStatus:"unknown"` + `resultMissing:true`（tombstone）且无同链 restraint；
+      safe 命令丢结果不落行（宁缺）—— 对应 §6 用例 19/20、golden g4/g5。
+- [ ] **观测计数健康**：跑一轮任务后 `getDecisionUnitRunStats()` 与
+      `getAttributionWriteCounters()` 各读一次：`deriveErrors === 0`、`failures === 0`；
+      `dedupeConflicts > 0` 是预期重放路径（info 级日志），**不是**告警条件
+      （§4.10 / §6 单测 21）。
+- [ ] **组合矩阵自检**：按 §11.2 各开一轮，期望行为与本矩阵一致（A1 join 可查、
+      S2 关闭时 restraint 无 visibleAssets 但不丢行）。
+
+### 11.2 组合矩阵（feature toggles × 期望行为）
+
+| `attributionEvents`(S2) | `decisionUnitExtractor`(S3) | 期望行为 | 验证 |
+|---|---|---|---|
+| off / 缺省 | off / 缺省 | 全链路不写行；`decision_unit.created` 与 `injection.*` 均 0 行；行为与现状逐字节等价 | §7 noop 实测 |
+| off | on | 只落 `decision_unit.created`；restraint 落库但 payload **无** `visibleAssets`（A2 读不到 S2 行即省略，不丢行） | §6 单测 15c |
+| on | off | 只落 `injection.*` 生命周期行（带真实 asset 维度）；决策行 0 | S2 冒烟（s2-smoke） |
+| on | on | 双写；同 `(session_key, turn_seq)` 上 A1 join 成立（§4.9）；restraint 带 `visibleAssets` 快照（快照 ⊆ 该轮注入可见切片）；本轮无 restraint 时 A2 以单测兜底 | §7 冒烟 5/6 |
+| on/off × on | 任意 | 幂等三角：同窗口重放 / 进程重启 / compaction 收缩都不产生重复决策行（dedupe 唯一索引）；`unit_id` 稳定可合并 | §6 单测 10/13/20 |
+
+要点（防误读）：
+- **S2 与 S3 互相独立可单独开**（00-master §4）；S3 单独开时 A2 的
+  `loadVisibleAssets` 读 S2 表是纯读增强，读不到 = 省略字段，绝不影响 restraint 落库。
+- 冒烟/演示一律用**独立 `PROXY_DB_PATH`**（scratch 惯例），绝不污染本地开发库。
+
+### 11.3 DB 清理说明（attribution_events 弄脏 / 需要重置时）
+
+清理对象 = 本地 SQLite 的 `attribution_events` 表（S1 落点，DDL 见 10-event-table
+§4）。可选档位：
+
+1. **演示/开发库重置（最常见）**：`attribution_events` 是纯追加审计表、无外键依赖
+   （`meta`/`sessions`/`hook_cache` 不引用它），直接清空即可：
+   ```sql
+   DELETE FROM attribution_events;
+   -- 或整表复位（含自增/空洞，索引自动随表重建）：
+   DROP TABLE attribution_events;   -- 下次进程启动 runSchema() 用 IF NOT EXISTS 自动重建
+   ```
+   `DROP TABLE` 后无需手动再建：`getDb()` 启动 `db.exec(SCHEMA_SQL)` 全幂等重建
+   （10-event-table §3/§5.1）。**进程内水位线不同步清** —— S3 水位线是"已见消息数"，
+   清表后若仍指向旧水位，下轮推导认为全密封过、不补落；需要彻底重来时应**重启进程**
+   或调用测试用 reset（水位线清零 → 下一请求全窗口重放补落，§4.2 崩溃重放同路径）。
+2. **只清某个会话**（重跑该会话冒烟）：
+   ```sql
+   DELETE FROM attribution_events WHERE session_key = '<smoke-session-key>';
+   ```
+   同表 S2 的 `injection.*` 行一并删除（同 session_key）；重跑任务即可完整重建该会话
+   的事件流。
+3. **只清决策行**（保留 S2 生命周期行，S3 重抓）：
+   ```sql
+   DELETE FROM attribution_events WHERE event_type = 'decision_unit.created';
+   ```
+4. **保留观测：清库前先留证**。需要对比/报告时，先跑
+   `SELECT event_type, COUNT(*) FROM attribution_events GROUP BY event_type;` 与
+   `getDecisionUnitRunStats()` / `getAttributionWriteCounters()` 快照，再执行清理
+   —— 审计表的价值在"清之前留痕"，勿裸删。
+
+安全说明：所有清理都是**运维动作而非运行时路径**（运行时永远 append-only + dedupe
+跳过，绝不 delete）；本 spec 不引入任何自动清理/过期删除 —— 表只增不删是 v1 契约，
+保留策略（如按天分区归档）是 v2 S5 消费端的话题（10-event-table §9 开放问题）。
+v2 之前若库被冲爆，用档位 1 人工清即可（本地 SQLite、成本近零、崩溃重放可重建）。

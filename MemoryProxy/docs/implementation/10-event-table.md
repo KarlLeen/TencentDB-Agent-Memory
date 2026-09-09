@@ -146,7 +146,13 @@ export interface AttributionEventRepo {
 
 - 构造器预编译全部语句；`appendMany` 用 `this.db.transaction(...)`（同 `putMany`）。
 - 唯一索引冲突（`idx_ae_unit_dedupe`）在 SQLite 抛 `SQLITE_CONSTRAINT` → catch 后
-  `console.warn` 一次（幂等重放是预期路径，不打 error 级别）。
+  **`console.info`** 一次（幂等重放是**预期路径**，v1.1 起 dedupe 冲突降 info 级，
+  真实失败才 `console.warn`；不打断写路径）。
+- **v1.1 观测补丁（S3 二轮评审 R1，2026-09-09）**：本 repo 追加
+  `AttributionWriteCounters { appended; dedupeConflicts; failures }` +
+  `getAttributionWriteCounters()`（`append`/`appendMany` 成功、冲突、失败分别计数，
+  清零挂在 `__resetAttributionEventRepoForTests`）。详见 30-decision-unit-extractor.md
+  §4.10 / §5.6（观测者 = S3 开启 checklist，11.1）。接口行为零变化：仍静默降级不 throw。
 - `listBySession` 返回 snake_case 行接口 `AttributionEventRow`，payload_json 解给调用方
   （与 repo 层不解业务对象的既有风格一致；调用方要对象自己 parse）。
 - Null/单例/get/set/__reset 五件套与 `hookCacheRepo.ts` 完全同构。
@@ -184,6 +190,9 @@ S1 无行为，真实会话演示不到——冒烟即"手插一行 → SELECT �
 - [x] 未接线任何生产者 → 运行行为与改前完全一致（零回归）。
   - 全量 vitest 40/40 通过（4 个文件）；`npm run typecheck` 仅剩基线既有错误
     （anthropicHandler/workbuddyHandler，本次未触碰，与 S1 无关）。
+- [x] **v1.1 观测补丁（2026-09-09，S3 二轮评审 R1）**：`getAttributionWriteCounters()`
+  + dedupe 冲突降 `console.info` / 真实失败才 `console.warn`；attribution-event-repo
+  测试补 spy 断言（`warn` 不被调 + 计数吻合），repo 侧 13 用例全绿。接口行为零变化。
 
 ## 9. 开放问题
 
@@ -192,3 +201,42 @@ S1 无行为，真实会话演示不到——冒烟即"手插一行 → SELECT �
 2. ~~`asset_id` 列 v1 是否被 S2 用到~~ → **已定**：S2 必须落真实资产维度（依赖 S0：产资产
    injector 附 `metadata.assets`，见 00-master-spec §8.3 与 §4.1）。事件无法解析到真实资产
    时必须显式缺省（asset_id NULL + payload 里标注 `asset_unresolved: reason`），不得伪造。
+3. **保留策略 / 过期删除**：v1 契约是**表只增不删**（运行时 append-only + dedupe 跳过，
+   绝无 delete 路径）。库被撑大后怎么办（按天分区归档、保留 N 天的清理任务等）属
+   v2 S5 消费端的话题；v1 需要重置时按 §10 人工清理即可（本地 SQLite、崩溃重放可重建，
+   零数据风险）。
+
+## 10. 观测、DB 清理与运维说明（2026-09-09 v1.1 收编）
+
+> 配套 30-decision-unit-extractor.md §11（S3 开启 checklist / 组合矩阵）。本表是
+> `attribution_events` 的唯一属主，清理口径在此定。
+
+**观测入口**：写路径计数 `getAttributionWriteCounters()`（§5.2，append/dedupe/failure
+计数）；运行侧（S3 runner 统计、水位线）见 30 spec §4.10。`dedupeConflicts > 0` 是
+崩溃重放**预期路径**（info 级），不是告警；`failures > 0` 才需人工介入。
+
+**清理档位**（全部为运维动作；`DROP` 后无需手动重建 —— `runSchema()` 的 `IF NOT
+EXISTS` 幂等 DDL 在下次 `getDb()` 初始化自动重建）：
+
+```sql
+-- 档位 1：整表清空（演示/开发库重置，最常见）
+DELETE FROM attribution_events;
+-- 档位 1b：整表复位（含表结构、索引随表重建）
+DROP TABLE attribution_events;
+
+-- 档位 2：只清某会话（重跑该会话冒烟；S2 injection.* 行同 session_key 一并删）
+DELETE FROM attribution_events WHERE session_key = '<smoke-session-key>';
+
+-- 档位 3：只清决策行（保留 S2 生命周期行，S3 重新抓）
+DELETE FROM attribution_events WHERE event_type = 'decision_unit.created';
+
+-- 清前留证：先看分布再删
+SELECT event_type, COUNT(*) FROM attribution_events GROUP BY event_type;
+```
+
+要点：
+- **清表 ≠ 清水位线**：S3 水位线是进程内"已见消息数"，清表后不重启的话下一请求可能
+  认为旧消息已密封过而不补落。彻底重来 = 清表 + 重启进程（或测试 reset），见
+  30 spec §11.3。
+- 事件表无外键被引用（`meta`/`sessions`/`hook_cache` 不指向它），删除顺序无约束。
+- v1 不引入任何自动清理/过期删除（见 §9 开放问题 3）；保留策略是 v2 消费端话题。
