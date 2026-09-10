@@ -694,8 +694,9 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
 2. 跑冒烟：`npx vitest run src/injection/__tests__/visible-archive-http-smoke.test.ts`
    → 期望 **1 failed | 9 passed**，且失败原文是 `Error: Expect test to fail` —— **这就是销案信号**。
    ⚠️ 若红的是「反向自证」或「联动断言」，那不是销案信号，是判据/基础设施坏了，不要顺势销案。
-3. 销案：删 `KNOWN_DRIFT` 里那一条；在 smoke 的 B1/B2 附近加一条正面 `it` ——
+3. 销案：删 `KNOWN_DRIFT` 里那一条；加一条正面 `it` ——
    `expect(skillDocAliasViolations(root)).toEqual([])`（判据函数**原样 import**，`root` 用 describe 作用域里那个已硬校验的值）。**不要重写判据**。
+   ⚠️ **落点是 known-drift tripwire describe 内，不是"紧邻 B1/B2"**（本条原写"B1/B2 附近"，已由设计侧确认**作废** —— 理由见 §13「设计侧确认」）。
 4. 文档：§9 标为已销案 + 追加处理记录（工单号 / 行号 / 数字）；**不要删 §9 与 §11**（处置痕迹要留）。`KNOWN_DRIFT` 回到 `[]` 是**合法终态**；`known-drift.ts`、反向自证用例、`it.fails` 生成器**一律保留**。
 5. 复跑并回传：冒烟 **10 passed**｜`src/injection` 9 files / **93**｜全量 16 files / **247**｜`typecheck:baseline` `PASS — 55 errors`｜`git status` 只有注释面改动。
 
@@ -752,7 +753,14 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
 - 判据函数 `skillDocAliasViolations` **原样 import**，在 smoke 加 **1 条正面 `it`**：`expect(skillDocAliasViolations(root)).toEqual([])`。**判据未重写**（只有一份）。
 - `known-drift.ts` / `makeCheck` / 反向自证 / `it.fails` 生成器**全部保留**（下一条漂移复现时直接复用）。
 
-**1 处落点偏离（需评审确认）**：§9.4/§12.5 建议正面 `it` "紧邻 B1/B2"，但 §12.5 **同时**要求"`root` 用 describe 作用域里那个已硬校验的值" —— 那个 `root` 只在 **tripwire describe** 作用域里；搬到 S4b 附近必须再解析一份 root ⇒ 第二个真值源，与"单一硬校验"的设计相冲。故正面 `it` 落在 tripwire describe 内（`root` 现成），该 describe 标题相应改为"…两条表级断言 **+ 1 条已销案正面断言**"。
+**1 处落点偏离 —— 设计侧已确认：维持现状（2026-09-10）**：§9.4/§12.5 建议正面 `it` "紧邻 B1/B2"，但 §12.5 **同时**要求"`root` 用 describe 作用域里那个已硬校验的值" —— 那个 `root` 只在 **tripwire describe** 作用域里（`:793-799`，含 `throw` 硬校验）；搬到 S4b 附近必须再解析一份 root ⇒ 第二个真值源，与"单一硬校验"的设计相冲。故正面 `it` 落在 tripwire describe 内（`root` 现成），该 describe 标题相应改为"…两条表级断言 **+ 1 条已销案正面断言**"。
+
+> **设计侧确认（2026-09-10，评审）**：**接受该偏离，维持现状**；§12.5 步骤 3 的"紧邻 B1/B2"**作废**。编码侧发现的是**我方规格内部矛盾**（那句"紧邻 B1/B2"与"单一硬校验"相冲），取**较强约束**解为正解。另三条支持理由：
+> ① 本条断言的主题是**生产注释/端点的一致性**（仓级注释面），而 S4b describe 的主题是**接缝 A 的字节级 HTTP 真链路** ⇒ 放过去属**归类错误**，还会诱导后人以"跑题"为由清掉它；
+> ② 销案产物的**同类**是两条表级断言与 `it.fails` 生成器 —— 四件套（联动 / 反向自证 / 正面断言 / 生成器）同处一个 describe，下一条漂移的登记人只需读**一个**地方就能拿到全套模板；打散一件反而削弱模板价值；
+> ③ 可发现性不依赖位置：`known-drift.ts:20-28` 的两条硬约束注释 + describe 标题已点名"1 条已销案正面断言"。
+>
+> **残留边界（如实记）**：销案后这条正面 `it` 是**手写**的（不再是生成器产物）⇒ **删掉它不可检出**；而条目还在表里时用例由表生成、删不掉。这是销案固有的安全边界收窄，属"可接受但要知道"；若日后要恢复该性质需另设计（例如加一条"判据至少被 1 条用例消费"的表级断言），本次不做。
 
 > 附带收益：登记表回空后，两条表级断言都是**空循环**（空转）—— 这条正面 `it` 成为判据**唯一非空转**的消费者，判据因此不会在销案后退化成摆设。
 
