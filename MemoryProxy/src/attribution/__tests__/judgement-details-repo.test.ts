@@ -10,6 +10,7 @@ import {
   deriveJudgementId,
   getAttributionJudgementDetailsCounters,
 } from "../judgement-details-repo.js";
+import { getDb } from "../../db/index.js";
 import { detailsRepo, teardownTempDb, withTempDb } from "./_helpers/base-harness.js";
 
 beforeEach(() => {
@@ -42,23 +43,25 @@ describe("T5 落库幂等（红线 8）", () => {
     const repo = detailsRepo();
 
     const first = repo.insertIdempotent(detail());
-    expect(first.inserted).toBe(true);
+    expect(first.kind).toBe("inserted");
     expect(repo.count()).toBe(1);
 
-    // 重放（崩溃后租约重复判定）：同三元组 ⇒ 同 judgement_id ⇒ 忽略
+    // 重放（崩溃后租约重复判定）：同 (unit_id, round) 且同 asset ⇒ 判为 duplicate
     const second = repo.insertIdempotent(detail({ detail: { rationaleRef: "changed" } }));
-    expect(second.inserted).toBe(false);
+    expect(second.kind).toBe("duplicate");
     expect(second.judgementId).toBe(first.judgementId);
     expect(repo.count()).toBe(1);
 
-    // 原行不被覆盖（OR IGNORE 语义：先到先得）
+    // detail_json 仍是首写（后到者不改 detail）；verdict 会被后到者覆盖（known limitation，见 50 spec）
     expect(JSON.parse(repo.getById(first.judgementId)!.detail_json).rationaleRef).toBe(
       "mock:payload-contains:asset-a",
     );
 
+    // A4：重放后 counters 不动（inserted 仍 1，ignored 才 +1，anomaly/failures 必须为 0）
     const counters = getAttributionJudgementDetailsCounters();
     expect(counters.inserted).toBe(1);
     expect(counters.ignored).toBe(1);
+    expect(counters.anomaly).toBe(0);
     expect(counters.failures).toBe(0);
   });
 
@@ -66,18 +69,90 @@ describe("T5 落库幂等（红线 8）", () => {
     const repo = detailsRepo();
     // 这条是 R2 的正面证明：若用 UNIQUE(unit_id, asset_id, round) 当锚，
     // NULL 互不相等 ⇒ 这里会落 2 行。
-    expect(repo.insertIdempotent(detail({ assetId: null, assetType: null, verdict: "unconfirmed" })).inserted).toBe(true);
-    expect(repo.insertIdempotent(detail({ assetId: null, assetType: null, verdict: "unconfirmed" })).inserted).toBe(false);
+    expect(repo.insertIdempotent(detail({ assetId: null, assetType: null, verdict: "unconfirmed" })).kind).toBe("inserted");
+    expect(repo.insertIdempotent(detail({ assetId: null, assetType: null, verdict: "unconfirmed" })).kind).toBe("duplicate");
     expect(repo.count()).toBe(1);
   });
 
-  it("不同 round / 不同 asset 是不同落点", () => {
+  it("不同 round 是不同落点；同 (unit_id, round) 换 asset ⇒ anomaly 而非第 2 行", () => {
     const repo = detailsRepo();
-    repo.insertIdempotent(detail());
-    repo.insertIdempotent(detail({ round: 1 }));
-    repo.insertIdempotent(detail({ assetId: "asset-b" }));
-    expect(repo.count()).toBe(3);
-    expect(repo.listByUnit("u-1")).toHaveLength(3);
+    expect(repo.insertIdempotent(detail()).kind).toBe("inserted");
+    expect(repo.insertIdempotent(detail({ round: 1 })).kind).toBe("inserted");
+    // 语义变更（本交付单元）：旧口径允许 (u-1, round 0) 因 asset 不同再落一行；
+    // 新口径下 (unit_id, round) 是唯一落点，换 asset 判为 anomaly，不落第 3 行。
+    expect(repo.insertIdempotent(detail({ assetId: "asset-b" })).kind).toBe("anomaly");
+    expect(repo.count()).toBe(2);
+    expect(repo.listByUnit("u-1")).toHaveLength(2);
+  });
+
+  // A3（真 repo + 唯一索引）：判别式在真实落库路径上的正面证据
+  it("A3 同 (unit_id, round) 第二次给不同 assetId ⇒ kind=anomaly，库里仍恰 1 行", () => {
+    const repo = detailsRepo();
+    const first = repo.insertIdempotent(detail());
+    expect(first.kind).toBe("inserted");
+
+    const second = repo.insertIdempotent(detail({ assetId: "asset-b" }));
+    expect(second.kind).toBe("anomaly");
+    expect(second.judgementId).not.toBe(first.judgementId);
+
+    // 直接用 SQL 数行，不借 repo 自己的口径
+    const n = (
+      getDb()!
+        .prepare("SELECT COUNT(*) n FROM attribution_judgement_details WHERE unit_id = ? AND round = ?")
+        .get("u-1", 0) as { n: number }
+    ).n;
+    expect(n).toBe(1);
+    expect(repo.count()).toBe(1);
+    expect(repo.listByUnit("u-1")).toHaveLength(1);
+    expect(getAttributionJudgementDetailsCounters()).toMatchObject({
+      inserted: 1,
+      ignored: 0,
+      anomaly: 1,
+      failures: 0,
+    });
+  });
+
+  // 反简化哨兵（对照实验）：把 ON CONFLICT ... DO UPDATE ... WHERE 换成 DO NOTHING 后
+  // 重放与 anomaly 都"没有返回行"，两种语义不可区分 —— 同一批行为会在 A3 上变红。
+  it("反简化哨兵：DO NOTHING 下 duplicate 与 anomaly 同形（无返回行）", () => {
+    const db = getDb()!;
+    const stmt = db.prepare(`
+      INSERT INTO attribution_judgement_details
+        (judgement_id, unit_id, session_key, space_id, asset_id, asset_type, round, verdict,
+         evidence_source_type, prompt_sha256, judge_impl, detail_json, created_at)
+      VALUES
+        (@judgementId, @unitId, @sessionKey, @spaceId, @assetId, @assetType, @round, @verdict,
+         @evidenceSourceType, @promptSha256, @judgeImpl, @detailJson, @createdAt)
+      ON CONFLICT(unit_id, round) DO NOTHING
+      RETURNING created_at
+    `);
+    const bind = (assetId: string, createdAt: number) => ({
+      judgementId: deriveJudgementId("u-donothing", assetId, 0),
+      unitId: "u-donothing",
+      sessionKey: "s-1",
+      spaceId: "_default",
+      assetId,
+      assetType: "skill",
+      round: 0,
+      verdict: "confirmed",
+      evidenceSourceType: "injected",
+      promptSha256: null,
+      judgeImpl: "mock:v1",
+      detailJson: "{}",
+      createdAt,
+    });
+
+    expect(stmt.get(bind("asset-a", 1000))).toBeDefined();
+    // 重放：无返回行 ⇒ 与"异常"同形，duplicate 无法识别
+    expect(stmt.get(bind("asset-a", 2000))).toBeUndefined();
+    // anomaly：同样无返回行 ⇒ 判别式失效
+    expect(stmt.get(bind("asset-b", 3000))).toBeUndefined();
+    const n = (
+      db
+        .prepare("SELECT COUNT(*) n FROM attribution_judgement_details WHERE unit_id = ? AND round = ?")
+        .get("u-donothing", 0) as { n: number }
+    ).n;
+    expect(n).toBe(1);
   });
 });
 

@@ -67,13 +67,14 @@ export interface AttributionWorkerCycleResult {
   completed: number;
   /** 幂等命中（明细已存在）——成功路径的一个分支，不算失败。 */
   idempotent: number;
-  /** 消费抛错（judge 或落库）。 */
+  /** 判定异常：同 (unit_id, round) 已被**另一个 asset** 占用。与 errored 分开计。 */
+  anomaly: number;
+  /** 消费抛错（judge 抛错，或落库返回 failed / 抛错）。 */
   errored: number;
   deadLettered: number;
   requeued: number;
   /** 落库成功但 complete() 没抢到（租约易主）——观测用异常信号。 */
   leaseLost: number;
-  retried: number;
 }
 
 function emptyCycleResult(): AttributionWorkerCycleResult {
@@ -81,11 +82,11 @@ function emptyCycleResult(): AttributionWorkerCycleResult {
     claimed: 0,
     completed: 0,
     idempotent: 0,
+    anomaly: 0,
     errored: 0,
     deadLettered: 0,
     requeued: 0,
     leaseLost: 0,
-    retried: 0,
   };
 }
 
@@ -148,6 +149,29 @@ async function consumeRow(
     promptRef: deps.judge.promptRef,
   };
 
+  /** 失败收束：fail() → 分桶 → error 日志 → 退避。catch 与"落库明确说没落成"共用同一条路径。 */
+  const failAndReport = async (message: string): Promise<void> => {
+    const next = deps.queueRepo.fail(row.queue_id, deps.owner, message, {
+      maxAttempts: deps.maxAttempts,
+      now: now(),
+    });
+    if (next === "failed") result.deadLettered += 1;
+    else if (next === "pending") result.requeued += 1;
+
+    emit({
+      status: "error",
+      promptRef: deps.judge.promptRef,
+      inputRefs: [{ unit_id: row.unit_id, queue_id: row.queue_id }],
+      outputRefs: [],
+      latencyMs: now() - started,
+      judgeImpl: deps.judge.impl,
+      error: message,
+    });
+
+    // 真实退避：失败后别立刻回头抢同一条（会热循环）。
+    if (deps.backoffMs > 0) await (deps.sleep ?? defaultSleep)(deps.backoffMs);
+  };
+
   try {
     const verdict = await deps.judge.judge(input);
     const insert = deps.detailsRepo.insertIdempotent({
@@ -169,42 +193,37 @@ async function consumeRow(
       },
     });
 
-    const completed = deps.queueRepo.complete(row.queue_id, deps.owner, now());
+    // inserted / duplicate 都表示"这条判定已经有落点"⇒ 才可以结算租约。
+    if (insert.kind === "inserted" || insert.kind === "duplicate") {
+      const completed = deps.queueRepo.complete(row.queue_id, deps.owner, now());
 
-    if (insert.inserted) result.completed += 1;
-    else result.idempotent += 1;
-    if (!completed) result.leaseLost += 1;
+      if (insert.kind === "inserted") result.completed += 1;
+      else result.idempotent += 1;
+      if (!completed) result.leaseLost += 1;
 
-    emit({
-      status: insert.inserted ? "ok" : "idempotent",
-      promptRef: deps.judge.promptRef,
-      inputRefs: [{ unit_id: row.unit_id, queue_id: row.queue_id }],
-      outputRefs: [{ judgement_id: insert.judgementId }],
-      latencyMs: now() - started,
-      judgeImpl: deps.judge.impl,
-    });
+      emit({
+        status: insert.kind === "inserted" ? "ok" : "idempotent",
+        promptRef: deps.judge.promptRef,
+        inputRefs: [{ unit_id: row.unit_id, queue_id: row.queue_id }],
+        outputRefs: [{ judgement_id: insert.judgementId }],
+        latencyMs: now() - started,
+        judgeImpl: deps.judge.impl,
+      });
+      return;
+    }
+
+    // 落库侧明确告知"没落成"：anomaly = 同 (unit_id, round) 已属别的 asset（判定异常）；
+    // failed = 未点名约束冲突 / 写入异常。两者都 fail()，但分桶不同 —— anomaly 不复用 catch 的 errored。
+    if (insert.kind === "anomaly") result.anomaly += 1;
+    else result.errored += 1;
+    await failAndReport(
+      insert.kind === "anomaly"
+        ? "judgement detail anomaly: (unit_id, round) already held by a different asset_id"
+        : "judgement detail insert failed (unexpected write error)",
+    );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const next = deps.queueRepo.fail(row.queue_id, deps.owner, message, {
-      maxAttempts: deps.maxAttempts,
-      now: now(),
-    });
     result.errored += 1;
-    if (next === "failed") result.deadLettered += 1;
-    else if (next === "pending") result.requeued += 1;
-
-    emit({
-      status: "error",
-      promptRef: deps.judge.promptRef,
-      inputRefs: [{ unit_id: row.unit_id, queue_id: row.queue_id }],
-      outputRefs: [],
-      latencyMs: now() - started,
-      judgeImpl: deps.judge.impl,
-      error: message,
-    });
-
-    // 真实退避：失败后别立刻回头抢同一条（会热循环）。
-    if (deps.backoffMs > 0) await (deps.sleep ?? defaultSleep)(deps.backoffMs);
+    await failAndReport(err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -360,8 +379,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
   process.stderr.write(
     `[attribution-judge] worker exit claimed=${result.claimed} completed=${result.completed} ` +
-      `idempotent=${result.idempotent} errored=${result.errored} deadLettered=${result.deadLettered} ` +
-      `requeued=${result.requeued} leaseLost=${result.leaseLost}\n`,
+      `idempotent=${result.idempotent} anomaly=${result.anomaly} errored=${result.errored} ` +
+      `deadLettered=${result.deadLettered} requeued=${result.requeued} leaseLost=${result.leaseLost}\n`,
   );
 
   await shutdownAttributionJudgeLogger();

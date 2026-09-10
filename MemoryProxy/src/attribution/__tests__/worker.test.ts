@@ -234,3 +234,56 @@ describe("T14 引用式日志", () => {
     expect(getAttributionJudgeQueueCounters().failures).toBe(0);
   });
 });
+
+describe("S5 交付单元：落库四态在 worker 侧的分支（A1/A2）", () => {
+  const fakeDetails = (kind: "anomaly" | "failed") => ({
+    insertIdempotent: () => ({ judgementId: "jd_0123456789ab", kind }),
+    getById: () => null,
+    listByUnit: () => [],
+    listBySession: () => [],
+    count: () => 0,
+  });
+
+  const spyQueueCompletion = () => {
+    const q = queueRepo();
+    const calls = { complete: 0, fail: 0 };
+    const complete = q.complete.bind(q);
+    const fail = q.fail.bind(q);
+    q.complete = (...args: Parameters<typeof complete>) => {
+      calls.complete += 1;
+      return complete(...args);
+    };
+    q.fail = (...args: Parameters<typeof fail>) => {
+      calls.fail += 1;
+      return fail(...args);
+    };
+    return calls;
+  };
+
+  it("A1 落库 failed ⇒ 不调 complete()、fail() 恰好一次、只进 errored 桶", async () => {
+    seededUnits();
+    const calls = spyQueueCompletion();
+
+    const result = await runWorker(workerDeps({ detailsRepo: fakeDetails("failed") }), { drain: true });
+
+    expect(calls.complete).toBe(0);
+    expect(calls.fail).toBe(1);
+    expect(result).toMatchObject({ claimed: 1, completed: 0, idempotent: 0, errored: 1, anomaly: 0 });
+    // 「没落成」不得被标 done
+    expect(queueRepo().countByStatus().done).toBeUndefined();
+  });
+
+  it("A2 落库 anomaly ⇒ result.anomaly===1 且 errored===0（不复用 catch 桶）", async () => {
+    seededUnits();
+    const calls = spyQueueCompletion();
+
+    const result = await runWorker(workerDeps({ detailsRepo: fakeDetails("anomaly") }), { drain: true });
+
+    expect(result.anomaly).toBe(1);
+    expect(result.errored).toBe(0);
+    expect(calls.complete).toBe(0);
+    expect(calls.fail).toBe(1);
+    // 机器可读渠道是 result.anomaly；last_error 只是给人看的补充
+    expect(queueRepo().listByStatus("pending")[0]!.last_error).toContain("anomaly");
+  });
+});

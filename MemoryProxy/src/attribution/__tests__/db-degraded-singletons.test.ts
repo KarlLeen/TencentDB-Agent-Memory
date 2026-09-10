@@ -147,7 +147,8 @@ describe("矩阵 5/6 · 四类单例的选择分支（db ? Sqlite : Null）真�
       judgeImpl: "mock:v1",
       detail: {},
     });
-    expect(res.inserted).toBe(false); // 不伪造成功
+    // 无 DB ⇒ 一行都没落：既不是 inserted（不伪造成功），也不是 duplicate（库里并无该行）
+    expect(res.kind).toBe("failed");
     expect(typeof res.judgementId).toBe("string");
     expect(res.judgementId.length).toBeGreaterThan(0);
     expect(repo.getById(res.judgementId)).toBeNull();

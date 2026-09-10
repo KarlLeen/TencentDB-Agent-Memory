@@ -1,13 +1,18 @@
 /**
  * AttributionJudgementDetailsRepo — 归因判定落点表（design §4.3）。
  *
- * **幂等由确定性主键承担**（硬约束 / 红线 8）：
- *   `judgement_id = "jd_" + sha1(unit_id|asset_id|round).slice(0,12)`
- *   `INSERT OR IGNORE` 命中主键 ⇒ `ignored`（预期路径，info 级），不是失败。
+ * **落点唯一性锚 = `(unit_id, round)`**（唯一索引 `idx_ajd_unit_round`）：
+ *   同单元同轮只允许一行；同 `(unit_id, round)` 再来一条**不同 asset_id** ⇒ 判定异常 anomaly。
+ *   确定性主键 `judgement_id = "jd_" + sha1(unit_id|asset_id|round).slice(0,12)` 保留不变。
  *
- * ⚠️ 明确**不**使用 `UNIQUE(unit_id, asset_id, round)` 当幂等锚（R2）：`asset_id` 可空，
+ * 幂等/异常判别由定向 upsert 承担（一条语句给出四态，不靠日志文案）：
+ *   RETURNING 行.created_at === 本次传入值 ⇒ `inserted`；返回旧值 ⇒ `duplicate`；
+ *   无返回行（WHERE 不匹配）⇒ `anomaly`；抛错 ⇒ `failed`。
+ *
+ * ⚠️ 明确**不**使用 `UNIQUE(unit_id, asset_id, round)` 当锚（R2）：`asset_id` 可空，
  * 而 SQLite 的 NULL 互不相等，未归因行（asset_id IS NULL）会无限重复插入 ——
  * 那会制造"看起来有唯一约束、其实对未归因无条件放行"的假安全。
+ * 本仓的锚 `(unit_id, round)` **不含** asset_id ⇒ 未归因行同样被唯一性覆盖。
  */
 
 import type Database from "better-sqlite3";
@@ -50,19 +55,30 @@ export interface JudgementDetailRow {
   created_at: number;
 }
 
+export type JudgementDetailInsertKind = "inserted" | "duplicate" | "anomaly" | "failed";
+
 export interface InsertIdempotentResult {
   judgementId: string;
-  /** true = 新落一行；false = 主键已存在（重放 / 租约重复判定，预期路径）。 */
-  inserted: boolean;
+  /**
+   * 四态判别（机器可读；调用方不得靠日志文案/last_error 区分）：
+   *   inserted  — 本次新落一行
+   *   duplicate — 同 (unit_id, round) 且同 asset 的重放（预期路径，info 级，不是失败）
+   *   anomaly   — 同 (unit_id, round) 已被**另一个 asset** 占用（判定异常，不是重放）
+   *   failed    — 写入异常/未点名约束冲突（例：sha1 截断后撞主键、DB 降级）
+   */
+  kind: JudgementDetailInsertKind;
 }
 
 export interface AttributionJudgementDetailsCounters {
   inserted: number;
+  /** 重放（duplicate）计数。字段名沿用既有 `ignored`，A4 口径不变。 */
   ignored: number;
+  /** 判定异常（anomaly）：同 (unit_id, round) 已被别的 asset 占用。 */
+  anomaly: number;
   failures: number;
 }
 
-const counters: AttributionJudgementDetailsCounters = { inserted: 0, ignored: 0, failures: 0 };
+const counters: AttributionJudgementDetailsCounters = { inserted: 0, ignored: 0, anomaly: 0, failures: 0 };
 
 export function getAttributionJudgementDetailsCounters(): AttributionJudgementDetailsCounters {
   return { ...counters };
@@ -82,6 +98,21 @@ export interface AttributionJudgementDetailsRepo {
   count(): number;
 }
 
+/**
+ * 进程内**严格单调**的 created_at（毫秒）。
+ *
+ * 为什么不用裸 `Date.now()`：判别 inserted/duplicate 依据是"RETURNING 的 created_at 是否等于
+ * 本次传入值"，而同一毫秒内的重放会与库里旧值相等 ⇒ 被误判成 inserted（只错一格计数，
+ * 不造成静默丢数据；见 50 spec 的 known limitation）。这里保证每次调用严格递增以消掉该歧义。
+ * ⚠️ 跨进程仍可能与别的时间戳相等（残留边界，已登记）。
+ */
+let lastCreatedAt = 0;
+
+function nextCreatedAt(): number {
+  lastCreatedAt = Math.max(Date.now(), lastCreatedAt + 1);
+  return lastCreatedAt;
+}
+
 const DEFAULT_SPACE_ID = "_default";
 const SELECT_COLUMNS = `judgement_id, unit_id, session_key, space_id, asset_id, asset_type, round,
   verdict, evidence_source_type, prompt_sha256, judge_impl, detail_json, created_at`;
@@ -94,13 +125,21 @@ class SqliteAttributionJudgementDetailsRepo implements AttributionJudgementDetai
   private readonly countStmt: Database.Statement;
 
   constructor(db: Database.Database) {
+    // 定向 upsert：冲突目标 = 唯一索引 idx_ajd_unit_round 的 (unit_id, round)。
+    // · WHERE 用 `IS`（不是 `=`）：asset_id 为 NULL 时也能正确判"同 asset"。
+    // · WHERE 不匹配 ⇒ DO UPDATE 不执行 ⇒ 无返回行 ⇒ 调用方判为 anomaly。
+    // · RETURNING created_at 是判别 inserted/duplicate 的**唯一**依据（不能用 changes：
+    //   inserted 与 duplicate 的 changes 都是 1）。
     this.insertStmt = db.prepare(`
-INSERT OR IGNORE INTO attribution_judgement_details
+INSERT INTO attribution_judgement_details
   (judgement_id, unit_id, session_key, space_id, asset_id, asset_type, round, verdict,
    evidence_source_type, prompt_sha256, judge_impl, detail_json, created_at)
 VALUES
   (@judgementId, @unitId, @sessionKey, @spaceId, @assetId, @assetType, @round, @verdict,
    @evidenceSourceType, @promptSha256, @judgeImpl, @detailJson, @createdAt)
+ON CONFLICT(unit_id, round) DO UPDATE SET verdict = excluded.verdict
+  WHERE attribution_judgement_details.asset_id IS excluded.asset_id
+RETURNING created_at
 `);
     this.getStmt = db.prepare(`SELECT ${SELECT_COLUMNS} FROM attribution_judgement_details WHERE judgement_id = ?`);
     this.byUnitStmt = db.prepare(
@@ -115,8 +154,10 @@ VALUES
   insertIdempotent(detail: NewJudgementDetail): InsertIdempotentResult {
     const round = Math.max(0, Math.trunc(detail.round));
     const judgementId = deriveJudgementId(detail.unitId, detail.assetId, round);
+    // 时间戳单位 = 毫秒（硬约束）；单调递增，避免同毫秒重放被误判为 inserted。
+    const createdAt = nextCreatedAt();
     try {
-      const res = this.insertStmt.run({
+      const row = this.insertStmt.get({
         judgementId,
         unitId: detail.unitId,
         sessionKey: detail.sessionKey,
@@ -129,23 +170,31 @@ VALUES
         promptSha256: detail.promptSha256,
         judgeImpl: detail.judgeImpl,
         detailJson: JSON.stringify(detail.detail ?? {}),
-        // 时间戳单位 = 毫秒（硬约束）。
-        createdAt: Date.now(),
-      });
-      if (res.changes === 1) {
+        createdAt,
+      }) as { created_at: number } | undefined;
+
+      if (!row) {
+        // 无返回行 = WHERE 不匹配 = 同 (unit_id, round) 已被**另一个 asset** 占用。
+        counters.anomaly += 1;
+        console.warn(
+          `[attribution-judge] judgement detail anomaly — (unit_id, round) already held by a different asset (${judgementId})`,
+        );
+        return { judgementId, kind: "anomaly" };
+      }
+      if (row.created_at === createdAt) {
         counters.inserted += 1;
-        return { judgementId, inserted: true };
+        return { judgementId, kind: "inserted" };
       }
       counters.ignored += 1;
       console.info(`[attribution-judge] judgement detail idempotent skip (${judgementId})`);
-      return { judgementId, inserted: false };
+      return { judgementId, kind: "duplicate" };
     } catch (err) {
       counters.failures += 1;
       console.warn(
         `[attribution-judge] judgement detail insert failed (${judgementId}):`,
         err instanceof Error ? err.message : String(err),
       );
-      return { judgementId, inserted: false };
+      return { judgementId, kind: "failed" };
     }
   }
 
@@ -185,7 +234,9 @@ VALUES
 
 class NullAttributionJudgementDetailsRepo implements AttributionJudgementDetailsRepo {
   insertIdempotent(detail: NewJudgementDetail): InsertIdempotentResult {
-    return { judgementId: deriveJudgementId(detail.unitId, detail.assetId, detail.round), inserted: false };
+    // 无 DB ⇒ 一行都没落：既不是 inserted（不伪造成功），也不是 duplicate（库里并无该行），
+    // 故归入 failed。对照见 db-degraded-singletons 矩阵 5/6。
+    return { judgementId: deriveJudgementId(detail.unitId, detail.assetId, detail.round), kind: "failed" };
   }
   getById(): JudgementDetailRow | null {
     return null;
@@ -219,5 +270,7 @@ export function __resetAttributionJudgementDetailsRepoForTests(): void {
   _repo = null;
   counters.inserted = 0;
   counters.ignored = 0;
+  counters.anomaly = 0;
   counters.failures = 0;
+  lastCreatedAt = 0;
 }

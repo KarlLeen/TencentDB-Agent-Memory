@@ -347,7 +347,7 @@ describe("T17 有损比较层不得回写：跑完整引用工具链后归档逐
         coverage: gramCoverage(BLOCK_WRAPPED, "wiki", table).coverage,
       },
     });
-    expect(res.inserted).toBe(true);
+    expect(res.kind).toBe("inserted");
 
     const row = details.getById(res.judgementId);
     expect(row).not.toBeNull();

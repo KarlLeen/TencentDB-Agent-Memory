@@ -180,8 +180,9 @@ CREATE INDEX IF NOT EXISTS idx_ajq_claim
   ON attribution_judge_queue(status, lease_expires_ms, queue_id);
 
 -- 归因判定明细（共享基座冻结此表；status_events / audit 留 50 spec 前定稿，DR-3）。
--- 幂等锚 = judgement_id 主键（确定性派生）⇒ 崩溃重放 / 租约重复判定都不会双记（红线 8）。
--- ⚠️ 不得改用 UNIQUE(unit_id, asset_id, round) 作幂等锚：asset_id 可空，SQLite 里 NULL 互不相等，
+-- 落点唯一性锚 = (unit_id, round)（索引 idx_ajd_unit_round，见文件末）；确定性主键 judgement_id
+--    仍保留 ⇒ 崩溃重放 / 租约重复判定都不会双记（红线 8）。
+-- ⚠️ 不得改用 UNIQUE(unit_id, asset_id, round) 作锚：asset_id 可空，SQLite 里 NULL 互不相等，
 --    该唯一索引在未归因（asset_id IS NULL）时形同虚设 —— 这正是 R2 的陷阱。
 CREATE TABLE IF NOT EXISTS attribution_judgement_details (
   judgement_id   TEXT    PRIMARY KEY,   -- "jd_" + sha1(unit_id|asset_id|round).slice(0,12)
@@ -200,4 +201,11 @@ CREATE TABLE IF NOT EXISTS attribution_judgement_details (
 );
 CREATE INDEX IF NOT EXISTS idx_ajd_unit    ON attribution_judgement_details(unit_id);
 CREATE INDEX IF NOT EXISTS idx_ajd_session ON attribution_judgement_details(session_key, created_at);
+-- 幂等/异常判别锚 = (unit_id, round)：同单元同轮只允许一个落点；
+-- 该 (unit_id, round) 再来一条**不同 asset_id** ⇒ 判定异常（anomaly），由定向 upsert 识别。
+-- ⚠️ 升级注意：旧语义（仅主键幂等）允许同一 (unit_id, round) 因 asset 不同而落多行；
+--    存量库若已有这类行，本索引会创建失败 ⇒ 整个 SCHEMA_SQL 执行失败 ⇒ getDb() 返回 null（整库降级）。
+--    属已登记的 known limitation（清掉重复行或重建该派生表即可；见 50 spec）。
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ajd_unit_round
+  ON attribution_judgement_details(unit_id, round);
 `;
