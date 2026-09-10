@@ -44,7 +44,7 @@ v1 通过后再铺开，验收门槛不变（每切片：单测 + 真实会话�
 | `InjectionObserver` 三实现 | Noop / Logging / Langfuse | EventObserver 无冲突，保留 |
 | `metadata.source` / `metadata.cacheKey`（block 上已有键） | 日志/缓存 | block 新增资产清单走 `metadata.assets: Array<{assetId, assetType}>`，不占用既有键 |
 
-**v1 事件类型词汇表（`event_type`）**：`injection.pipeline.start|done|error`、`injection.hook.start|done|error`（S2 产生，延续 observer.ts 现有日志命名）；`decision_unit.created`（S3 产生）。v2 再扩展 `asset_used/validated/corrected` 等状态事件（对齐设计文档状态机）。
+**v1 事件类型词汇表（`event_type`）**：`injection.pipeline.start|done|error`、`injection.hook.start|done|error`（S2 产生，延续 observer.ts 现有日志命名）；`decision_unit.created`（S3 产生）。**v2 S4 已产生：`asset_fetched`**（bridge 调用"真的取了哪个 skill"的硬档行，`payload.channel='fetched'`；见 `45-bridge-telemetry-sink.md`）。v2 再扩展 `asset_used/validated/corrected` 等状态事件（对齐设计文档状态机）。
 
 **真实资产身份契约**：事件里的 `(asset_id, asset_type)` 必须回指资产体系里的真实实体、且能被
 现有 client 回查——`skill` 的 `asset_id === skill_id`；`llm_wiki`/`code_graph` 的
@@ -107,7 +107,7 @@ unknown tombstone、vocab 命中矩阵 corpus、开启 checklist / 组合矩阵 
 | 决策单元抽取：全量历史 + 自建游标增量（§3.2.1①） | S3 | anthropicHandler 接缝 + 纯函数 + 游标表 | 单测 + 冒烟 |
 | 合并规则：同文件+同 message / tool_result 跨请求配对 | S3 | 纯函数内部 | 单测（重点） |
 | 克制型单元 + risky 词表触发（§3.2.1①-3） | S3 | 纯函数内部 | 单测 |
-| v2：bridge 遥测 SQLite sink（落地③） | S4 | clickhouse.ts 换 sink | — |
+| v2：bridge 遥测 SQLite sink（落地③） | S4 | **叠加式** sink 链（`memory/bridge-telemetry.ts` `(row, ctx)` 通道）+ 提取器 `attribution/bridge-fetch-assets.ts` + 落点 `attribution/bridge-fetch-events.ts`；CH 通路保留（勘正 2：不是"换 sink"） | 单测 42（含 9 类 reject / 真 pin 逐字段对照 / row+CH 列键集合）+ 真实冒烟 |
 | v2：attribution judge worker（落地④） | S5 | 新进程 + prompt 版本管理 | — |
 | v2：corrected 三路机器规则 + 版本链快照（§3.2.2） | S6 | 规则层 + 事件消费 | — |
 | v2：回执 + 抽查池两页（落地⑤） | S7 | MemoryPanel | — |
@@ -140,4 +140,6 @@ unknown tombstone、vocab 命中矩阵 corpus、开启 checklist / 组合矩阵 
 - `attribution-base-design.md` + `attribution-base-checklist.md` — **共享基座（v2 前置骨架）**：
   队列表 + 独立 worker + 幂等落库（红线 8）+ 基座-c 引用验证工具（归一化 / 渲染包装剥离 /
   n-gram 稀有度 / 排他性检查输入源）。design 是任务书，checklist 是开启 checklist + 组合矩阵 + DB 清理
-- （v2 起）`45-bridge-telemetry-sink.md` / `50-attribution-judge-worker.md` / `60-corrected-rules.md` / `70-receipt-panel.md`
+- `45-bridge-telemetry-sink.md` — **v2 S4 已完成**（bridge 遥测**叠加式** SQLite sink：`(row, ctx)` 双通道 +
+  纯函数提取器 + 缺省关闭；产出 `event_type='asset_fetched'` 硬档行。CH 通路保留，零 DDL）
+- （v2 起）`50-attribution-judge-worker.md` / `60-corrected-rules.md` / `70-receipt-panel.md`
