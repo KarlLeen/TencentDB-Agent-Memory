@@ -20,6 +20,9 @@ v1 只做**捕获链路**的最小纵向切片（教师认可思路的承重墙�
 
 **明确推迟到 v2**：S4（bridge 遥测 sink）、S5（归因 worker）、S6（corrected 机器规则）、
 S7（MemoryPanel 回执两页）、以及设计文档 3.4/3.5 的排序反哺。
+> ⚠️ **勘正（2026-09-10）**：末项「排序反哺」**以 §7 `S8 = v3` 为准** —— §7 表格明写
+> 「v3：信用分→排序 / 索引行（§3.4/3.5） | S8」。本行「推迟到 v2」只统指 S4–S7，
+> **排序反哺不属 v2**。两处口径冲突时以 §7 为强约束（本行按勘正惯例保留原文，勿静默回改）。
 ~~S0~~ 已折叠进 v1 —— 事件必须能回指真实资产，否则 asset→decision 关联在事件层就断链（见 §8.3）。
 
 v1 通过后再铺开，验收门槛不变（每切片：单测 + 真实会话冒烟）。
@@ -132,4 +135,9 @@ unknown tombstone、vocab 命中矩阵 corpus、开启 checklist / 组合矩阵 
 - `15-injector-asset-metadata.md` — S0
 - `20-event-observer.md` — S2
 - `30-decision-unit-extractor.md` — S3
-- （v2 起）`40-visible-text-archive.md`（P0：可见证据统一归档，两档 + 拼接窗口）/ `45-bridge-telemetry-sink.md` / `50-attribution-judge-worker.md` / `60-corrected-rules.md` / `70-receipt-panel.md`
+- `40-visible-text-archive.md` — **P0 已完成**（可见证据统一归档，两档 + 拼接窗口；
+  闭验收 = 等价层 golden + S4 真 HTTP 冒烟，head `bf8af3d` / `d0f44a6` / `22fad92`）
+- `attribution-base-design.md` + `attribution-base-checklist.md` — **共享基座（v2 前置骨架）**：
+  队列表 + 独立 worker + 幂等落库（红线 8）+ 基座-c 引用验证工具（归一化 / 渲染包装剥离 /
+  n-gram 稀有度 / 排他性检查输入源）。design 是任务书，checklist 是开启 checklist + 组合矩阵 + DB 清理
+- （v2 起）`45-bridge-telemetry-sink.md` / `50-attribution-judge-worker.md` / `60-corrected-rules.md` / `70-receipt-panel.md`
