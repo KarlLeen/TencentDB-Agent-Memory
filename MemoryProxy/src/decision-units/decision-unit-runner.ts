@@ -9,6 +9,8 @@
  *   3. 以 `minIndex = max(0, watermark-1)` 调纯函数推导 —— 只回吐"本轮新密封"单元；
  *   4. 对密封 restraint 调 loadVisibleAssets（A2：只读 S2 已落行快照，读不到就省略）；
  *   5. getAttributionEventRepo().appendMany(...) 一次事务落库。
+ *   6. （共享基座，attribution-base-design.md §4.6）落库后 fire-and-forget 入 judge 队列 ——
+ *      **动态 import**：`attribution.judge.enqueue` 缺省 false 时连模块都不加载（零访问）。
  *
  * 同步临界区：better-sqlite3 同步写 + 模块内 Map，JS 单线程下无并发交错。
  * 崩溃重放冲突由 repo 的 `idx_ae_unit_dedupe` 静默跳过兜底。
@@ -26,8 +28,16 @@ export interface DecisionUnitExtractorConfig {
   enabled?: boolean;
 }
 
+/** 共享基座入队开关（结构类型：只声明本 runner 需要的那一格）。 */
+export interface DecisionUnitJudgeEnqueueConfig {
+  attribution?: { judge?: { enqueue?: boolean } };
+}
+
 export interface RunDecisionUnitExtractionParams {
-  config: { injection?: { decisionUnitExtractor?: DecisionUnitExtractorConfig } };
+  config: {
+    injection?: { decisionUnitExtractor?: DecisionUnitExtractorConfig };
+    attribution?: { judge?: { enqueue?: boolean } };
+  };
   protocol: "anthropic" | "openai";
   mainDialog: boolean;
   hasConversation: boolean;
@@ -169,8 +179,63 @@ export function runDecisionUnitExtraction(params: RunDecisionUnitExtractionParam
       };
     });
     repo.appendMany(events);
+    // 共享基座（v2 前置骨架）：落库后 fire-and-forget 入 judge 队列。
+    maybeEnqueueJudgeQueue(params, units, events);
   }
 
   watermarks.set(params.sessionKey, messageCount);
   evictOldestWatermark();
+}
+
+/**
+ * 共享基座入队（attribution-base-design.md §4.6）。三条不变量：
+ *   1. 开关缺省 false ⇒ **提前 return**，不 import、不碰库（零访问硬约束）；
+ *   2. **动态 import** ⇒ 关闭时 `src/attribution/*` 整个模块图都不加载；
+ *   3. 任何异常只 warn —— 入队失败绝不能影响 v1 落库链路（fire-and-forget）。
+ *
+ * 用 events 而非 units 派生入队项，是为了让 payload 与**真正落库的那一份**逐字节一致
+ * （restraint 的 visibleAssets 是在 events.map 里合并进去的）。
+ */
+function maybeEnqueueJudgeQueue(
+  params: RunDecisionUnitExtractionParams,
+  units: SealedDecisionUnit[],
+  events: NewAttributionEvent[],
+): void {
+  if (params.config?.attribution?.judge?.enqueue !== true) return;
+  try {
+    const queueUnits = events.flatMap((event, index) => {
+      const unitId = event.unitId;
+      if (typeof unitId !== "string" || unitId.length === 0) return [];
+      return [
+        {
+          unitId,
+          kind: String(units[index]?.kind ?? "unknown"),
+          turnSeq: event.turnSeq ?? 0,
+          msgSeq: event.msgSeq ?? 0,
+          payload: event.payload,
+        },
+      ];
+    });
+
+    void import("../attribution/enqueue.js")
+      .then((mod) => {
+        mod.enqueueUnitsForJudge({
+          config: params.config,
+          units: queueUnits,
+          sessionKey: params.sessionKey,
+          spaceId: params.spaceId,
+        });
+      })
+      .catch((err: unknown) => {
+        console.warn(
+          "[decision-unit] attribution enqueue failed (best-effort):",
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+  } catch (err) {
+    console.warn(
+      "[decision-unit] attribution enqueue dispatch failed (best-effort):",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }

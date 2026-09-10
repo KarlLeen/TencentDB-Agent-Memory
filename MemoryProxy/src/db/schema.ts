@@ -8,6 +8,12 @@
  *                          the attribution capture chain (v1 S1 table → S2 EventObserver →
  *                          S3 decision-unit extractor). Producers are wired as of S2/S3;
  *                          when attribution capture is disabled the table stays dormant.
+ *   - attribution_judge_queue / attribution_judgement_details:
+ *                          shared-base (v2 pre-skeleton) judge queue + verdict details.
+ *                          Producers/consumer are wired as of the base slice; when
+ *                          `attribution.judge.enqueue` is false (default) both stay
+ *                          dormant (no read, no write) —
+ *                          see docs/implementation/attribution-base-design.md §4.1/§4.3.
  *
  * Schema is created with `IF NOT EXISTS` so it's safe to call on every startup.
  * `schema_version` row in `meta` table allows future migrations.
@@ -142,4 +148,56 @@ CREATE TABLE IF NOT EXISTS attribution_archive_watermark (
   epoch           INTEGER NOT NULL DEFAULT 0,
   last_seen_count INTEGER NOT NULL DEFAULT 0   -- 镜像 runner 内存"已见消息条数"语义（B4）
 );
+
+-- ── 共享基座（v2 前置骨架）：judge 队列 + 判定明细 ──
+-- docs/implementation/attribution-base-design.md §4.1（队列表）/ §4.3（落点表）。
+-- 纯 additive DDL：SCHEMA_VERSION 仍为 1（IF NOT EXISTS 幂等；无 migration runner，见上方口径）。
+-- 两张表都是**可重建的派生物**（状态可由全窗口重放重建）⇒ 本地清表零数据风险（checklist §3）。
+-- 时间戳单位一律 **epoch 毫秒**（与 v1 created_at 同口径；别写成秒）。
+CREATE TABLE IF NOT EXISTS attribution_judge_queue (
+  queue_id         INTEGER PRIMARY KEY,               -- 单调：兼作消费游标（§4.2/§4.6，不另立水位表）
+  unit_id          TEXT    NOT NULL,
+  round            INTEGER NOT NULL DEFAULT 0,        -- 0=首次；>0=重判（生产路径留 50 spec）
+  session_key      TEXT    NOT NULL,
+  space_id         TEXT    NOT NULL DEFAULT '_default',
+  trigger          TEXT    NOT NULL DEFAULT 'decision_unit', -- 占位：task_boundary/manual（50 spec）
+  payload_json     TEXT    NOT NULL,                  -- 自足最小摘要（worker 只读本行，不回查 v1 表）
+  status           TEXT    NOT NULL DEFAULT 'pending', -- pending|processing|done|failed
+  attempts         INTEGER NOT NULL DEFAULT 0,
+  lease_owner      TEXT,
+  lease_expires_ms INTEGER,                           -- 租约到期时刻（epoch ms）；NULL = 无租约
+  last_error       TEXT,
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL
+);
+
+-- 入队幂等键 = (unit_id, round)：同单元同轮只入队一次；跨轮（round+1）= 重判。
+-- unit_id 是 v1 的内容哈希（30 spec §4.6），天然跨重放稳定 ⇒ 是合适的入队幂等键。
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ajq_dedupe ON attribution_judge_queue(unit_id, round);
+
+-- 认领候选扫描：pending，或 processing 且租约已过期；队列序取 queue_id（单调游标）。
+CREATE INDEX IF NOT EXISTS idx_ajq_claim
+  ON attribution_judge_queue(status, lease_expires_ms, queue_id);
+
+-- 归因判定明细（共享基座冻结此表；status_events / audit 留 50 spec 前定稿，DR-3）。
+-- 幂等锚 = judgement_id 主键（确定性派生）⇒ 崩溃重放 / 租约重复判定都不会双记（红线 8）。
+-- ⚠️ 不得改用 UNIQUE(unit_id, asset_id, round) 作幂等锚：asset_id 可空，SQLite 里 NULL 互不相等，
+--    该唯一索引在未归因（asset_id IS NULL）时形同虚设 —— 这正是 R2 的陷阱。
+CREATE TABLE IF NOT EXISTS attribution_judgement_details (
+  judgement_id   TEXT    PRIMARY KEY,   -- "jd_" + sha1(unit_id|asset_id|round).slice(0,12)
+  unit_id        TEXT    NOT NULL,
+  session_key    TEXT    NOT NULL,
+  space_id       TEXT    NOT NULL DEFAULT '_default',
+  asset_id       TEXT,                  -- 可空（未归因）；**不参与**任何唯一约束（见 R2）
+  asset_type     TEXT,
+  round          INTEGER NOT NULL DEFAULT 0,
+  verdict        TEXT    NOT NULL,      -- confirmed | refuted | unconfirmed
+  evidence_source_type TEXT,            -- fetched | injected | NULL
+  prompt_sha256  TEXT,
+  judge_impl     TEXT    NOT NULL,      -- "mock:v1"（真 provider 随 50 spec）
+  detail_json    TEXT    NOT NULL,
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ajd_unit    ON attribution_judgement_details(unit_id);
+CREATE INDEX IF NOT EXISTS idx_ajd_session ON attribution_judgement_details(session_key, created_at);
 `;

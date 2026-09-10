@@ -556,6 +556,20 @@ export interface ProxyConfig {
    * 默认关闭。启用后不影响 Opik / Langfuse 等远程上报链路。
    */
   traceArchive: TraceArchiveConfig;
+
+  /**
+   * 共享基座（v2 前置骨架）归因判定配置。
+   *
+   * **可选**（非必填）是刻意为之：本基座是 additive 增量，任何既有构造 ProxyConfig
+   * 字面量的代码/测试都不该因为新增一节而报类型错（typecheck 基线必须原地 PASS）。
+   * `buildConfig` 总会把它填全（缺省见 DEFAULT_CONFIG.attribution）。
+   *
+   * 总开关语义：`attribution.judge.enqueue === false`（缺省）时，
+   *   入队侧**零访问** —— 不读库、不写库、不建表（DDL 属 schema 的 additive 副作用，
+   *   与 P0 C4 口径一致）；worker 进程也无需启动。
+   * 见 docs/implementation/attribution-base-design.md §4.7。
+   */
+  attribution?: AttributionConfig;
 }
 
 export interface TraceArchiveConfig {
@@ -563,6 +577,39 @@ export interface TraceArchiveConfig {
   enabled: boolean;
   /** 归档目录（相对于项目根目录或绝对路径）。默认 "logs/traces"。 */
   dir: string;
+}
+
+/**
+ * 共享基座配置（design §4.7）。命名空间 `attribution.*` 与既有 CostGuard 的
+ * `src/judge-client.ts` 严格隔离（F23）。
+ */
+export interface AttributionConfig {
+  judge: AttributionJudgeConfig;
+}
+
+export interface AttributionJudgeConfig {
+  /**
+   * proxy 侧总开关：决策单元落库后是否入队。
+   * **缺省 false** ⇒ 零访问（硬约束：不允许"缺省也建表/也读库"）。
+   */
+  enqueue: boolean;
+  /** judge 实现。"mock" 是本期唯一实现；未知值 ⇒ 降级 mock + warn（不抛）。 */
+  provider: string;
+  /** worker 进程侧参数（独立进程，不由 proxy 消费）。 */
+  worker: AttributionJudgeWorkerConfig;
+}
+
+export interface AttributionJudgeWorkerConfig {
+  /** 常驻模式空转轮询间隔。 */
+  pollIntervalMs: number;
+  /** 单轮认领上限（不是并发数：better-sqlite3 同步串行消费）。 */
+  batchSize: number;
+  /** 认领租约时长；过期后可被再认领（等价 v1 pipeline-worker 的 lockTtlMs）。 */
+  leaseTtlMs: number;
+  /** 达此失败次数进死信（status='failed'），此后只能 --retry-failed 复位。 */
+  maxAttempts: number;
+  /** 消费失败后的真实退避。 */
+  backoffMs: number;
 }
 
 export interface CcRequestRoutingConfig {
@@ -866,6 +913,23 @@ export interface RawYamlConfig {
     };
     sqlite?: { dbPath?: string };
     fs?: { fsRoot?: string };
+  };
+  /**
+   * 共享基座（v2 前置骨架）归因判定。全部可选；缺省整段 off。
+   * 逐字段类型守卫在 config.ts，未知/错型一律回落 DEFAULT_CONFIG（不抛）。
+   */
+  attribution?: {
+    judge?: {
+      enqueue?: boolean;
+      provider?: string;
+      worker?: {
+        pollIntervalMs?: number;
+        batchSize?: number;
+        leaseTtlMs?: number;
+        maxAttempts?: number;
+        backoffMs?: number;
+      };
+    };
   };
   costGuard?: {
     enabled?: boolean;

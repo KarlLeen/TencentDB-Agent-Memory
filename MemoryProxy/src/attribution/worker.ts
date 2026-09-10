@@ -1,0 +1,399 @@
+/**
+ * 独立 judge worker 进程（design §4.6 / §4.7）。
+ *
+ * 用法：
+ *   npm run worker:attribution -- [--config config.yaml] [--once] [--retry-failed]
+ *
+ *   `--once`         消费一轮（把当前可认领积压**抽干**）后退出 —— 冒烟脚本靠它拿到确定性终止。
+ *   `--retry-failed` 先把死信（status='failed'）复位成 pending，再开始消费。
+ *   缺省              常驻轮询；SIGINT/SIGTERM 优雅退出（不吞当前这条，退出码 0）。
+ *
+ * 与 proxy 同库（F2/F20）：worker 是**第二个连接**，靠 WAL + busy_timeout=2000 退避
+ * （db/index.ts:87 已在 getDb 里设好）。同一单元被重复判定由**确定性主键**兜底（红线 8），
+ * 不靠"不会并发"这种假设。
+ *
+ * 为什么独立进程（不是 setInterval）：judge 将来是网络调用（真 provider），
+ * 必须可重启、可观测、可单独限流。基座期就用最终形态，避免 50 spec 时重写调度。
+ */
+
+import { pathToFileURL } from "node:url";
+
+import { buildConfig } from "../config.js";
+import { getDb } from "../db/index.js";
+import { createJudge, type CreateJudgeDeps } from "./judge/create-judge.js";
+import type { Judge, JudgeCandidate, JudgeInput } from "./judge/types.js";
+import {
+  __resetAttributionJudgeLoggerForTests,
+  getAttributionJudgeLogFilePath,
+  initAttributionJudgeLogger,
+  resolveAttributionJudgeLogDir,
+  shutdownAttributionJudgeLogger,
+  writeAttributionJudgeLog,
+} from "./judge-log.js";
+import {
+  getAttributionJudgeQueueRepo,
+  type AttributionJudgeQueueRepo,
+  type JudgeQueueRow,
+} from "./judge-queue-repo.js";
+import {
+  getAttributionJudgementDetailsRepo,
+  type AttributionJudgementDetailsRepo,
+} from "./judgement-details-repo.js";
+
+// ── 可注入依赖（单测用 fake，生产走真库）─────────────────────────────────────────
+
+export interface AttributionWorkerDeps {
+  queueRepo: AttributionJudgeQueueRepo;
+  detailsRepo: AttributionJudgementDetailsRepo;
+  judge: Judge;
+  /** 租约持有者标识，落 lease_owner。 */
+  owner: string;
+  batchSize: number;
+  leaseTtlMs: number;
+  maxAttempts: number;
+  /** 空转轮询间隔 ms。 */
+  pollIntervalMs: number;
+  /** 消费失败后的真实退避 ms（F18：退避要真做，不是留空）。 */
+  backoffMs: number;
+  /** 测试用：注入时钟 / sleep。 */
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  /** 测试用：日志落点。缺省写 attribution-judge.log。 */
+  emitLog?: (record: Parameters<typeof writeAttributionJudgeLog>[0]) => void;
+}
+
+export interface AttributionWorkerCycleResult {
+  claimed: number;
+  completed: number;
+  /** 幂等命中（明细已存在）——成功路径的一个分支，不算失败。 */
+  idempotent: number;
+  /** 消费抛错（judge 或落库）。 */
+  errored: number;
+  deadLettered: number;
+  requeued: number;
+  /** 落库成功但 complete() 没抢到（租约易主）——观测用异常信号。 */
+  leaseLost: number;
+  retried: number;
+}
+
+function emptyCycleResult(): AttributionWorkerCycleResult {
+  return {
+    claimed: 0,
+    completed: 0,
+    idempotent: 0,
+    errored: 0,
+    deadLettered: 0,
+    requeued: 0,
+    leaseLost: 0,
+    retried: 0,
+  };
+}
+
+const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 容错解析队列 payload（坏 JSON 不该让整轮挂掉）。 */
+function safeParsePayload(payloadJson: string): { kind: string; payload: unknown } {
+  try {
+    const parsed = JSON.parse(payloadJson) as { kind?: unknown; payload?: unknown };
+    return { kind: typeof parsed?.kind === "string" ? parsed.kind : "unknown", payload: parsed?.payload };
+  } catch {
+    return { kind: "unknown", payload: undefined };
+  }
+}
+
+/**
+ * 候选抽取：**只搬运 v1 已落库的 visibleAssets 快照**（A2），不在这里做筛选/推断。
+ * 基座-c 的排他性检查才会给出"哪些候选被正文引到"这类**度量**（只出度量不出阈值）。
+ */
+export function extractJudgeCandidates(unitPayload: unknown): JudgeCandidate[] {
+  if (!unitPayload || typeof unitPayload !== "object") return [];
+  const visible = (unitPayload as { visibleAssets?: unknown }).visibleAssets;
+  if (!Array.isArray(visible)) return [];
+  const out: JudgeCandidate[] = [];
+  const seen = new Set<string>();
+  for (const raw of visible) {
+    if (!raw || typeof raw !== "object") continue;
+    const assetId = (raw as { assetId?: unknown }).assetId;
+    const assetType = (raw as { assetType?: unknown }).assetType;
+    if (typeof assetId !== "string" || assetId.length === 0) continue;
+    if (seen.has(assetId)) continue;
+    seen.add(assetId);
+    out.push({
+      assetId,
+      assetType: typeof assetType === "string" ? assetType : "unknown",
+      // 来源 = S2 注入切片 ⇒ injected（fetched 形态随 40 spec 后续档位补齐）。
+      evidenceSourceType: "injected",
+    });
+  }
+  return out;
+}
+
+/** 消费一行：judge → 幂等落库 → complete/fail → 一行引用式日志。 */
+async function consumeRow(
+  row: JudgeQueueRow,
+  deps: AttributionWorkerDeps,
+  result: AttributionWorkerCycleResult,
+): Promise<void> {
+  const now = deps.now ?? Date.now;
+  const emit = deps.emitLog ?? writeAttributionJudgeLog;
+  const started = now();
+  const { kind, payload } = safeParsePayload(row.payload_json);
+
+  const input: JudgeInput = {
+    unitId: row.unit_id,
+    sessionKey: row.session_key,
+    round: row.round,
+    unit: { kind, payload },
+    candidates: extractJudgeCandidates(payload),
+    promptRef: deps.judge.promptRef,
+  };
+
+  try {
+    const verdict = await deps.judge.judge(input);
+    const insert = deps.detailsRepo.insertIdempotent({
+      unitId: row.unit_id,
+      sessionKey: row.session_key,
+      spaceId: row.space_id,
+      assetId: verdict.assetId,
+      assetType: input.candidates.find((c) => c.assetId === verdict.assetId)?.assetType ?? null,
+      round: row.round,
+      verdict: verdict.verdict,
+      evidenceSourceType:
+        input.candidates.find((c) => c.assetId === verdict.assetId)?.evidenceSourceType ?? null,
+      promptSha256: deps.judge.promptRef.prompt_sha256,
+      judgeImpl: deps.judge.impl,
+      detail: {
+        rationaleRef: verdict.rationaleRef,
+        candidateCount: input.candidates.length,
+        unitKind: kind,
+      },
+    });
+
+    const completed = deps.queueRepo.complete(row.queue_id, deps.owner, now());
+
+    if (insert.inserted) result.completed += 1;
+    else result.idempotent += 1;
+    if (!completed) result.leaseLost += 1;
+
+    emit({
+      status: insert.inserted ? "ok" : "idempotent",
+      promptRef: deps.judge.promptRef,
+      inputRefs: [{ unit_id: row.unit_id, queue_id: row.queue_id }],
+      outputRefs: [{ judgement_id: insert.judgementId }],
+      latencyMs: now() - started,
+      judgeImpl: deps.judge.impl,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const next = deps.queueRepo.fail(row.queue_id, deps.owner, message, {
+      maxAttempts: deps.maxAttempts,
+      now: now(),
+    });
+    result.errored += 1;
+    if (next === "failed") result.deadLettered += 1;
+    else if (next === "pending") result.requeued += 1;
+
+    emit({
+      status: "error",
+      promptRef: deps.judge.promptRef,
+      inputRefs: [{ unit_id: row.unit_id, queue_id: row.queue_id }],
+      outputRefs: [],
+      latencyMs: now() - started,
+      judgeImpl: deps.judge.impl,
+      error: message,
+    });
+
+    // 真实退避：失败后别立刻回头抢同一条（会热循环）。
+    if (deps.backoffMs > 0) await (deps.sleep ?? defaultSleep)(deps.backoffMs);
+  }
+}
+
+export interface RunWorkerOptions {
+  /** true = 抽干积压后返回（--once）；false = 常驻轮询。 */
+  drain: boolean;
+  /** 抽干模式下的安全上限（防御：异常情况下不无限循环）。 */
+  maxDrainRounds?: number;
+  /** 常驻模式下由信号处理器置位。 */
+  shouldStop?: () => boolean;
+  /** 每轮之间回调（观测/测试）。 */
+  onRound?: (result: AttributionWorkerCycleResult) => void;
+}
+
+/**
+ * 跑一轮消费：反复 claimBatch 直到没有可认领行（drain）或收到停止信号。
+ */
+export async function runWorker(
+  deps: AttributionWorkerDeps,
+  opts: RunWorkerOptions,
+): Promise<AttributionWorkerCycleResult> {
+  const result = emptyCycleResult();
+  const maxRounds = opts.maxDrainRounds ?? 1000;
+  let rounds = 0;
+
+  // 抽干模式：「一轮」= 每条最多消费一次。失败行会回 pending，若不排除会被本轮立刻重抢
+  // ⇒ attempts 连加到死信、退避失效（见 ClaimOptions.excludeQueueIds 注释）。
+  // 常驻模式不用它：重试要留给下一轮 + backoffMs 退避。
+  const alreadyAttempted = opts.drain ? new Set<number>() : undefined;
+
+  while (true) {
+    if (opts.shouldStop?.()) break;
+    rounds += 1;
+    if (opts.drain && rounds > maxRounds) break;
+
+    const rows = deps.queueRepo.claimBatch({
+      owner: deps.owner,
+      batchSize: deps.batchSize,
+      leaseTtlMs: deps.leaseTtlMs,
+      now: (deps.now ?? Date.now)(),
+      excludeQueueIds: alreadyAttempted,
+    });
+
+    if (rows.length === 0) {
+      opts.onRound?.(result);
+      if (opts.drain) break;
+      await (deps.sleep ?? defaultSleep)(deps.pollIntervalMs);
+      continue;
+    }
+
+    result.claimed += rows.length;
+    for (const row of rows) {
+      alreadyAttempted?.add(row.queue_id);
+      await consumeRow(row, deps, result);
+    }
+    opts.onRound?.(result);
+  }
+
+  return result;
+}
+
+// ── CLI ──────────────────────────────────────────────────────────────────────
+
+export interface WorkerCliOptions {
+  configFile?: string;
+  once: boolean;
+  retryFailed: boolean;
+}
+
+export function parseWorkerArgs(argv: string[]): WorkerCliOptions {
+  const opts: WorkerCliOptions = { once: false, retryFailed: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--once") opts.once = true;
+    else if (arg === "--retry-failed") opts.retryFailed = true;
+    else if (arg === "--config") {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("--")) {
+        opts.configFile = next;
+        i += 1;
+      }
+    } else if (arg.startsWith("--config=")) {
+      opts.configFile = arg.slice("--config=".length);
+    }
+  }
+  return opts;
+}
+
+export function buildWorkerDeps(
+  judgedConfig: ReturnType<typeof buildConfig>,
+  owner: string,
+  overrides: CreateJudgeDeps = {},
+): AttributionWorkerDeps {
+  const workerCfg = judgedConfig.attribution?.judge?.worker;
+  return {
+    queueRepo: getAttributionJudgeQueueRepo(),
+    detailsRepo: getAttributionJudgementDetailsRepo(),
+    judge: createJudge(judgedConfig, overrides),
+    owner,
+    batchSize: workerCfg?.batchSize ?? 8,
+    leaseTtlMs: workerCfg?.leaseTtlMs ?? 600_000,
+    maxAttempts: workerCfg?.maxAttempts ?? 3,
+    pollIntervalMs: workerCfg?.pollIntervalMs ?? 200,
+    backoffMs: workerCfg?.backoffMs ?? 1000,
+  };
+}
+
+const EXIT_OK = 0;
+/** DB 不可用：明确报错退出（**不**伪造成功 —— checklist 组合矩阵第 6 行）。 */
+export const EXIT_DB_UNAVAILABLE = 2;
+
+export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+  const opts = parseWorkerArgs(argv);
+  const config = buildConfig({ configFile: opts.configFile });
+
+  initAttributionJudgeLogger(resolveAttributionJudgeLogDir(config));
+
+  // 先探库：DB 不可用时 win/lin 都要给明确报错 + 非零码，不能装成功。
+  if (!getDb()) {
+    process.stderr.write(
+      "[attribution-judge] FATAL: SQLite unavailable (getDb() → null) — worker cannot run.\n",
+    );
+    await shutdownAttributionJudgeLogger();
+    return EXIT_DB_UNAVAILABLE;
+  }
+
+  const owner = `attribution-judge-${process.pid}-${Date.now()}`;
+  const deps = buildWorkerDeps(config, owner);
+
+  process.stderr.write(
+    `[attribution-judge] worker start owner=${owner} once=${opts.once} retryFailed=${opts.retryFailed} ` +
+      `log=${getAttributionJudgeLogFilePath()}\n`,
+  );
+
+  if (opts.retryFailed) {
+    const n = deps.queueRepo.retryFailed();
+    process.stderr.write(`[attribution-judge] retry-failed: ${n} row(s) reset to pending\n`);
+  }
+
+  let stopping = false;
+  const onSignal = (signal: string): void => {
+    if (stopping) return;
+    stopping = true;
+    process.stderr.write(`[attribution-judge] ${signal} received — finishing current row then exit\n`);
+  };
+  process.on("SIGINT", () => onSignal("SIGINT"));
+  process.on("SIGTERM", () => onSignal("SIGTERM"));
+
+  const result = await runWorker(deps, {
+    drain: opts.once,
+    shouldStop: () => stopping,
+  });
+
+  process.stderr.write(
+    `[attribution-judge] worker exit claimed=${result.claimed} completed=${result.completed} ` +
+      `idempotent=${result.idempotent} errored=${result.errored} deadLettered=${result.deadLettered} ` +
+      `requeued=${result.requeued} leaseLost=${result.leaseLost}\n`,
+  );
+
+  await shutdownAttributionJudgeLogger();
+  return EXIT_OK;
+}
+
+/** 供测试复位模块级单例（worker 自身无单例，转调各 repo 的 reset）。 */
+export function __resetAttributionWorkerForTests(): void {
+  __resetAttributionJudgeLoggerForTests();
+}
+
+// ── 进程入口（被 import 时不执行）──────────────────────────────────────────────
+
+const isMain = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return pathToFileURL(entry).href === import.meta.url;
+  } catch {
+    return false;
+  }
+})();
+
+if (isMain) {
+  main()
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((err) => {
+      process.stderr.write(
+        `[attribution-judge] FATAL: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+      );
+      process.exitCode = 1;
+    });
+}

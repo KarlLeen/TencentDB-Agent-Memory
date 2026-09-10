@@ -92,6 +92,22 @@ export const DEFAULT_CONFIG: ProxyConfig = {
     // P0 可见正文归档默认关闭 —— 未配置 = 不装配、零新表访问（40 spec §6c）。
     visibleArchive: { enabled: false, maxBlockChars: 32_768, maxMessageChars: 65_536 },
   },
+  // 共享基座（v2 前置骨架）：缺省整段 off —— enqueue=false ⇒ 入队零访问（不读库/不写库）。
+  // DDL 是 schema 的 additive 副作用（照 P0 C4 口径），与"运行时零访问"不冲突。
+  attribution: {
+    judge: {
+      enqueue: false,
+      // 本期唯一实现；真 provider 随 50 spec。
+      provider: "mock",
+      worker: {
+        pollIntervalMs: 200,
+        batchSize: 8,
+        leaseTtlMs: 600_000,
+        maxAttempts: 3,
+        backoffMs: 1000,
+      },
+    },
+  },
   // Extraction (write-side) defaults to fully permissive so that a config
   // without the `extraction:` block behaves identically to the pre-gate
   // behavior (skill extract + L0 write both on).
@@ -451,6 +467,44 @@ export function buildConfig(overrides: CliOverrides = {}): ProxyConfig {
     extraction: {
       enabled: yaml.extraction?.enabled ?? DEFAULT_CONFIG.extraction.enabled,
       extractors: yaml.extraction?.extractors ?? DEFAULT_CONFIG.extraction.extractors,
+    },
+    // 共享基座（v2 前置骨架）。逐字段守卫：错型/缺失一律回 DEFAULT_CONFIG（不抛，
+    // 与全仓 config 解析口径一致：配置写坏不应该让进程起不来）。
+    attribution: {
+      judge: {
+        // 总开关：只有显式 `true` 才入队；其余（含 "true" 字符串）一律 false。
+        enqueue:
+          typeof yaml.attribution?.judge?.enqueue === "boolean"
+            ? yaml.attribution.judge.enqueue
+            : DEFAULT_CONFIG.attribution!.judge.enqueue,
+        provider:
+          typeof yaml.attribution?.judge?.provider === "string" &&
+          yaml.attribution.judge.provider.trim().length > 0
+            ? yaml.attribution.judge.provider.trim()
+            : DEFAULT_CONFIG.attribution!.judge.provider,
+        worker: {
+          pollIntervalMs: positiveIntOrDefault(
+            yaml.attribution?.judge?.worker?.pollIntervalMs,
+            DEFAULT_CONFIG.attribution!.judge.worker.pollIntervalMs,
+          ),
+          batchSize: positiveIntOrDefault(
+            yaml.attribution?.judge?.worker?.batchSize,
+            DEFAULT_CONFIG.attribution!.judge.worker.batchSize,
+          ),
+          leaseTtlMs: positiveIntOrDefault(
+            yaml.attribution?.judge?.worker?.leaseTtlMs,
+            DEFAULT_CONFIG.attribution!.judge.worker.leaseTtlMs,
+          ),
+          maxAttempts: positiveIntOrDefault(
+            yaml.attribution?.judge?.worker?.maxAttempts,
+            DEFAULT_CONFIG.attribution!.judge.worker.maxAttempts,
+          ),
+          backoffMs: positiveIntOrDefault(
+            yaml.attribution?.judge?.worker?.backoffMs,
+            DEFAULT_CONFIG.attribution!.judge.worker.backoffMs,
+          ),
+        },
+      },
     },
   sessionInit: {
     enabled: yaml.sessionInit?.enabled ?? DEFAULT_CONFIG.sessionInit.enabled,

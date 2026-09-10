@@ -1,0 +1,30 @@
+{
+  "promptRef": {
+    "memory_prompt_id": "attribution-judge-v1",
+    "version": 1,
+    "source": "attribution-judge",
+    "prompt_sha256": "6ed16597732f5a196378e4081d1a2b873271e08fe22172f2add3bb2d5557d0ac"
+  },
+  "cases": {
+    "c1-first-hit": {
+      "inputSha256": "f03a0442879ff4dce2efe7a280a6d12760ed09ce6b51d2a8fecf602041b53bc0",
+      "verdictJson": "{\"assetId\":\"asset-alpha\",\"rationaleRef\":\"mock:payload-contains:asset-alpha\",\"verdict\":\"confirmed\"}",
+      "impl": "mock:v1"
+    },
+    "c2-no-hit": {
+      "inputSha256": "52d7edfd45e02c453fa6d9e7da5fdbf5b76058d1666fe2b15b59d726cdf3748d",
+      "verdictJson": "{\"assetId\":null,\"rationaleRef\":\"mock:no-candidate-in-payload\",\"verdict\":\"unconfirmed\"}",
+      "impl": "mock:v1"
+    },
+    "c3-second-hit": {
+      "inputSha256": "16aef90c685b6206523c494c313170e123dcaf9729f5ddf96d948258c6f99e68",
+      "verdictJson": "{\"assetId\":\"asset-beta\",\"rationaleRef\":\"mock:payload-contains:asset-beta\",\"verdict\":\"confirmed\"}",
+      "impl": "mock:v1"
+    },
+    "c4-scripted-refuted": {
+      "inputSha256": "10b10ade38b832924f152bd9c0f1622a7f7aacd3d7206b7f608714a3217c603b",
+      "verdictJson": "{\"assetId\":\"asset-alpha\",\"rationaleRef\":\"mock:scripted:refuted\",\"verdict\":\"refuted\"}",
+      "impl": "mock:v1"
+    }
+  }
+}
