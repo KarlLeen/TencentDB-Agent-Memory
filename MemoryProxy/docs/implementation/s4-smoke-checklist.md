@@ -248,3 +248,16 @@ S4a 已实现并全绿。**逐条对照本 checklist 的偏差**（完整版见 
 - **护栏按"泄漏"写**（新增 1 条自足用例）：`stop()` 后断"数组不再增长 + `console.log/warn` 已还原"，**不**拿 stderr 可见性当主判据（vitest 自身写 stderr、`[identity]`/`[REQ]` 是 logger 直写）。护栏自身变异测试：抽掉 `stop()` → 立即红（`expected 2 to be +0`），已还原。
 - **误因工单扩为 2 条**（仍单开、不并入）：案① `injection/index.ts:308-310`；案② `skill-injector.ts` 的 **11 处**同名残留（实测量；非 12）。⚠️ `:280` 的 `degrading to empty` 是我方断言锚点，改文案须保留该前缀。
 - 数字（本轮）：S4 冒烟 **8**｜`src/injection` 9 files / **91**｜全量 16 files / **245**｜`typecheck:baseline` `PASS — 55`｜生产代码零改动。
+
+### SKILL-DOC-ALIAS 销案（第九轮，2026-09-10，编码侧；详见 design §13）
+
+- **前置（硬阻断）**：S4 全套装置先落库为 `bf8af3d`（10 files）—— 原先 `_helpers/`、smoke、4 份 docs 全是 untracked，切分支 / stash / clean 一句话就没；§12.2/§12.3 的行号自该 commit 冻结。
+- **两处生产注释对齐（零行为）**：`injection/index.ts` **4 处目标行**（`:308`/`:310`/`:316` + `:378`——后者是 §12.6 裁决 1 决定纳入的）＋ `injectors/skill-injector.ts` **10 处目标行**（`:2,8,12,48,56,83,90,185,210,228`）。措辞统一为"以 `## Skills (mandatory)` 开头的 listing 块"。`git diff` 实测改动行数为 index.ts **13 行**、skill-injector.ts **11 行**（目标行语境折行所致，如 `:3` 随 `:2` 折行调整）—— 口径按"目标行"记。
+- **`:280` 明确不动**：`degrading to empty` 是 `expectNoSkillDegradation` 的锚点 —— 若按"11 处"改会直接撞断言（§12.3 已纠偏为"10 处注释 + `:280` 不动"）。
+- **判据第 4 条断言**（`index.ts` 的**注释行**不得含 `<available_skills>`）随裁决 1 加入；只扫注释行，`:382` 的 tag 字面量不受影响。
+- **销案信号**：登记表未动时跑冒烟 = **1 failed | 9 passed**，原文恰为 `Error: Expect test to fail`，两条表级断言仍绿。
+- **销案动作**：登记项删 ⇒ `KNOWN_DRIFT = []`（合法终态）；判据**原样 import** 成 1 条正面 `it`（未重写，判据只有一份）；`known-drift.ts` / `makeCheck` / 反向自证 / `it.fails` 生成器**全保留**。
+- **1 处落点偏离**：正面 `it` 落在 tripwire describe（§12.5 要求复用的那份硬校验 `root` 仅此处有）；未按"紧邻 B1/B2"的建议搬去 S4b，以免造出第二个 `root` 真值源。
+- **变异测试**：M1 塞回 `skill-injector.ts:8` → 红并点名该文件；M2 塞回 `index.ts:378` → 红并点名该文件（专测新第 4 条断言）。两次均已还原。
+- 数字（销案后）：S4 冒烟 **10**｜`src/injection` 9 files / **93**｜全量 16 files / **247**｜`typecheck:baseline` `PASS — 55`｜生产代码零行为改动 —— 与 §12.5 步骤 5 期望逐项相同。
+- 勘误（仅分项口径）：design §10/§11 的"S4a 5 条"实为 **4 条**（A1–A4）；冒烟 10 = S4a 4 + S4b 2 + 护栏 1 + 表级 2 + 登记项 1。

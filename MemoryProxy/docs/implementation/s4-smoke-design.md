@@ -494,6 +494,11 @@ npm run typecheck:baseline     # PASS，55 errors 仍在 allow-list，零新增
 
 ## 9. 设计侧施工单：误因工单登记（由 KNOWN_DRIFT 承载，2026-09-10）
 
+> **状态：已销案**（2026-09-10，第九轮）。
+> 本节描述的 `SKILL-DOC-ALIAS` 已在本轮修好并销案：`KNOWN_DRIFT` 回到 `[]`，判据函数
+> `skillDocAliasViolations` 原样搬成 smoke 的一条**正面 `it`**。销案数字、变异测试与 1 处落点偏离见 **§13**。
+> **本节与 §10/§11/§12 一律保留**（处置痕迹要留，勿删）；其中 9.3/9.4 各表的"现状"列是**登记当时**的实测快照，销案后已不成立 —— 属历史快照，不回改。
+
 > **本节唯一的"活内容"目的**：把"误因工单"从"文档里的一句待办"改成**每次 `npm test` 都会经过的通道** —— 不依赖任何人的记性（`known-drift.ts:4-5` 的原始动机就是"人工记得回来改断言是不可靠的"）。生产代码与产品行为**零改动**。
 
 ### 9.1 登记项（编码侧可直接粘贴到 `known-drift.ts:48`）
@@ -711,6 +716,55 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
 
 - 理由：本仓是 **fork-local**（见 `764aa35` 提交信息"fork local"），**无外部 issue tracker** ⇒ 唯一"可追溯且不随 commit 漂移"的落点只能是**仓内**工单本体，而 §12 正是本工单的范围 + 销案操作卡。
 - `pending` 的问题：它是 `it.fails` 标题与销案记录的落点，留 `pending` 会让销案记录**无处引用**。
-- 落地：`_helpers/known-drift.ts:134` 的 `ticket: "pending"` → `ticket: "s4-smoke-design.md §12"`。日后若开外部单，只需改这一个字符串（日志行与销案记录都从它派生）。
+- 落地（**实际未生效，如实记**）：本条原定把 `_helpers/known-drift.ts` 里该登记项的 `ticket: "pending"` 改成 `"s4-smoke-design.md §12"`，但**该串尚未落码，登记项就在本轮（第九轮）被销案删除** ⇒ `bf8af3d`（S4 装置落库那次提交）里它仍写作 `"pending"`。裁决值 `s4-smoke-design.md §12` 作为本条工单的追溯串记于本裁决与 §13。日后若开外部单，只需改这一个字符串（日志行与销案记录都从它派生）。
 
 > §11 里 `[known-drift] SKILL-DOC-ALIAS (pending) — …` 那行是**第八轮实况**，按"处理痕迹要留"**不改**；本裁决自 §12.6 起生效。
+
+---
+
+## 13. 处理记录（第九轮 · SKILL-DOC-ALIAS 销案，2026-09-10，编码侧）
+
+**前置**：先按 §12.6 定完两条裁决，再把 S4 全套装置落库为 **`bf8af3d`**（`test(proxy): S4 真实 HTTP 冒烟（接缝 A/B）+ known-drift 双向 tripwire（237→247）`，10 files）—— §12.2/§12.3 的行号即以该 commit 为基准；落库时 `git status --porcelain` 已干净（消掉"切分支 / stash 一句话就没"的硬阻断）。
+
+**§12.6 裁决落地**
+- **裁决 1 取 (a)**：判据新增**第 4 条断言** —— `injection/index.ts` 的**注释行**不得含 `<available_skills>`（机械克隆案②的 `commentLines` 过滤；`:382` 的 `activeAssetTags.push("available_skills")` 是**代码字面量**、不受影响）。⇒ 本批 `index.ts` 实改 **4 行**（`:308`/`:310`/`:316` + `:378`），不是 3 行。
+- **裁决 2 未及落码（如实记）**：`ticket` 串 `"s4-smoke-design.md §12"` 尚未写进登记项，该登记项就在本轮被销案删除 ⇒ `bf8af3d` 里它仍写作 `"pending"`。追溯串记于 §12.6 与本节。
+
+**施工（2 个生产文件，纯注释 / 文案，零行为改动）**
+- `src/injection/index.ts`：`:308`/`:310`/`:316` —— 端点 `/v3/skill/search` → `/v3/skill/listing`、`<cloud_skills>` → "skills listing block"；`:378` —— `<available_skills>` → "skills listing 块（资产 tag 名为 `available_skills`）"，**保留** `<skill_tools>`（真块名）与 `available_skills`（tag 字面量，wire contract）。`:378` 由 2 行变 3 行 ⇒ 本文件净 **+1 行**。
+- `src/injection/injectors/skill-injector.ts`：**10 处目标注释行等量替换**（`:2,8,12,48,56,83,90,185,210,228`），措辞统一为"以 `## Skills (mandatory)` 开头的 listing 块"；**`:280` 运行时文案不动**（`degrading to empty` 是 `expectNoSkillDegradation` 的锚点，归另一条工单）。
+  - 口径校正（自查发现）：`git diff` 实测该文件是 **11 行改动**（`:2` **与 `:3`**、`:8`、`:12`、`:48`、`:56`、`:83`、`:90`、`:185`、`:210`、`:228`）—— `:3` 是 `:2` 那句的折行，随措辞变长一并调整。§12.3 的"10 处"是**目标行**数，不是 diff 行数，两者不冲突。
+
+**自检字面计数（§12.5 步骤 1，逐项命中）**
+
+| 表达式 | 期望 | 实测 |
+|---|---|---|
+| `skill-injector.ts` 里 `<available_skills>` | 1（只剩 `:280`） | **1** ✓ |
+| `index.ts` 里 `<cloud_skills>` | 0 | **0** ✓ |
+| `index.ts` 里 `/v3/skill/search` | 0 | **0** ✓ |
+| `index.ts` 里 `/v3/skill/listing` | 1 | **1** ✓ |
+| `index.ts` 里 `<available_skills>` | 0 | **0** ✓ |
+
+**销案信号（§12.5 步骤 2，实跑）**：注释改完、登记表未动时跑冒烟 → **1 failed | 9 passed**，失败原文恰为 `Error: Expect test to fail`，红的正是 `[KNOWN-DRIFT:SKILL-DOC-ALIAS]` 那条 `it.fails`；**两条表级断言（联动断言 / 反向自证）仍绿** ⇒ 是销案信号，不是基础设施坏。
+
+**销案动作（§9.4 原样执行）**
+- 删登记项 ⇒ `KNOWN_DRIFT` 回到 `[]`（合法终态，非"待填"）。
+- 判据函数 `skillDocAliasViolations` **原样 import**，在 smoke 加 **1 条正面 `it`**：`expect(skillDocAliasViolations(root)).toEqual([])`。**判据未重写**（只有一份）。
+- `known-drift.ts` / `makeCheck` / 反向自证 / `it.fails` 生成器**全部保留**（下一条漂移复现时直接复用）。
+
+**1 处落点偏离（需评审确认）**：§9.4/§12.5 建议正面 `it` "紧邻 B1/B2"，但 §12.5 **同时**要求"`root` 用 describe 作用域里那个已硬校验的值" —— 那个 `root` 只在 **tripwire describe** 作用域里；搬到 S4b 附近必须再解析一份 root ⇒ 第二个真值源，与"单一硬校验"的设计相冲。故正面 `it` 落在 tripwire describe 内（`root` 现成），该 describe 标题相应改为"…两条表级断言 **+ 1 条已销案正面断言**"。
+
+> 附带收益：登记表回空后，两条表级断言都是**空循环**（空转）—— 这条正面 `it` 成为判据**唯一非空转**的消费者，判据因此不会在销案后退化成摆设。
+
+**变异测试（2 条，实跑后已还原）**
+
+| # | 变异 | 实测 |
+|---|---|---|
+| M1 | 把 `skill-injector.ts:8` 改回 `<available_skills>` | **1 failed \| 2 passed \| 7 skipped**；`AssertionError: expected [ Array(1) ] to deeply equal []`，diff 点名"`skill-injector.ts` 注释仍用旧块名…" |
+| M2 | 把 `index.ts:378` 改回 `<available_skills>`（专测**新加的第 4 条断言**） | 失败并点名 `injection/index.ts` 注释仍用旧块名 ⇒ 第 4 条断言不是备用轮胎 |
+
+⇒ 案① / 案② / 新增第 4 条三个面**各自有牙**，正面 `it` 非空转。两次变异均已还原（现 `skill-injector.ts` 只剩 `:280` 一处字面、`index.ts` 为 0）。
+
+**数字（编码侧，node v22.19.0，销案后）**：S4 冒烟 **10 passed**；`vitest run src/injection` → 9 files / **93 passed**；全量 → 16 files / **247 passed**；`typecheck:baseline` → `PASS — 55 errors, all within allow-list`。**与 §12.5 步骤 5 的期望（10 / 93 / 247）逐项相同** —— 销案前后用例数不变（`it.fails` → `it`），符合 §9.6 口径。
+
+**顺带勘误 1 条（仅文档分项，不改代码）**：§10/§11 写"S4a 5 条"，实测 S4a 是 **4 条**（A1–A4）；冒烟 10 条的准确构成 = S4a 4 + S4b 2 + 护栏 1 + 表级 2 + 登记项 1。分项口径记于此，历史小节不回改。

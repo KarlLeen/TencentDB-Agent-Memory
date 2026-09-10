@@ -90,6 +90,17 @@ export function skillDocAliasViolations(root: string): string[] {
     );
   }
 
+  // 案①-补（design §12.6 裁决 1，取 (a) 纳入本批）：**同一文件里的同族注释** ——
+  // :378 的「Skill 家族：SkillInjector 出 <available_skills>」也是把渲染块当旧标签名。
+  // 仍**只扫注释行**：:382 的 `activeAssetTags.push("available_skills")` 是**代码字面量**
+  // （资产 tag 名，属 wire contract、本工单不动），连它一起扫就会逼着改行为。
+  const injCommentLines = injIndex.split("\n").filter((l) => /^\s*(\*|\/\/)/.test(l));
+  if (injCommentLines.join("\n").includes("<available_skills>")) {
+    violations.push(
+      "injection/index.ts 注释仍用旧块名 <available_skills>（:378 同族；资产 tag 名 available_skills 本身保留在代码里）",
+    );
+  }
+
   // 案②：**只查注释行** —— :280 是运行时 warn 文案，且是 expectNoSkillDegradation 的
   // 锚点（"degrading to empty"），属有意例外、另开工单；把它纳入判据会把工单目标指向
   // 一个与断言冲突的位置（字面锚点被改 ⇒ 断言静默恒真的同族）。
@@ -129,21 +140,19 @@ export function makeCheck(violations: (root: string) => string[]): (root: string
  * **`[]` 是合法终态，不是"待填"**（设计侧裁决原文：R1 未复现 ⇒ 漂移不存在，不必为它造登记项）。
  * 只有在**新**漂移被复现时才往这里加条目。
  *
- * 2026-09-10（第八轮）：登记第一条 **SKILL-DOC-ALIAS** —— 误因工单（纯注释/文档漂移，
- * 生产行为零改动）。承载方式、验收口径与销案动作见 s4-smoke-design.md §9。
+ * 任期（两条都不在本表里了，留痕）：
+ *   - 第八轮（2026-09-10）：登记第一条 **SKILL-DOC-ALIAS** —— 误因工单（纯注释/文档漂移，
+ *     生产行为零改动）。承载方式、验收口径与销案动作见 s4-smoke-design.md §9。
+ *     诚实边界：该条在 `bf8af3d`（S4 装置落库）时 `ticket` 仍写作 `"pending"` ——
+ *     §12.6 裁决的引用串（`s4-smoke-design.md §12`）尚未落码就被本轮销案删除，见 §13。
+ *   - 第九轮（2026-09-10）：**销案** —— 注释/文案对齐后判据转空，登记项删除 ⇒ 本表回到 `[]`。
+ *
+ * 销案时**刻意保留**的三样（下一条漂移复现时直接复用，勿删）：
+ *   ① 判据函数 `skillDocAliasViolations`（原样搬进 smoke 的正面断言，判据只有一份）；
+ *   ② `makeCheck` + `KnownDrift` 接口（断言层固化的载体）；
+ *   ③ smoke 的两条表级断言（联动断言 + 反向自证）与 `it.fails` 生成器。
  */
-export const KNOWN_DRIFT: readonly KnownDrift[] = [
-  {
-    id: "SKILL-DOC-ALIAS",
-    ticket: "pending",
-    doc: "docs/implementation/s4-smoke-design.md",
-    summarize: () =>
-      "skill 注入的注释仍用旧块名 <available_skills>；injection/index.ts 仍称错端点 "
-      + "/v3/skill/search 与旧块名 <cloud_skills>（runtime 文案 skill-injector.ts:280 为有意例外）",
-    // 判据见 skillDocAliasViolations（销案时原样搬成正面断言）；断言层由 makeCheck 固化。
-    check: makeCheck(skillDocAliasViolations),
-  },
-];
+export const KNOWN_DRIFT: readonly KnownDrift[] = [];
 
 /** 提醒前缀：用例生成器会把登记项打成这一行，便于未来 automation 抓取。 */
 export const KNOWN_DRIFT_LOG_PREFIX = "[known-drift]";

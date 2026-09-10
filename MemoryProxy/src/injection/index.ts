@@ -306,15 +306,15 @@ function buildPipelineBundle(config: ProxyConfig): PipelineBundle {
   }
 
   if (injectors.includes("skill")) {
-    // RAG-driven `<cloud_skills>` block. Calls /v3/skill/search at prewarm time.
-    // When coreSkill is unconfigured (no serviceToken), the searchSkills call
-    // will fail and the injector silently degrades to no <cloud_skills> block.
+    // RAG-driven skills listing block. Calls /v3/skill/listing at prewarm time.
+    // When coreSkill is unconfigured (no serviceToken), the listing call fails
+    // and the injector silently degrades to no skills listing block.
     registry.register(
       new SkillInjector({ coreSkill: config.coreSkill }),
     );
 
     // Always inject the curl-recipe `<skill_tools>` block alongside the
-    // dynamic `<cloud_skills>` block. Even when there are no skills to
+    // dynamic skills listing block. Even when there are no skills to
     // recommend, the LLM still needs to know how to create / search them.
     const allowLlmWrite = config.skillRuntime?.allowLlmWrite ?? false;
     registry.register(new SkillToolsInjector({ proxyBaseUrl: proxyBaseUrl!, allowLlmWrite }));
@@ -376,8 +376,9 @@ function buildPipelineBundle(config: ProxyConfig): PipelineBundle {
   if (config.injection?.assetReflection?.markerOptIn) {
     const registeredIds = new Set(registry.getAll().map((h) => h.id));
     const activeAssetTags: string[] = [];
-    // Skill 家族：SkillInjector 出 <available_skills>，SkillToolsInjector 出 <skill_tools>；
-    // 两个 injector 一起启用（见上文 `if (injectors.includes("skill"))`），任一存在都算 skill 资产命中。
+    // Skill 家族：SkillInjector 出 skills listing 块（资产 tag 名为 `available_skills`）；
+    // SkillToolsInjector 出 <skill_tools>。两个 injector 一起启用
+    // （见上文 `if (injectors.includes("skill"))`），任一存在都算 skill 资产命中。
     if (registeredIds.has("skill-injector") || registeredIds.has("skill-tools-injector")) {
       activeAssetTags.push("skill_tools");
       activeAssetTags.push("available_skills");

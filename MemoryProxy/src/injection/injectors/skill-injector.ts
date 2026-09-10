@@ -1,15 +1,15 @@
 /**
- * Skill Injector — emits the `<available_skills>` block containing skills
- * owned by the current agent (team_id + agent_id filtered via /v3/skill/listing).
+ * Skill Injector — emits the skills listing block (starts with `## Skills (mandatory)`) holding
+ * the skills owned by the current agent (team_id + agent_id filtered via /v3/skill/listing).
  *
  * The sister hook `skill-tools-injector.ts` emits the static `<skill_tools>`
  * block describing the curl recipes. Together:
  *   <skill_tools>        = how to use skills (via /skill-bridge curl)
- *   <available_skills>   = which skills belong to this agent (owner-filtered)
+ *   listing block        = which skills belong to this agent (owner-filtered)
  *
  * The listing endpoint uses routing internally:
  *   - No query → list head (full listing when ≤ searchTopK, search when >)
- *   - Returns a pre-rendered `<available_skills>` text block ready to inject.
+ *   - Returns a pre-rendered listing block ready to inject.
  *
  * Strategy:
  *   - cacheStrategy: "session_init" — listing runs once at prewarm time,
@@ -45,7 +45,7 @@ export interface SkillInjectorConfig {
 }
 
 /**
- * Prompt boilerplate wrapping the `<available_skills>` listing.
+ * Prompt boilerplate wrapping the skills listing block (starts with `## Skills (mandatory)`).
  *
  * Mirrored from `MemoryCore/src/core/skill/prompts/skill-listing-prompt.ts`
  * (SKILL_ENGINEERING_DESIGN appendix C.1). Kept as a physical copy — the
@@ -53,7 +53,7 @@ export interface SkillInjectorConfig {
  * to reference the proxy's skill-bridge tool names (`skill_view`,
  * `skill_patch`) instead of the design-doc's hypothetical `skill_view(name)` /
  * `skill_manage(action='patch')` function calls. Read the `<skill_tools>`
- * block above `<available_skills>` for the exact curl recipes.
+ * block above the skills listing for the exact curl recipes.
  *
  * When updating either copy, update the other so the LLM sees consistent
  * guidance regardless of which host renders the block.
@@ -80,14 +80,14 @@ const SKILL_LISTING_FOOTER =
   "\nOnly proceed without loading a skill if genuinely none are relevant to the task.";
 
 /**
- * Wrap the pre-rendered `<available_skills>` listing from plugin into a
+ * Wrap the pre-rendered skills listing block from plugin into a
  * context block, with additional instructions about skill-bridge access.
  *
  * Layout (top → bottom, single joined string):
  *   1. SKILL_LISTING_HEADER — English mandatory-load directive (mirrored
  *      from MemoryCore).
  *   2. Chinese fallback + skill-bridge/curl usage reminder.
- *   3. `<available_skills>` listing (verbatim from core).
+ *   3. The skills listing block (verbatim from core).
  *   4. SKILL_LISTING_FOOTER — "only skip if genuinely nothing matches".
  */
 export function wrapAvailableSkillsBlock(listing: string): string {
@@ -182,7 +182,7 @@ export class SkillInjector implements InjectionHook {
    *
    * Historically this returned `[]` unconditionally, which meant a miss on
    * any node other than the one that ran prewarm silently dropped
-   * `<available_skills>` from the system prompt for the entire session.
+   * the skills listing block from the system prompt for the entire session.
    */
   async execute(ctx: AgentContext): Promise<ContextBlock[]> {
     const custom = ctx.metadata.custom as Record<string, unknown> | undefined;
@@ -207,7 +207,7 @@ export class SkillInjector implements InjectionHook {
    * Session-init prewarm: call /v3/skill/listing with team_id + agent_id
    * and a search query built from agent/task descriptions so the returned
    * skills are semantically relevant to the current task (FTS BM25).
-   * Inject the pre-rendered `<available_skills>` block verbatim.
+   * Inject the pre-rendered skills listing block verbatim.
    */
   async prewarm(input: PrewarmInput): Promise<ContextBlock[]> {
     if (input.assetCapabilities?.skill === false) return [];
@@ -225,7 +225,7 @@ export class SkillInjector implements InjectionHook {
   }
 
   /**
-   * Shared listing → wrapped `<available_skills>` block renderer used by both
+   * Shared listing → wrapped skills listing block renderer used by both
    * `prewarm()` and `execute()`. Keeping a single code path guarantees the
    * two entry points emit *identical* blocks (same content + same
    * `metadata.cacheKey`), so the pipeline's self-heal write never fragments

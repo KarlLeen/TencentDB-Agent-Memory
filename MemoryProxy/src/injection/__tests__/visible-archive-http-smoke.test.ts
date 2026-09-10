@@ -54,7 +54,11 @@ import {
   restoredVisibleText,
   stripGlue,
 } from "./_helpers/attribution-window.js";
-import { KNOWN_DRIFT, KNOWN_DRIFT_LOG_PREFIX } from "./_helpers/known-drift.js";
+import {
+  KNOWN_DRIFT,
+  KNOWN_DRIFT_LOG_PREFIX,
+  skillDocAliasViolations,
+} from "./_helpers/known-drift.js";
 import {
   S4_KERNEL_FIXTURE,
   startKernelStub,
@@ -782,7 +786,7 @@ describe("S4b · 捕获器护栏（泄漏式，不依赖用例顺序）", () => 
 
 // ── known-drift 双向 tripwire（登记表生成用例，不手写）────────────────────────────
 
-describe("known-drift tripwire（双向；登记表为空时仍有两条表级断言）", () => {
+describe("known-drift tripwire（双向；登记表为空时仍有两条表级断言 + 1 条已销案正面断言）", () => {
   // root 必须在 describe 作用域解析并**硬校验**（2026-09-10，design §9.2）：
   //   - 生成器（下面的 for 循环）就在 describe body 里跑，写在 it 体内它拿不到；
   //   - 校验要**抛在 it.fails 之外** —— 抛在里面会被当成"期望失败"，基础设施坏了反而变绿。
@@ -820,6 +824,19 @@ describe("known-drift tripwire（双向；登记表为空时仍有两条表级�
     } finally {
       fs.rmSync(bogusRoot, { recursive: true, force: true });
     }
+  });
+
+  // ── 销案正面断言（2026-09-10，design §9.4 销案动作）─────────────────────────
+  // SKILL-DOC-ALIAS 修好后，把登记项的 `check` 内容**原样搬**成一条正面 `it`：判据函数
+  // import 进来直接用，**不重写**判据（判据只有一份 ⇒ 杜绝"抄漏一条"）。
+  //
+  // 为什么落在本 describe 而不是"紧邻 B1/B2"（§9.4/§12.5 的建议）：`root` —— 即 §12.5 要求
+  // 复用的"describe 作用域里那个已硬校验的值" —— **只在这里有**。搬到 S4b 附近就得再解析
+  // 一份 root，第二个真值源会与"单一硬校验"的设计相冲，故取本处。
+  //
+  // 这也是登记表回到 `[]` 之后**唯一非空转**的判据消费者：两条表级断言在空表下是空循环。
+  it("销案：SKILL-DOC-ALIAS 判据为空（注释/文档与实现一致）", () => {
+    expect(skillDocAliasViolations(root)).toEqual([]);
   });
 
   for (const d of KNOWN_DRIFT) {
