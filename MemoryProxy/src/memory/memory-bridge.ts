@@ -421,6 +421,10 @@ export function createMemoryBridgeHandler(
           requestBody: outboundBody.slice(0, 512),
           upstreamStatus: status,
           elapsedMs: (deps.now ?? Date.now)() - callStart,
+          // S4 (P5) ctx 通道：未截断原文，**仅供 sink 提取**，不入 CH row、不落库。
+          // 本期 memory 通道不解析（§8.1），传值只为两桥同构。
+          inboundBody,
+          responseText: text,
         });
       }
     };

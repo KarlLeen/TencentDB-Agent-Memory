@@ -91,6 +91,9 @@ export const DEFAULT_CONFIG: ProxyConfig = {
     decisionUnitExtractor: { enabled: false },
     // P0 可见正文归档默认关闭 —— 未配置 = 不装配、零新表访问（40 spec §6c）。
     visibleArchive: { enabled: false, maxBlockChars: 32_768, maxMessageChars: 65_536 },
+    // S4 bridge fetched 事件（45 spec §3.4）默认关闭 —— 未配置 = 不注册 sink、
+    // 零新行、零新表访问，CH 通路逐字段不变。
+    bridgeFetchEvents: { enabled: false },
   },
   // 共享基座（v2 前置骨架）：缺省整段 off —— enqueue=false ⇒ 入队零访问（不读库/不写库）。
   // DDL 是 schema 的 additive 副作用（照 P0 C4 口径），与"运行时零访问"不冲突。
@@ -462,6 +465,13 @@ export function buildConfig(overrides: CliOverrides = {}): ProxyConfig {
           yaml.injection?.visibleArchive?.maxMessageChars,
           DEFAULT_CONFIG.injection.visibleArchive!.maxMessageChars!,
         ),
+      },
+      // S4 bridge fetched 事件（45 spec §3.4）。只接受 boolean；yaml 缺省或类型错
+      // 走 default（关）⇒ 不注册 sink、零新行、CH 通路逐字段不变。
+      bridgeFetchEvents: {
+        enabled: typeof yaml.injection?.bridgeFetchEvents?.enabled === "boolean"
+          ? yaml.injection.bridgeFetchEvents.enabled
+          : DEFAULT_CONFIG.injection.bridgeFetchEvents!.enabled,
       },
     },
     extraction: {

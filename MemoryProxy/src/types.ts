@@ -721,6 +721,18 @@ export interface InjectionConfig {
     /** 档② 单消息正文 cap（字符），超限截断 + truncated。缺省 65536。 */
     maxMessageChars?: number;
   };
+  /**
+   * S4 bridge fetched 事件。**默认关闭**：未配 = 不注册 sink、零新行、零新表访问，
+   * CH 通路保持默认 sink 逐字段不变（叠加不是替换）。
+   *
+   * `true` 时给两条 bridge 的 `bridge_call` 埋点叠加一个 SQLite sink：把
+   * "这次 bridge 调用真的取了哪个 skill" 落成 `attribution_events`
+   * （`event_type='asset_fetched'`、`payload.channel='fetched'`）的硬档。
+   * 见 docs/implementation/45-bridge-telemetry-sink.md。
+   */
+  bridgeFetchEvents?: {
+    enabled: boolean;
+  };
 }
 
 /**
@@ -982,6 +994,13 @@ export interface RawYamlConfig {
       enabled?: boolean;
       maxBlockChars?: number;
       maxMessageChars?: number;
+    };
+    /**
+     * S4 bridge fetched 事件（45 spec §3.4）。默认关闭：未配 = 不注册 sink、
+     * 零新行、零新表访问，CH 通路逐字段不变。
+     */
+    bridgeFetchEvents?: {
+      enabled?: boolean;
     };
   };
   extraction?: {

@@ -35,17 +35,84 @@ export interface BridgeCallTelemetryInput {
    * 非空 = proxy 前置早退，没到 fetcher。见 clickhouse.ts ToolCallLogInput 注释。
    */
   rejectReason?: string;
+  /**
+   * S4（P5）: LLM 原始请求体（**未脱敏、未截断**的已 parse 对象引用）。
+   *
+   * **仅供 sink 提取；绝不入 CH row、绝不落库、绝不打印** —— 见 BridgeFetchContext。
+   * 为什么不能用 `requestBody`：那一列已被 `slice(0,512)`（F3），长 body 会静默
+   * 取不到靠后的 `skill_id`，把"硬档"变成"假档"。
+   */
+  inboundBody?: Record<string, unknown>;
+  /**
+   * S4（P5）: 上游响应体**原文**（未截断）。fetch 失败 / 未响应时不传。
+   *
+   * **仅供 sink 提取；绝不入 CH row、绝不落库、绝不打印**。
+   */
+  responseText?: string;
 }
 
 /**
- * 发一条 bridge_call 埋点。sink 默认走 clickhouse.writeToolCallRow。
- * 内部自吞异常，绝不 throw。
+ * S4 提取上下文（P5 拍板）—— **只给 sink 用**。
+ *
+ * 为什么不挂在 `row` 上：`row`（`ToolCallLogInput`）是 ClickHouse 的契约输入
+ * 对象，任何 sink 都可能整体持有它。把未脱敏的请求/响应原文塞进 `row`，等于把
+ * 敏感原文混进 CH 契约（虽实测全仓无 `JSON.stringify(row)` / `console.log(row)`，
+ * 但契约不干净、易被后人一行日志泄漏）⇒ 用**独立第 2 参**显式隔离（R9）：
+ * 想泄漏必须显式写出来。
+ *
+ * 边界：ctx 只在 sink 内**当次**提取、用后即弃；脱敏/截断是 CH row 的义务，
+ * 不是 ctx 的。绝不落库、绝不打印。
+ */
+export interface BridgeFetchContext {
+  /** LLM 原始请求体（已 parse 的对象引用，未脱敏未截断） */
+  inboundBody?: Record<string, unknown>;
+  /** 上游响应体原文（未截断）；fetch 失败/未响应时为 undefined */
+  responseText?: string;
+}
+
+/** S4 sink 签名：`(row, ctx)`。`ctx` 是独立第 2 参，**不进 row**（F14）。 */
+export type BridgeTelemetrySink = (
+  row: ToolCallLogInput,
+  ctx: BridgeFetchContext,
+) => void;
+
+/**
+ * S4：叠加式 sink 链（模块级）。
+ *
+ * 为什么是模块级而不是复用 emit 的第 2 参：`emitBridgeRejectTelemetry`
+ * （17 处 reject 调用点）**不透传 sink**（F9/F16）⇒ 想在 reject 路径上也落行，
+ * 只能挂模块级链。缺省不注册 = 零行为差异（toggle off 语义）。
+ *
+ * 顺序契约：默认 CH sink 先行，随后**依次**调链上各 sink；每个各自 try/catch
+ * 吞异常 —— 一个 sink 抛不影响另一个，也绝不 throw 回业务。
+ */
+const _sinks: BridgeTelemetrySink[] = [];
+
+/** 注册一个**叠加**sink（不是替换 CH）。toggle off ⇒ 不注册 ⇒ 零新行。 */
+export function addBridgeTelemetrySink(sink: BridgeTelemetrySink): void {
+  _sinks.push(sink);
+}
+
+/** 清空 sink 链（生产不用；测试 / 热重载用）。 */
+export function clearBridgeTelemetrySinks(): void {
+  _sinks.length = 0;
+}
+
+/** 重置 sink 链为初始态 —— 测试专用（照 visibleTextRepo/attributionEventRepo 惯例）。 */
+export function __resetBridgeTelemetrySinksForTests(): void {
+  clearBridgeTelemetrySinks();
+}
+
+/**
+ * 发一条 bridge_call 埋点。sink 默认走 clickhouse.writeToolCallRow（CH 通路保留，
+ * 叠加不是替换）；随后依次调模块级链上各 sink。内部自吞异常，绝不 throw。
  */
 export function emitBridgeToolCallTelemetry(
   input: BridgeCallTelemetryInput,
-  sink: (row: ToolCallLogInput) => void = writeToolCallRow,
+  sink: BridgeTelemetrySink = writeToolCallRow,
 ): void {
   try {
+    // row 逐字段显式赋值 —— ctx **不在其中**（F14：CH 逐字段不变的构造性来源）。
     const row: ToolCallLogInput = {
       timestamp: new Date().toISOString(),
       sessionKey: input.sessionKey,
@@ -64,10 +131,23 @@ export function emitBridgeToolCallTelemetry(
       elapsedMs: input.elapsedMs,
       rejectReason: input.rejectReason,
     };
+    // ctx：**只取已传的键**（未传的键不出现）⇒ 不透传 ctx 的 reject 路径
+    // 得到的 ctx 逐键等价于 `{}`（§3.6）。一个 2 字段对象，零拷贝、用后即弃。
+    const ctx: BridgeFetchContext = {};
+    if (input.inboundBody !== undefined) ctx.inboundBody = input.inboundBody;
+    if (input.responseText !== undefined) ctx.responseText = input.responseText;
+
     try {
-      sink(row);
+      sink(row, ctx);
     } catch {
       // sink 抛 → 埋点绝不阻塞业务
+    }
+    for (const extra of _sinks) {
+      try {
+        extra(row, ctx);
+      } catch {
+        // 链上单个 sink 抛 → 不影响其它 sink，也绝不阻塞业务
+      }
     }
   } catch {
     // input 构造异常也吞掉

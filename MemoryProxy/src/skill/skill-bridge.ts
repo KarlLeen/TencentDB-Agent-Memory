@@ -615,6 +615,9 @@ export function createSkillBridgeHandler(
           requestBody: dlOutboundBody.slice(0, 512),
           upstreamStatus: 0,
           elapsedMs: (deps.now ?? Date.now)() - dlCallStart,
+          // S4 (P5) ctx 通道：未截断原文，**仅供 sink 提取**，不入 row、不落库。
+          // 无响应 ⇒ 只走请求侧（不带 version）；upstreamStatus=0 记实。
+          inboundBody,
         });
         return envelope(50301, `${TAG} upstream unavailable: ${(err as Error).message}`, 502);
       }
@@ -896,6 +899,9 @@ export function createSkillBridgeHandler(
         requestBody: outboundBody.slice(0, 512),
         upstreamStatus: 0,
         elapsedMs: (deps.now ?? Date.now)() - callStart,
+        // S4 (P5) ctx 通道：未截断原文，**仅供 sink 提取**，不入 row、不落库。
+        // fetch 抛错 ⇒ 无响应，只走请求侧。
+        inboundBody,
       });
       return envelope(50301, `${TAG} upstream unavailable: ${(err as Error).message}`, 502);
     }
@@ -920,6 +926,10 @@ export function createSkillBridgeHandler(
       requestBody: outboundBody.slice(0, 512),
       upstreamStatus: resp.status,
       elapsedMs: (deps.now ?? Date.now)() - callStart,
+      // S4 (P5) ctx 通道：未截断原文，**仅供 sink 提取**，不入 row、不落库。
+      // 主路径有响应 ⇒ get / WRITE_LOCK_OPS 可解析出响应侧 {skill_id, version}。
+      inboundBody,
+      responseText: respText,
     });
 
     // 曾经这里会在写操作 / extract 成功时清零 proxy 侧 buffer 计数器,
