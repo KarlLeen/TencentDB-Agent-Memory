@@ -163,6 +163,12 @@ decision-unit / attribution 行承载，不属正文快照面）；**快照面�
   `content_hash` 折叠整条同内容（档①合成块与某消息逐字节相同等罕见情形）；引用验证按需开启。
 - S5 交接注释：引用验证的归一化/剥离/查引工具在共享基座，本模块只出窗口；excluded 清单（§3a）随窗口
   返回，便于判定上下文完整归因。
+  > ✅ **已兑现（2026-09-10）**：归一化/剥离/查引工具已交付 —— `attribution-base-design.md` §4.8（基座-c），
+  > 落地 `src/attribution/citation/`（`normalize.ts` / `wrapper-registry.ts` / `ngram.ts` / `corpus-repo.ts` /
+  > `source.ts`）+ `visible-text.ts`（可见正文/胶水口径已从测试 helper **上移**到生产模块，helper 仅 re-export，T26）。
+  > ⚠️ **excluded 清单仍为缺口**：实现面 `windowVisibleText()` 未带 excluded 字段，基座以
+  > `CitationSourceProvider.excludedCategories()` **留位**（当前返回 `[]`）⇒ 缺口与两种处置见 `attribution-base-design.md`
+  > **§8.3**（本期不做选择，留 50 spec 定形状）。
 
 ## 6. schema（v2 — B5/C1 修订，命名冻结）
 
@@ -288,6 +294,10 @@ DELETE FROM attribution_archive_watermark WHERE last_seen_count = 0 AND epoch = 
   直拼 body 路径，验收③ golden 比对会先于数据漂移暴露。
 - 档①内容与"模型最终序列化正文"之间的差异（如 anthropic system 数组与 openai 提升次序）由验收③
   逐字节校准；S5 归一化工具在共享基座处理渲染包装。
+  > ✅ **已兑现（2026-09-10）**：渲染包装剥离已交付 —— `attribution-base-design.md` §4.8.3（基座-c c-2），
+  > 模板表 `wrapper-registry.ts` + `stripRenderWrappers()`，对 **render-golden 四 case 真实渲染串**做
+  > 删字节审计（每段被删字节必须由表内模板**整段认领**，无可认领 = 不算剥离）+ 幂等 + R8 反例（T18–T20、T27）。
+  > 剥离产物**只用于比较，绝不回写**归档原字节（T17）。
 - compaction 后跨 epoch 是归档超集，"该轮可见"只对同 (epoch, turn) 成立——S5 必须按决策单元锚点的
   epoch+turn 取窗（§5 已交接），否则会把压缩改写与原始版本混淆。
 - 动态注入源现架构为 0（L1 recall 注入器已下线，`injection/index.ts:396-400`）；档① 按任意 hook 通用
