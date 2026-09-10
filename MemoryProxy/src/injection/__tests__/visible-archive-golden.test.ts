@@ -37,6 +37,9 @@ import {
 } from "../../decision-units/message-increment-archive.js";
 import type { AgentContextMetadata, ContextBlock, InjectionHook } from "../types.js";
 import { recordSessionContextBlock, VisibleBlockArchiveObserver } from "../visible-block-archive-observer.js";
+// 共因（s4-smoke-design.md §3 要点 2 / §5.3 纪律 3）：「可见正文提取」与「还原串拼接」口径
+// 只有一份实现 —— S4 真链路冒烟与本装置都从这里取，改一处等于改两处断言口径。
+import { restoredVisibleText, visibleTextOfPiece } from "./_helpers/attribution-window.js";
 
 let dir: string;
 
@@ -136,9 +139,8 @@ describe("验收③装置：injectedBody golden 字节硬比对（合并点等�
       "message:2:3", // user q2（轮2）
     ]);
 
-    // piece "可见正文"（档① = content_utf8 原字节；档② = content_json 反序列化后的文本）
-    const textOf = (p: (typeof pieces)[number]): string =>
-      p.tier === "block" ? p.content : String(JSON.parse(p.content));
+    // piece "可见正文" —— 共享 helper（与 S4 真链路冒烟同源，见 _helpers/attribution-window.ts）
+    const textOf = visibleTextOfPiece;
 
     // 1) 每条 piece 内容逐字节等于其来源
     expect(textOf(pieces[0]!)).toBe(CTX_BYTES);
@@ -154,7 +156,7 @@ describe("验收③装置：injectedBody golden 字节硬比对（合并点等�
     const expectedBytes =
       CTX_BYTES + "help me remember this repo layout" + "i will help with that" + HOOK_BYTES +
       "add: src/db is the persistence layer";
-    const restored = pieces.map(textOf).join("");
+    const restored = restoredVisibleText(pieces);
     expect(restored.length).toBe(expectedBytes.length);
     expect(Buffer.byteLength(restored, "utf8")).toBe(Buffer.byteLength(expectedBytes, "utf8"));
     expect(restored).toBe(expectedBytes);
@@ -188,9 +190,8 @@ describe("验收③装置：injectedBody golden 字节硬比对（合并点等�
       "block:2:0",
       "message:2:3",
     ]);
-    const textOf = (p: (typeof pieces)[number]): string =>
-      p.tier === "block" ? p.content : String(JSON.parse(p.content));
-    const restored = pieces.map(textOf).join("");
+    const textOf = visibleTextOfPiece;
+    const restored = restoredVisibleText(pieces);
     expect(restored.includes(CTX_BYTES)).toBe(false); // B1 场景：漏 system/session-context 不再静默
   });
 });
