@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { buildAttributionJudgePromptRef } from "../prompts/judge-prompt.js";
 import {
   JUDGE_GOLDEN_CASE_IDS,
   renderJudgeGolden,
@@ -35,12 +36,17 @@ describe("T15 golden", () => {
     for (const id of JUDGE_GOLDEN_CASE_IDS) {
       expect(actual[id]).toEqual(snapshot.cases[id]);
     }
-    // 整文件逐字节比（顺序/缩进/尾换行都算契约）
-    const rebuilt = `${JSON.stringify({ promptRef: snapshot.promptRef, cases: actual }, null, 2)}\n`;
+    // 整文件逐字节比（顺序/缩进/尾换行都算契约）。
+    // ⚠️ promptRef 取**活的**模板（`buildAttributionJudgePromptRef()`），不是快照里的自己 ——
+    //    否则 prompt 文本改了也不会红（C8 / R6"空洞门禁"）。这一处曾是真空洞，已修。
+    const rebuilt = `${JSON.stringify({ promptRef: buildAttributionJudgePromptRef(), cases: actual }, null, 2)}\n`;
     expect(rebuilt).toBe(raw);
   });
 
-  it("prompt_ref 的 sha256 与快照一致（prompt 文本是不可漂移的契约）", () => {
+  it("prompt_ref 的 sha256 与**活模板**一致（改一个字 prompt 必红，C8 非空转）", () => {
+    // 主判据：活模板 vs 快照（prompt 文本 / prompt id / version / source 任一漂移必红）。
+    expect(buildAttributionJudgePromptRef()).toEqual(snapshot.promptRef);
+    // 副判据：快照本身未被手改（防止"改坏快照来迎合代码"）。
     expect(snapshot.promptRef).toEqual({
       memory_prompt_id: "attribution-judge-v1",
       version: 1,
