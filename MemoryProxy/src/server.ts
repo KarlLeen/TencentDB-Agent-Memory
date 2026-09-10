@@ -10,6 +10,8 @@ import { handleWorkbuddyEndpoint } from "./workbuddyHandler.js";
 import { apiKeyToKeyId, extractBearerToken } from "./opik.js";
 import { createSkillBridgeHandler } from "./skill/skill-bridge.js";
 import { createMemoryBridgeHandler } from "./memory/memory-bridge.js";
+import { createBridgeFetchEventSink } from "./attribution/bridge-fetch-events.js";
+import { addBridgeTelemetrySink } from "./memory/bridge-telemetry.js";
 import { createInstanceDestroyHandler } from "./routes/instance-destroy.js";
 import { createRateLimitHandlers } from "./routes/rate-limits.js";
 import { hasAnalyseMarker, hasCostGuardMarker } from "./routes/whitelist.js";
@@ -128,7 +130,14 @@ export function createApp(config: ProxyConfig): Hono {
   // 与 OpenAI chat/completions 生效）。详见 directHandler.ts 头部注释。
   app.all("/direct/*", (c) => handleDirectPassthrough(c, config));
 
-// Skill bridge: LLM curls land here, proxy injects auth + identity, forwards to core.
+// S4（45-bridge-telemetry-sink.md §3.4）：bridge fetched 事件的叠加式 SQLite sink。
+  // 装配在 bridge handler **构造之前**；缺省关闭 ⇒ 不注册 ⇒ 零新行、零新表访问，
+  // CH 通路保持默认 sink 逐字段不变（本 sink 是叠加，不是替换）。
+  if (config.injection?.bridgeFetchEvents?.enabled) {
+    addBridgeTelemetrySink(createBridgeFetchEventSink());
+  }
+
+  // Skill bridge: LLM curls land here, proxy injects auth + identity, forwards to core.
   // MUST be registered before the agent-prefixed `/:agent/v1/*` routes below.
   const bridgeHandler = createSkillBridgeHandler(config);
   app.post("/skill-bridge/*", (c) => bridgeHandler(c));
