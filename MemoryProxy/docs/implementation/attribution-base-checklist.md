@@ -76,9 +76,9 @@
       （子进程退出前 flush，`spawnSync` 返回后即可读）
 - [x] **C10 回归**：`npm test` 全量数字 ≥ 基线且**新增用例全绿**；`typecheck:baseline` → `PASS — 55`；
       `git status` **生产语义零改动**（只有新文件 + additive DDL）
-      —— ✅ 实测：`Test Files 28 passed / Tests 364 passed`（基线 16 files / 247）；
+      —— ✅ 实测：`Test Files 29 passed / Tests 373 passed`（基线 16 files / 247）；
       `tsc-baseline: PASS — 55 errors, all within allow-list`；
-      `git status` 待提交项 = **1 个改测试 + 1 个新测试**，生产代码零改动
+      `git status` 待提交项 = **1 个改测试 + 2 个新测试**，生产代码零改动
 - [x] **C11 基座-c 上移零漂移**（design §4.8.1 / T26）：`visible-archive-golden` + `visible-archive-http-smoke`
       **复跑逐字节绿**；`src/injection/__tests__/_helpers/attribution-window.ts` 只剩 **re-export**（防两份实现并存）
       —— ✅ 实测：`visible-archive-golden` **5 passed** + `visible-archive-http-smoke` **10 passed**
@@ -111,11 +111,22 @@
 
 **注意**：矩阵 5/6 是**降级路径**，断言的是"不抛 + 不伪造"，不是"有数据"。
 
-**实测（本轮）**：行 **1/2/3/4/7** 有证据 —— 行 1+2 由三跳冒烟的 C2 负例覆盖（`enqueue=false` ⇒ 入队侧零访问、
-但归档/响应照常）；行 3/4 由三跳冒烟正例覆盖（含"第 2 次连认领都不发生"这一更强形态）；
-行 7 由 `worker.test.ts:86-101` 的 `--retry-failed` 真入口覆盖。
-行 **5/6（DB 不可用降级）本轮未实测** —— 需人为让 `getDb()` 返回 null（Node 版本/rebuild 前置），
-属"未被负面证据覆盖"的缺口，登记在此，留给下一轮或 50 spec 起真 provider 时一并补。
+**实测（本轮）**：行 **1/2** 由三跳冒烟的 C2 负例覆盖（`enqueue=false` ⇒ 入队侧零访问、但归档/响应照常）；
+行 **3** 由三跳冒烟正例覆盖（跳①→跳②→跳③ 闭合）；行 **4** 由三跳冒烟幂等用例覆盖
+（含"第 2 次连认领都不发生"这一更强形态）；行 **7** 由 `worker.test.ts:86-101` 的 `--retry-failed` 真入口覆盖。
+
+行 **5/6**：**先更正一条登记错误** —— 回填时我写"行 5/6 本轮未实测"，是**误判**（当时没检索 T11）：
+- 行 **6** 早已实测：`worker.test.ts` T11 把 `PROXY_DB_PATH` 指向一个**目录**让 `getDb()` 真返回 null，
+  断言 `main(["--once"])` → `EXIT_DB_UNAVAILABLE`（明确报错 + 非零码、不挂死、不伪造成功）；
+- 行 **5** 的"Null 实现不抛"也已有：`judge-queue-repo.test.ts` T11（注入 `new NullAttributionJudgeQueueRepo()`）。
+
+**真正的缺口比"未实测"更窄、也更深**：既有证据**全是手工注入 Null 实现**，于是 `getXxxRepo()` 里
+`db ? new Sqlite… : new Null…` 的 **else 分支从未被走到**，`NullCitationCorpusRepo` **类本体检不到**
+（c-4 的"空语料 ⇒ 空表"是拿**手搓字面量**证的，不是拿生产选出来的那个对象证的）。
+⇒ 已补装置 `src/attribution/__tests__/db-degraded-singletons.test.ts`（**9 例**）：真让 `getDb() → null`，断言
+四类单例**经真实选择分支**落到 Null（含 `constructor.name === "NullCitationCorpusRepo"`）、
+`enqueueUnitsForJudge` 真入队路径 `inserted === 0`、provider 出空表且覆盖率走 `NaN` 哨兵（不是合法 0）、
+且进程确实打了 F1 降级 warn。行 **5/6 自此双证齐**（Null 实现语义 + 单例选择分支）。
 
 ---
 
@@ -167,10 +178,11 @@ SELECT status, COUNT(*) FROM attribution_judge_queue GROUP BY status;
 | 新增单测 T16–T27（基座-c，design §4.8/§5） | 全绿（含 T18 删字节审计、T20 反例、T21 确定性） | ✅ **77 passed / 5 files**（normalize 13 + wrapper-registry 27 + ngram 22 + source 11 + visible-text 4） | `npx vitest run src/attribution/citation` |
 | 基座-c 接口形状 | **只返回数字/数组**，无布尔判定（T24） | ✅ `gramCoverage` 键恰 `{coverage,covered,distinct,n}` 且全 number；`describeMatchLevel` 恰 `{level,ops}`；"无依据"走 `NaN` 哨兵 | `ngram.test.ts` / `normalize.test.ts` |
 | P0 两套装置（上移后复跑） | 逐字节绿（T26 / C11） | ✅ golden **5** + http-smoke **10** = **15 passed**（零改动复跑） | `npx vitest run src/injection/__tests__/visible-archive-{golden,http-smoke}.test.ts` |
-| `npm test` 全量 | ≥ 16 files / 247 + 新增 | ✅ **28 files / 364 passed**（0 fail） | `npm test` |
+| `npm test` 全量 | ≥ 16 files / 247 + 新增 | ✅ **29 files / 373 passed**（0 fail） | `npm test` |
 | `npm run typecheck:baseline` | `PASS — 55`（触达文件零新增） | ✅ `tsc-baseline: PASS — 55 errors, all within allow-list` | `npm run typecheck:baseline` |
 | 三跳冒烟（design §6 步 1–4） | 入队 ≥1 → 消费 1 行 → 再跑不增行 | ✅ **4 tests passed**；真 HTTP 入队 ≥1 → **真 worker 子进程**消费**恰好 1 行** → 再跑不增行；另含 C2 负例与 C9 日志 | `src/attribution/__tests__/base-three-hop-smoke.test.ts`（装置即证据，可复跑） |
 | 缺省 off 回归（§6 步 6） | 队列 0 行、其余逐项相同 | ✅ 队列四状态全 0 + details 0；同请求档① ≥1（正向对照）。⚠️ "v1 足迹逐项相同"未做（见 C2 注） | `base-three-hop-smoke.test.ts` 第 4 例 |
+| DB 降级（矩阵 5/6） | `getDb() → null` ⇒ 四类单例经**真实选择分支**落 Null，不抛不伪造 | ✅ **9 passed**（真 null 路径 + `NullCitationCorpusRepo` 类本体 + `enqueueUnitsForJudge` 真路径 + NaN 哨兵） | `src/attribution/__tests__/db-degraded-singletons.test.ts` |
 | 生产语义改动 | **0**（新文件 + additive DDL 除外） | ✅ 待提交项 = 1 改测试 + 1 新测试；生产代码 `git diff` 为空 | `git status` / `git diff --stat` |
 | golden 门禁 | 改 prompt 必红（已变异验证并还原） | ✅ **修复后**验证：改 `"…judge."`→`"…judge!"` ⇒ **2 例红**；还原 ⇒ 绿、diff 空 | `judge-golden.test.ts`（原断言为空转，已修，见 C8） |
 | 文档待办 M2（design §9） | 00 spec §1 L21-22 / §9 L135 + handoff §2 L55 三处勘正 | ✅ 三处已勘正（随基座-c 文档轮落地） | `git log --oneline`（docs commit ① ） |
@@ -216,8 +228,8 @@ SELECT status, COUNT(*) FROM attribution_judge_queue GROUP BY status;
 | c-4 | 排他性检查**输入源**（全局语料读口 + 会话窗口/资产文本/稀有度表；**只读取数、不判定**） | `citation/corpus-repo.ts`、`citation/source.ts` |
 | — | 三跳冒烟装置（本条目的主证据） | `attribution/__tests__/base-three-hop-smoke.test.ts`（新） |
 
-**门禁数字**：`npm test` **28 files / 364 passed**｜`typecheck:baseline` **PASS — 55**｜
-P0 两套装置复跑 **15 passed**｜归属子树 **117 tests / 12 files**。
+**门禁数字**：`npm test` **29 files / 373 passed**｜`typecheck:baseline` **PASS — 55**｜
+P0 两套装置复跑 **15 passed**｜归属子树 **126 tests / 13 files**。
 
 **本轮发现并修掉的真实缺陷（1 个）**
 
@@ -230,7 +242,11 @@ P0 两套装置复跑 **15 passed**｜归属子树 **117 tests / 12 files**。
 
 1. **`excluded` 清单**仍未落地（40 spec §5 L164）：`windowVisibleText()` 不带 excluded 字段，
    c-4 以 `excludedCategories()` **留位返回 `[]`**；缺口与两种处置见 design **§8.3**，本期**不做选择**。
-2. **矩阵 5/6（DB 不可用降级）未实测**（见 §3 注）。
+2. ~~**矩阵 5/6（DB 不可用降级）未实测**（见 §3 注）。~~
+   **→ 本项登记有误，且真正的缺口已收口**：行 6 早有实测（`worker.test.ts` T11 真造
+   `getDb() → null`）、行 5 的 Null 实现也早有实测；实际缺口是"**单例选择分支**从未被走到 +
+   `NullCitationCorpusRepo` 类本体检不到"，已由 `db-degraded-singletons.test.ts`（9 例）补上。
+   详见 §3 注的更正段。
 3. **C2 的两条附加期望未覆盖**："无 `[attribution-judge]` 日志"（由 C9 从反面覆盖）、
    "v1 足迹与开 toggle 前逐项相同"（需前快照对比，留人工）。
 4. **判定位未接线**：`match_level` / `ngram_table_sha256` / `coverage` 的**出参**已在 c-1/c-3 就绪、
@@ -239,3 +255,22 @@ P0 两套装置复跑 **15 passed**｜归属子树 **117 tests / 12 files**。
    **不含任何归因正确性**（R6 诚实口径）。
 
 **未改**：P0 已闭验收物（`visibleTextRepo` 等）一行未改；生产语义零改动；DDL 纯 additive（`SCHEMA_VERSION` 仍 1）。
+
+### 2026-09-10 · 复核后收口（复核方实测通过 + 唯一补项）
+
+复核方独立重跑：工作树/分支/DCO ✅｜`29 files / 373 passed` ✅｜`PASS — 55` ✅｜
+三跳 4 + golden 3 ✅｜P0 两装置 15 ✅｜"生产语义改动 0"成立 ✅｜门禁非空洞为真修 ✅｜
+c-1/c-2/c-3/c-4 逐条读码确认 ✅｜口径上移 ✅｜40 spec 注释"原文保留 + 追加兑现注"✅。
+
+复核方另给出**一处口径澄清（非缺陷）**，登记备查：
+`visibleTextRepo.ts` 文件本身含 INSERT/UPDATE（它是 P0 的写口）——c-4 的"零写"靠**调用面**成立
+（只走 `listBlockSeen` 的纯 SELECT 分支与只读窗口函数），而不是"该文件无写语句"。
+守门人正是 T25 的"写计数全 0 + 水位行不变"。**T25 的措辞已按此理解**，勿读成"文件级无写语句"。
+
+**唯一补项（本轮回填）**：矩阵行 5/6 → 新增 `db-degraded-singletons.test.ts`（9 例，见 §3 注）。
+同时**更正**上一条处理记录里"行 5/6 未实测"的**误判** —— 那是我回填时没检索 T11 造成的登记错误，
+复核方按原文核验时被我带偏（其原话把两件事并成一句）。真实缺口更窄但更深：**单例选择分支**
+（`db ? Sqlite… : new Null…` 的 else）从未被走到、`NullCitationCorpusRepo` 类本体检不到。
+
+**复核方认同不动、本期确认保留的缺口**：`excluded` 清单形状、判定位接线 —— 均属 50 spec，
+提前定即自造漂移源。**复核结论**：基座-c 完工。
