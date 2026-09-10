@@ -7,6 +7,13 @@
  *   （pre-injection 等价层）与 S4（真链路 HTTP 层）若各自内联一套拼接/归因规则，两套规则
  *   各自自洽 = 假绿。改动本文件等于同时改动两处断言口径。
  *
+ * ⚠️ **口径归属已变更（2026-09-10，共享基座-c §4.8.1）**：`SEAM_GLUE` / `visibleTextOfPiece` /
+ *   `restoredVisibleText` 的**实现**上移到生产模块 `src/attribution/citation/visible-text.ts`
+ *   （基座-c 的归一化/剥离/n-gram 都必须吃同一份"可见正文"），本文件改为**纯 re-export**。
+ *   因此"只能有一份实现"的落点从本文件搬到了那里；本文件剩 `stripGlue`（辅助诊断）与
+ *   `rebuildInjectedBodyFromArchive`（测试侧重建工具）两份**测试专用**件。
+ *   对上（两套装置）的 import 面零改动 ⇒ 断言口径零漂移（T26）。
+ *
  * 上游事实锚点（均已按源码核过，非照抄文档行号）：
  *   - 档① piece.content = attribution_block_text.content_utf8（**原字节**，直接可见）
  *   - 档② piece.content = attribution_message_snap.content_json（JSON 字符串，需反序列化）
@@ -20,30 +27,19 @@ import {
   type VisibleTextRepo,
   type VisibleWindowPiece,
 } from "../../../db/visibleTextRepo.js";
+// ⚠️ 口径已上移到生产模块（共享基座-c，attribution-base-design.md §4.8.1）：
+// 本文件**只 re-export**，不再自己实现 —— 这是"只能有一份实现"纪律的落地形态。
+// 断言口径零漂移：本文件仍导出同名同签名的 SEAM_GLUE / visibleTextOfPiece /
+// restoredVisibleText，两套装置（golden + S4 真链路冒烟）的 import 面**零改动**。
+import {
+  restoredVisibleText,
+  SEAM_GLUE,
+  visibleTextOfPiece,
+} from "../../../attribution/citation/visible-text.js";
 
-/** 接缝胶水：string 形态 system 追加 session-context 块时的分隔符。 */
-export const SEAM_GLUE = "\n\n";
+export { restoredVisibleText, SEAM_GLUE, visibleTextOfPiece };
 
 export type WindowPiece = VisibleWindowPiece;
-
-/**
- * piece 的"可见正文"（**与 golden 装置逐字节同口径**）：
- *   - tier === "block"   → content_utf8 原字节，直接返回；
- *   - tier === "message" → content_json 反序列化后的文本。
- */
-export function visibleTextOfPiece(piece: WindowPiece): string {
-  return piece.tier === "block" ? piece.content : String(JSON.parse(piece.content));
-}
-
-/**
- * 归档窗口还原串：按窗口序逐字节拼接，**无分隔符**。
- *
- * 归档的是正文本身，不含 handler 拼接时加的胶水；胶水由重建侧按 SEAM_GLUE 补回
- * （档① 的合成块 content 是不带胶水的纯块体）。
- */
-export function restoredVisibleText(pieces: readonly WindowPiece[]): string {
-  return pieces.map(visibleTextOfPiece).join("");
-}
 
 /**
  * 只剥"接缝胶水"。
