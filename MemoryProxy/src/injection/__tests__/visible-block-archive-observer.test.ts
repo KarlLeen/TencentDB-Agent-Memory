@@ -355,3 +355,62 @@ describe("write counters 纪律", () => {
     expect(c2.failures).toBe(c1.failures);
   });
 });
+
+// ── §8.1 验收：静态注入块首轮落 text+seen、次轮 0 新 text / 1 新 seen ─────────────
+
+describe("§8.1 验收：静态注入块两轮重注入的写入纪律（接缝 A）", () => {
+  const SESSION = "sess-seam-a";
+  const CONTENT = "<skills>\n  <name>qa</name>\n</skills>\n"; // 每轮重渲染的静态块
+
+  const hook: InjectionHook = {
+    id: "skill-listing-injector",
+    point: "system.suffix",
+    priority: 200,
+    description: "static skill listing",
+    execute: () => [],
+  };
+
+  function meta(turnSeq: number): AgentContextMetadata {
+    return {
+      protocol: "openai",
+      traceId: "trace-seam-a",
+      keyId: "key-seam-a",
+      modelId: "model-seam-a",
+      stream: false,
+      agentSource: "codebuddy",
+      sessionKey: SESSION,
+      turnSeq,
+    };
+  }
+
+  function block(): ContextBlock {
+    return { type: "text", content: CONTENT, metadata: { source: "skill.v1" } };
+  }
+
+  it("次轮同内容重注入：text 行恒定 1 条、seen 每轮 +1（对照 §7 test 2 的跨会话形态）", () => {
+    const observer = new VisibleBlockArchiveObserver();
+
+    // 轮 1：落 text + seen
+    observer.onHookDone(hook, "system.suffix", [block()], 1, undefined, meta(1));
+    expect(tableRows("SELECT * FROM attribution_block_text")).toHaveLength(1);
+    expect(tableRows("SELECT * FROM attribution_block_seen")).toHaveLength(1);
+
+    // 轮 2：同内容重渲染 → 0 新 text、1 新 seen
+    observer.onHookDone(hook, "system.suffix", [block()], 1, undefined, meta(2));
+    const textRows = tableRows("SELECT content_id FROM attribution_block_text");
+    const seenRows = tableRows("SELECT content_id, turn_seq FROM attribution_block_seen ORDER BY seen_id");
+    expect(textRows).toHaveLength(1); // 静态注入每轮重渲染，content_hash 全局去重不膨胀
+    expect(seenRows).toHaveLength(2); // occurrence 每轮一条
+    expect(seenRows.map((r) => r.turn_seq)).toEqual([1, 2]);
+    // 两条 occurrence 共享同一 text 行
+    expect(seenRows[0]!.content_id).toBe(textRows[0]!.content_id);
+    expect(seenRows[1]!.content_id).toBe(textRows[0]!.content_id);
+
+    expect(getVisibleArchiveWriteCounters()).toMatchObject({
+      blockTextInserted: 1,
+      blockTextDedupe: 1,
+      blockSeen: 2,
+      failures: 0,
+    });
+  });
+});

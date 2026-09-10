@@ -24,11 +24,13 @@ import {
   __resetVisibleTextRepoForTests,
   getVisibleArchiveWriteCounters,
   getVisibleTextRepo,
+  windowVisibleText,
 } from "../../db/visibleTextRepo.js";
 import type { BlockSeenWithTextRow, MessageSnapRow } from "../../db/visibleTextRepo.js";
 import { sha256Of } from "../../injection/visible-block-archive-observer.js";
 import { countHumanTurns } from "../../turnSeq.js";
 import {
+  DEFAULT_MAX_MESSAGE_CHARS,
   archiveMessageIncrement,
   classifySameTurnWholeContainment,
   deriveSegmentTurnSeqs,
@@ -306,6 +308,47 @@ describe("archiveMessageIncrement（全链路，temp SQLite）", () => {
     expect(snaps[2]!.role).toBe("user");
     expect(snaps[2]!.turn_seq).toBe(1);
     expect(snaps[2]!.content_hash).toBe(sha256Of("fetched payload"));
+  });
+
+  it("§8.2 长 tool_result（cap 内）原样还原，并在拼接窗口可逐字节锚定", () => {
+    // 采样量级对齐 §8.2 的 long-probe（~21k），构造 cap(65,536) 内的 24k 召回 payload。
+    const payload = `FETCHED-DOC-HEAD\n${"memory line\n".repeat(2_000)}FETCHED-DOC-TAIL`;
+    expect(payload.length).toBeGreaterThan(20_000);
+    expect(payload.length).toBeLessThan(DEFAULT_MAX_MESSAGE_CHARS);
+
+    const msgs: Msg[] = [
+      om("system", "You are a proxy."),
+      om("user", "recall the fetched doc"),
+      om("assistant", [{ type: "text", text: "recalling" }]),
+      om("user", [{ type: "tool_result", tool_use_id: "t-doc", content: payload }]),
+    ];
+    archiveMessageIncrement({ config: cfg(), protocol: "anthropic", messages: msgs, sessionKey: SESSION });
+
+    const repo = getVisibleTextRepo();
+    const snap = repo.listMessageSnaps(SESSION).find((s) => s.content_hash === sha256Of(payload));
+    expect(snap).toBeDefined();
+    // 原样还原：未截断、chars = 可见正文原长、content_json 逐字节 == 来源 payload
+    expect(snap!.truncated).toBe(0);
+    expect(snap!.chars).toBe(payload.length);
+    expect(snap!.role).toBe("user");
+    const parsed = JSON.parse(snap!.content_json) as Array<{ type: string; content: string }>;
+    expect(parsed[0]!.type).toBe("tool_result");
+    expect(parsed[0]!.content).toBe(payload);
+    expect(Buffer.byteLength(parsed[0]!.content, "utf8")).toBe(Buffer.byteLength(payload, "utf8"));
+
+    // 拼接窗口锚定：该 piece 可定位（epoch/turn/seq 槽位），可见正文逐字节等于来源（引用验证可锚定）
+    const win = windowVisibleText(repo, SESSION);
+    const piece = win.pieces.find((p) => p.tier === "message" && p.contentHash === sha256Of(payload));
+    expect(piece).toBeDefined();
+    expect(piece).toMatchObject({
+      epoch: 0,
+      turnSeq: 1,
+      seq: 3,
+      role: "user",
+      truncated: false,
+      chars: payload.length,
+    });
+    expect(messageTextFingerprint(JSON.parse(piece!.content))).toBe(payload);
   });
 
   it("compaction（messageCount < 水位）→ epoch+1 归零重放；旧 epoch 行保留、改写不吞行（B4）", () => {

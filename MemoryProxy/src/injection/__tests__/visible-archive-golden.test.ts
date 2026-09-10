@@ -23,10 +23,17 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { __resetDbForTests } from "../../db/index.js";
-import { __resetVisibleTextRepoForTests, getVisibleTextRepo, readWatermark, windowVisibleText } from "../../db/visibleTextRepo.js";
+import {
+  __resetVisibleTextRepoForTests,
+  archiveVisibleText,
+  getVisibleTextRepo,
+  readWatermark,
+  windowVisibleText,
+} from "../../db/visibleTextRepo.js";
 import {
   archiveMessageIncrement,
   classifySameTurnWholeContainment,
+  messageTextFingerprint,
 } from "../../decision-units/message-increment-archive.js";
 import type { AgentContextMetadata, ContextBlock, InjectionHook } from "../types.js";
 import { recordSessionContextBlock, VisibleBlockArchiveObserver } from "../visible-block-archive-observer.js";
@@ -235,5 +242,68 @@ describe("互斥断言（40 spec §7 test 7 / R1-B2 收窄）—— 同轮捕获
       role: "user",
       kind: "whole",
     });
+  });
+});
+
+// ── §8.4 验收装置：合成 compaction 会话串联（截断重发 + 压缩改写）────────────────
+
+describe("验收④装置：合成 compaction 会话串联（B4 → S5 交接）", () => {
+  const S = "sess-compact";
+  const FULL: Msg[] = [
+    { role: "system", content: EXCLUDED_SYSTEM },
+    { role: "user", content: "q1" },
+    { role: "assistant", content: "a1" },
+    { role: "user", content: "q2" },
+    { role: "assistant", content: "a2" },
+  ];
+  // 截断重发 + 压缩改写：messageCount(3) < 水位(5) ⇒ epoch+1 归零重放
+  const COMPACT: Msg[] = [
+    { role: "system", content: EXCLUDED_SYSTEM },
+    { role: "user", content: "q1 (compacted)" },
+    { role: "assistant", content: "a1 (compacted)" },
+  ];
+
+  it("epoch 递增 / 旧行保留 / 单 epoch 不混代 / 跨 epoch 为超集且可按锚点取窗交 S5", () => {
+    archiveMessageIncrement({ config: CFG, protocol: "openai", messages: FULL, sessionKey: S });
+    recordSessionContextBlock({ sessionKey: S, turnSeq: 1, content: CTX_BYTES });
+    archiveMessageIncrement({ config: CFG, protocol: "openai", messages: COMPACT, sessionKey: S });
+
+    const repo = getVisibleTextRepo();
+
+    // 1) epoch 递增 + 水位归零重放
+    expect(readWatermark(repo, S)).toEqual({ epoch: 1, lastSeen: COMPACT.length });
+    expect(repo.listEpochs(S)).toEqual([0, 1]);
+
+    // 2) 旧行保留（epoch0 的 4 条消息行不被压缩改写吞掉）
+    expect(repo.listMessageSnaps(S, { epoch: 0 })).toHaveLength(4);
+    expect(repo.listMessageSnaps(S, { epoch: 1 })).toHaveLength(2);
+
+    // 3) 单 epoch 视图不混代（window 默认取当前水位 epoch）；档① 无 epoch 维度 → 跨代并入（§5 诚实注记）
+    const win = windowVisibleText(repo, S);
+    expect(win.epoch).toBe(1);
+    const winMsgs = win.pieces.filter((p) => p.tier === "message");
+    expect(winMsgs).toHaveLength(2);
+    expect(winMsgs.every((p) => p.epoch === 1)).toBe(true);
+    expect(win.pieces.some((p) => p.tier === "block" && p.content === CTX_BYTES)).toBe(true);
+
+    // 4) 跨 epoch 视图 = 归档超集（原始 + 改写并排，按 epoch 升序）
+    const archive = archiveVisibleText(repo, S);
+    expect(archive.epochs).toEqual([0, 1]);
+    expect(archive.pieces.map((p) => messageTextFingerprint(JSON.parse(p.content)))).toEqual([
+      "q1",
+      "a1",
+      "q2",
+      "a2",
+      "q1 (compacted)",
+      "a1 (compacted)",
+    ]);
+    const archKeys = new Set(archive.pieces.map((p) => `${p.epoch}:${p.turnSeq}:${p.seq}`));
+    for (const p of winMsgs) expect(archKeys.has(`${p.epoch}:${p.turnSeq}:${p.seq}`)).toBe(true);
+
+    // 5) S5 交接：按锚点 (epoch, turn) 取窗不混代（决策单元锚定旧代时仍可还原当时代正文）
+    const e0t1 = windowVisibleText(repo, S, { epoch: 0, turnFrom: 1, turnTo: 1 });
+    const e0msgs = e0t1.pieces.filter((p) => p.tier === "message");
+    expect(e0msgs.every((p) => p.epoch === 0)).toBe(true);
+    expect(e0msgs.map((p) => messageTextFingerprint(JSON.parse(p.content)))).toEqual(["q1", "a1"]);
   });
 });
