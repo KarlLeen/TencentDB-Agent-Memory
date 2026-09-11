@@ -22,6 +22,7 @@
 
 import type { Context } from "hono";
 import { getSessionStore } from "../session/store.js";
+import { resolveConversationId } from "../session/session-key.js";
 import type { BindingRepo } from "../db/binding-repo.js";
 import type { ProxyConfig } from "../types.js";
 import { getMetadataClient } from "../meta/client.js";
@@ -75,22 +76,14 @@ interface SessionIdFields {
 }
 
 /**
- * curl 模板固定 2 header:
- *   - x-conversation-id → sessionId
- *   - x-tdai-service-id → spaceId
+ * 认哪些 session 头 = **唯一真相** `session/session-key.ts` 的 `resolveConversationId`。
+ * ⚠️ 不要在此处重复头列表 —— 历史上这里抄过一份（且抄错位置）出过一次分歧。
+ *
+ * 但**调用方**（curl 模板）固定只带 2 header：x-conversation-id → sessionId、
+ * x-tdai-service-id → spaceId ⇒ 模板路径上只有 `x-conversation-id` 会被用到（其余头仅在探针/手工调用下出现）。
  *
  * 不再吃 Authorization。见 docs/design/2026-08-03-binding-flatten.md。
  */
-function deriveSessionId(c: Context): string | null {
-  return (
-    c.req.header("x-conversation-id") ??
-    c.req.header("x-session-id") ??
-    c.req.header("x-chat-id") ??
-    c.req.header("x-thread-id") ??
-    c.req.header("x-claude-code-session-id") ??
-    null
-  );
-}
 
 function toIdFields(
   state: import("../session/types.js").SessionInitState | undefined,
@@ -293,14 +286,14 @@ export function createMemoryBridgeHandler(
       return envelope(41501, `${TAG} content-type must be application/json`, 415);
     }
 
-    const sessionKey = deriveSessionId(c);
+    const sessionKey = resolveConversationId(c);
     if (!sessionKey) {
       emitBridgeRejectTelemetry({
         sessionKey: "", bridgeSource: "memory-bridge",
         rejectReason: "missing_conversation_id", httpStatus: 401,
         executedEndpoint: sub,
       });
-      return envelope(40101, `${TAG} missing x-conversation-id (or x-session-id / x-chat-id / x-thread-id) header`, 401);
+      return envelope(40101, `${TAG} missing session header (see resolveConversationId)`, 401);
     }
     const spaceId = c.req.header("x-tdai-service-id")
       ?? config.tdai?.serviceId
@@ -424,6 +417,7 @@ export function createMemoryBridgeHandler(
           // S4 (P5) ctx 通道：未截断原文，**仅供 sink 提取**，不入 CH row、不落库。
           // 本期 memory 通道不解析（§8.1），传值只为两桥同构。
           inboundBody,
+          attributionSessionKey: resolveConversationId(c) ?? sessionKey,
           responseText: text,
         });
       }

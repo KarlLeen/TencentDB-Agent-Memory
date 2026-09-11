@@ -31,6 +31,10 @@ import {
 } from "../../db/attributionEventRepo.js";
 import { __resetDbForTests, getDb } from "../../db/index.js";
 import {
+  __resetDecisionUnitStateForTests,
+  runDecisionUnitExtraction,
+} from "../../decision-units/decision-unit-runner.js";
+import {
   __resetBridgeTelemetrySinksForTests,
   addBridgeTelemetrySink,
   emitBridgeToolCallTelemetry,
@@ -62,6 +66,26 @@ const withConv = { ...JSON_HEADERS, "x-conversation-id": CONV } as const;
 
 /** 请求体带哨兵，且字段顺序刻意让 skill_id 靠后（呼应 P5：截断会丢 id）。 */
 const GOOD_BODY = JSON.stringify({ note: SENTINEL_REQ, skill_id: SKILL_ID });
+
+/**
+ * 哨兵 2 · 9 类 reject 的 `session_key` 形态（2026-09-10 **实测**，非推断；HEAD 与
+ * 归一化后逐字相同 ⇒ 17 处 reject 行为零变化）：
+ *   - 五类在"解析会话之前"早退（route/method/content-type/body/缺 header）⇒ `""`；
+ *   - `session_not_initialized` 有 header 键但无会话 ⇒ 裸 `conv-never-seeded`；
+ *   - 其余三类（已过会话解析、业务前置校验失败）⇒ 裸 `CONV`。
+ * 三者**都**不是 composite ⇒ 它们本来就在归因域，只有 success 路径是 composite。
+ */
+const REJECT_SESSION_KEY: Record<string, string> = {
+  unknown_path: "",
+  subpath_forbidden: "",
+  method_not_allowed: "",
+  content_type_invalid: "",
+  missing_conversation_id: "",
+  session_not_initialized: "conv-never-seeded",
+  write_ops_disabled: CONV,
+  body_not_object: CONV,
+  invalid_json_body: CONV,
+};
 
 /** `ToolCallLogInput` 的键集合 —— S4 之前/之后必须完全相同（F14）。 */
 const ROW_KEYS = [
@@ -236,7 +260,11 @@ describe("用例 5 · 落行形状（get 成功）", () => {
     expect(row.spaceId).toBe(SPACE);
     expect(row.userId).toBe(USER);
     expect(row.agentSource).toBe("codebuddy");
-    expect(row.sessionKey).toBe(COMPOSITE); // 用 composite_key，不是裸 conversation id
+    // ⚠️ 语义变更声明（2026-09-10，§7.1 归一化）：本行原为 `COMPOSITE`
+    // （`codebuddy:conv-s4`）。归一化后 S4 **落 `attribution_events` 的 session_key**
+    // 改用裸归因键（与 decision_unit.created 同域）；**CH 埋点键仍是 composite**
+    // —— 见用例 11 哨兵 3（若这里与 CH 行一起变了，说明改错了地方）。
+    expect(row.sessionKey).toBe(CONV); // 裸归因键，不是 composite
     // 不伪造轮次/单元
     expect(row.turnSeq).toBeNull();
     expect(row.msgSeq).toBeNull();
@@ -602,6 +630,9 @@ describe("用例 8 · 9 类 reject 早退全自动覆盖", () => {
 
     expect(repo.rows).toHaveLength(1); // 验收③
     const row = repo.rows[0];
+    // 哨兵 2 · reject 形态零变化（实测钉死；9 类都**不经过** attributionSessionKey
+    // ⇒ 形状只有 `""` / 裸键三种，与改动前逐字相同）
+    expect(row.sessionKey).toBe(REJECT_SESSION_KEY[reason]);
     expect(row.eventType).toBe("asset_fetched");
     expect(row.assetId).toBeNull();
     expect(row.assetType).toBeNull();
@@ -703,5 +734,207 @@ describe("用例 3b · 提取器产出与真 pin 落库逐字段一致", () => {
     expect(repo.rows[0].assetId).toBe(SKILL_ID);
     expect(assets[0].assetId).toBe(SKILL_ID);
     expect(assets[0].version).toBe(pinned);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 用例 11 · §7.1 归一化哨兵（2026-09-10）
+//
+// 目的：把"fetched 行与 decision_unit.created 行落在同一个 session_key"从
+// "看着对"变成"改错了就红"。每条哨兵都带**反向控制**，防止断言恒真。
+//
+// ⚠️ 证据强度的诚实边界（2026-09-10 补，别把本文件读强了）：
+//   本文件的**哨兵 1 是"管道级"**——主链路那一侧的 `sessionKey` 由 `driveMainTurns`
+//   **手工喂**字符串（直接调 `runDecisionUnitExtraction`，不经 anthropicHandler）。
+//   它证明"两侧口径约定一致"，**证伪不了"主链路退回 composite"**这一类回归
+//   （已实测：把 anthropicHandler 的 sessionKey 改成 composite，本文件 31 条**全绿**）。
+//   端到端证据在 **`bridge-fetch-events-e2e.test.ts`**（真 createApp + 真 HTTP +
+//   生产装配的 sink；同一变异下它会红）。改本文件的人请勿把哨兵 1 的绿当成
+//   "主链路已验证对齐"。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 两个连续主请求 ⇒ 第二条把上一条消息密封出 ≥1 个决策单元（与 P-0 夹具同构）。 */
+const MAIN_TURN_1 = [
+  { role: "user", content: "给 a.ts 加个函数" },
+  {
+    role: "assistant",
+    content: [{ type: "tool_use", id: "e1", name: "Edit", input: { file_path: "a.ts" } }],
+  },
+  { role: "user", content: [{ type: "tool_result", tool_use_id: "e1", content: "ok" }] },
+];
+const MAIN_TURN_2 = [
+  ...MAIN_TURN_1,
+  {
+    role: "assistant",
+    content: [{ type: "tool_use", id: "e2", name: "Edit", input: { file_path: "b.ts" } }],
+  },
+  { role: "user", content: [{ type: "tool_result", tool_use_id: "e2", content: "ok" }] },
+];
+
+/** 走**真** S3 落 decision_unit.created；sessionKey 复刻主链路的裸值口径。 */
+function driveMainTurns(sessionKey: string, agentSource: string): void {
+  const shared = {
+    config: { injection: { decisionUnitExtractor: { enabled: true } } },
+    protocol: "anthropic" as const,
+    mainDialog: true,
+    hasConversation: true,
+    sessionKey,
+    spaceId: SPACE,
+    userId: USER,
+    agentSource,
+  };
+  runDecisionUnitExtraction({ ...shared, messages: MAIN_TURN_1 });
+  runDecisionUnitExtraction({ ...shared, messages: MAIN_TURN_2 });
+}
+
+type FakeAttributionRepo = ReturnType<typeof makeFakeRepo>;
+
+/** 按 eventType 取 fake repo 里已落的行（注意：fake 行是 camelCase，不是 DB 行的 snake_case）。 */
+function rowsOf(repo: FakeAttributionRepo, eventType: string) {
+  return repo.rows.filter((r) => r.eventType === eventType);
+}
+
+describe("用例 11 · §7.1 归一化哨兵", () => {
+  it("哨兵 1 · 真实抓取与决策单元落在同一个 session_key（并证明断言非恒真）", async () => {
+    const repo = makeFakeRepo();
+    setAttributionEventRepo(repo);
+    __resetDecisionUnitStateForTests();
+    addBridgeTelemetrySink(createBridgeFetchEventSink());
+    await seedSession();
+    const app = makeApp(makeConfig({ fetchEvents: true }));
+
+    // ① 真实抓取（真 handler ⇒ 调用点用 resolveConversationId(c)）
+    const res = await app.request("/skill-bridge/v3/skill/get", {
+      method: "POST",
+      headers: { ...withConv },
+      body: GOOD_BODY,
+    });
+    expect(res.status).toBe(200);
+    // ② 真实决策单元落行（同一逻辑会话 + 主链路口径）
+    driveMainTurns(CONV, "codebuddy");
+
+    const fetched = new Set(rowsOf(repo, "asset_fetched").map((r) => r.sessionKey));
+    const units = new Set(rowsOf(repo, "decision_unit.created").map((r) => r.sessionKey));
+
+    expect(fetched.size).toBe(1);
+    expect(units.size).toBe(1); // 归一化的价值：两边各恰好一个（同一）键
+    expect([...fetched]).toEqual([...units]); // ← 核心断言（S5 锚定的前提）
+    expect([...fetched]).toEqual([CONV]);
+
+    // ③ 反向控制：注入"归一化前"的形态（composite + 不带 attributionSessionKey）
+    const oldStyle: string[] = [];
+    addBridgeTelemetrySink((row) => {
+      oldStyle.push(row.sessionKey);
+    });
+    emitBridgeToolCallTelemetry(baseInput());
+    expect(oldStyle).toEqual([COMPOSITE]);
+    expect(new Set(oldStyle)).not.toEqual(units); // ← 旧形态确实 join 不上
+  });
+
+  it("哨兵 3 · 归一化只动归因行：CH 行的 session_key 仍是 composite（F14）", async () => {
+    const repo = makeFakeRepo();
+    setAttributionEventRepo(repo);
+    const chRows: ToolCallLogInput[] = [];
+    // 观测 emit 传给**所有** sink 的同一个 row 对象 = CH 契约输入
+    addBridgeTelemetrySink((row) => {
+      chRows.push(row);
+    });
+    addBridgeTelemetrySink(createBridgeFetchEventSink());
+    await seedSession();
+    const app = makeApp(makeConfig({ fetchEvents: true }));
+
+    const res = await app.request("/skill-bridge/v3/skill/get", {
+      method: "POST",
+      headers: { ...withConv },
+      body: GOOD_BODY,
+    });
+    expect(res.status).toBe(200);
+
+    expect(chRows).toHaveLength(1);
+    expect(chRows[0].sessionKey).toBe(COMPOSITE); // ← 埋点域契约不变
+    expect(buildToolCallLogRow(chRows[0]).session_key).toBe(COMPOSITE);
+    expect(rowsOf(repo, "asset_fetched")[0].sessionKey).toBe(CONV); // ← 归因域已归一化
+  });
+
+  it("哨兵 4 · ctx 白名单：未传即不出现；传了原样透传（不加工）", () => {
+    const ctxs: Array<Record<string, unknown>> = [];
+    addBridgeTelemetrySink((_row, ctx) => {
+      ctxs.push(ctx as unknown as Record<string, unknown>);
+    });
+
+    emitBridgeToolCallTelemetry(baseInput()); // 未传 ⇒ ctx 逐键等价 {}
+    emitBridgeToolCallTelemetry(
+      baseInput({ inboundBody: { skill_id: SKILL_ID }, attributionSessionKey: CONV }),
+    );
+    emitBridgeToolCallTelemetry(baseInput({ attributionSessionKey: COMPOSITE }));
+
+    expect(ctxs[0]).toEqual({});
+    expect(Object.keys(ctxs[1]).sort()).toEqual(["attributionSessionKey", "inboundBody"]);
+    expect(ctxs[2].attributionSessionKey).toBe(COMPOSITE); // 逐字透传（sink 语义中性）
+  });
+
+  it("哨兵 5 · 正常路径 agent_source 恒等；跨路径恢复时分裂（证明非恒真）", async () => {
+    /**
+     * 守卫本体（**唯一一份**）：两侧 `agent_source` 必须相等。
+     * ①②两组数据都跑**这一个函数** —— 若有人把守卫改坏（改成恒真），② 的
+     * `toThrow` 会失败 ⇒ 守卫自身也具备反向控制（不是"另写一条 not.toBe"那种
+     * 抓不到守卫退化 的假控制）。
+     */
+    const sameAgentSource = (a: NewAttributionEvent, b: NewAttributionEvent): void => {
+      expect(a.agentSource).toBe(b.agentSource);
+    };
+
+    // ① 正常路径：会话由 codebuddy 建、请求也走 codebuddy
+    const repo = makeFakeRepo();
+    setAttributionEventRepo(repo);
+    __resetDecisionUnitStateForTests();
+    addBridgeTelemetrySink(createBridgeFetchEventSink());
+    await seedSession();
+    const app = makeApp(makeConfig({ fetchEvents: true }));
+    await app.request("/skill-bridge/v3/skill/get", {
+      method: "POST",
+      headers: { ...withConv },
+      body: GOOD_BODY,
+    });
+    driveMainTurns(CONV, "codebuddy");
+
+    const f = rowsOf(repo, "asset_fetched")[0];
+    const u = rowsOf(repo, "decision_unit.created")[0];
+    expect(f.agentSource).toBe("codebuddy");
+    expect(u.agentSource).toBe("codebuddy");
+    expect(f.agentSource).toBe(u.agentSource); // ← 恒等
+
+    // ② 反向控制：跨路径恢复 —— 会话由 /claude-code/... 建（L1 key 前缀 claude-code），
+    //    当前请求走 skill bridge。用独立 conv id，避开同文件内 seedSession() 残留的键。
+    const CONV_X = "conv-x-restore";
+    const repoX = makeFakeRepo();
+    setAttributionEventRepo(repoX);
+    __resetDecisionUnitStateForTests();
+    __resetBridgeTelemetrySinksForTests();
+    addBridgeTelemetrySink(createBridgeFetchEventSink());
+    await getSessionStore().set(`claude-code:${CONV_X}`, {
+      status: "initialized",
+      sessionInfo: {
+        session_id: CONV_X,
+        user_id: USER,
+        team_id: "t-s4",
+        agent_id: "ag-s4",
+        space_id: SPACE,
+        user_key: "uk-s4",
+      },
+    } as unknown as SessionInitState);
+    const appX = makeApp(makeConfig({ fetchEvents: true }));
+    await appX.request("/skill-bridge/v3/skill/get", {
+      method: "POST",
+      headers: { ...JSON_HEADERS, "x-conversation-id": CONV_X },
+      body: GOOD_BODY,
+    });
+    driveMainTurns(CONV_X, "codebuddy"); // 主链路按**请求路径**取 agent_source
+
+    const fx = rowsOf(repoX, "asset_fetched")[0];
+    const ux = rowsOf(repoX, "decision_unit.created")[0];
+    expect(fx.agentSource).toBe("claude-code"); // ← 来自会话身份
+    expect(ux.agentSource).toBe("codebuddy"); // ← 来自请求路径
+    expect(fx.agentSource).not.toBe(ux.agentSource); // ← 恒等不是恒真
   });
 });

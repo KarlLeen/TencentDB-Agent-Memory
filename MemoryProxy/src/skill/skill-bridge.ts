@@ -20,6 +20,7 @@
 import type { Context } from "hono";
 import type { Redis } from "ioredis";
 import { getSessionStore } from "../session/store.js";
+import { resolveConversationId } from "../session/session-key.js";
 import type { BindingRepo } from "../db/binding-repo.js";
 import { KvBindingRepo } from "../db/kv-binding-repo.js";
 import { RedisBindingRepo } from "../db/binding-repo.js";
@@ -224,22 +225,15 @@ interface SessionIdFields {
 }
 
 /**
- * Bridge 只吃 2 个 header:
- *   - x-conversation-id (或 x-session-id / x-chat-id / x-thread-id) → sessionId
- *   - x-tdai-service-id → spaceId
+ * 认哪些 session 头 = **唯一真相** `session/session-key.ts` 的 `resolveConversationId`。
+ * ⚠️ 不要在此处重复头列表 —— 历史上这里抄过一份，抄漏/抄错位置各出过一次分歧。
+ *
+ * 调用点另带 x-tdai-service-id → spaceId；**调用方**（curl 模板）实际只带
+ * (x-conversation-id, x-tdai-service-id) 两个 header。
  *
  * 不再依赖 Authorization 反查 userId —— 见 docs/design/2026-08-03-binding-flatten.md,
  * L2 fallthrough 走拍平的 (spaceId, sessionId) → binding.json 直接 stamp。
  */
-function deriveSessionId(c: Context): string | null {
-  return (
-    c.req.header("x-conversation-id") ??
-    c.req.header("x-session-id") ??
-    c.req.header("x-chat-id") ??
-    c.req.header("x-thread-id") ??
-    null
-  );
-}
 
 function stateToIdFields(
   state: import("../session/types.js").SessionInitState | undefined,
@@ -491,14 +485,14 @@ export function createSkillBridgeHandler(
     // Session must be initialized — IdFields come from there.
     // curl 模板只带 (x-conversation-id, x-tdai-service-id) 两个 header;
     // L1 miss 时用它俩去 nottl/<spaceId>/<sessionId>/binding.json 反查。
-    const sessionKey = deriveSessionId(c);
+    const sessionKey = resolveConversationId(c);
     if (!sessionKey) {
       emitBridgeRejectTelemetry({
         sessionKey: "", bridgeSource: "skill-bridge",
         rejectReason: "missing_conversation_id", httpStatus: 401,
         executedEndpoint: sub,
       });
-      return envelope(40101, `${TAG} missing x-conversation-id (or x-session-id / x-chat-id / x-thread-id) header`, 401);
+      return envelope(40101, `${TAG} missing session header (see resolveConversationId)`, 401);
     }
     const spaceId = c.req.header("x-tdai-service-id")
       ?? config.tdai?.serviceId
@@ -618,6 +612,7 @@ export function createSkillBridgeHandler(
           // S4 (P5) ctx 通道：未截断原文，**仅供 sink 提取**，不入 row、不落库。
           // 无响应 ⇒ 只走请求侧（不带 version）；upstreamStatus=0 记实。
           inboundBody,
+          attributionSessionKey: resolveConversationId(c) ?? sessionKey,
         });
         return envelope(50301, `${TAG} upstream unavailable: ${(err as Error).message}`, 502);
       }
@@ -902,6 +897,7 @@ export function createSkillBridgeHandler(
         // S4 (P5) ctx 通道：未截断原文，**仅供 sink 提取**，不入 row、不落库。
         // fetch 抛错 ⇒ 无响应，只走请求侧。
         inboundBody,
+        attributionSessionKey: resolveConversationId(c) ?? sessionKey,
       });
       return envelope(50301, `${TAG} upstream unavailable: ${(err as Error).message}`, 502);
     }
@@ -929,6 +925,7 @@ export function createSkillBridgeHandler(
       // S4 (P5) ctx 通道：未截断原文，**仅供 sink 提取**，不入 row、不落库。
       // 主路径有响应 ⇒ get / WRITE_LOCK_OPS 可解析出响应侧 {skill_id, version}。
       inboundBody,
+      attributionSessionKey: resolveConversationId(c) ?? sessionKey,
       responseText: respText,
     });
 

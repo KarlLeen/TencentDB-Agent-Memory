@@ -68,7 +68,7 @@
 | `event_id` | repo 生成（`randomUUID`） | 一次调用一条，**不去重**（§3.5） |
 | `space_id` | 埋点 `spaceId ?? "_default"` | 与 v1 同 |
 | `user_id` / `agent_source` | 埋点透传 | 身份列 |
-| `session_key` | 埋点 `sessionKey`（调用点已保证 `composite_key` 优先） | 与 `session_init_logs` 对齐口径 |
+| `session_key` | **CH 埋点键**（`row.sessionKey`）= 埋点 `sessionKey`，调用点已保证 `composite_key` 优先（**不变**）；**S4 落 `attribution_events` 的 `session_key`** = **bare 归因键** `resolveConversationId(c)`（与 `decision_unit.created` **同域**，2026-09-10 归一化） | 归一化后落库键**不再**与 `session_init_logs` 对齐（那本是 CH 埋点键的契约）；依据 `51-anchoring-decision-brief.md` §7.1 |
 | `turn_seq` | **NULL** | F2：拿不到，**不猜**（勘正 1） |
 | `msg_seq` | **NULL** | 非决策事件；顺带使 `idx_ae_unit_dedupe` 不约束本类行（F5） |
 | `event_type` | **`asset_fetched`** | v2 词表扩展，需在 `00-master-spec.md` §3 登记（P3 拍板） |
@@ -77,6 +77,12 @@
 | `unit_id` | **NULL** | S4 不做 unit 关联（那是 S5） |
 | `payload_json` | 见下 | 只记事实 |
 | `created_at` | `Date.now()`（epoch ms） | 与 v1 一致 |
+
+> ⚠️ **`agent_source` 口径注（2026-09-10，依据 `51-anchoring-decision-brief.md` §7.1 / §7.3 ⑥）**：
+> 本表的 `agent_source` 与 `decision_unit.created` 的 `agent_source` **来源不同** —— 主链路 = **当前请求 URL 路径第一段**（缺省 `"claude-code"`，`anthropicHandler.ts:647-650`）；
+> S4 = **会话身份**（L1 复合键前缀 `skill-bridge.ts:253-254` 或 L2b `binding.agentSource` `:273`，缺省同为 `"claude-code"`）。
+> **正常路径恒等**，仅"**跨路径恢复**"（同一会话先用 `/claude-code/...` 建、再用 `/codebuddy/...` 续）或 L1 前缀轮询命中不同前缀时可分裂。
+> ⇒ **`agent_source` 不是锚定键**：S5 只允许用 `session_key`（已归一化）+ `rowid` 定序；`agent_source` 只作**展示 / 分组**维度，**禁止**进 `WHERE` 做 join 或过滤（长期规则：将来若做"改值"，过渡期内也会新旧两种值并存）。
 
 `payload_json`（`v` 便于将来演进）：
 
@@ -467,3 +473,55 @@ bridge 侧（LLM curl）需要新增传递机制 ⇒ 属新接缝，不在 S4 �
   另：spec 为**新增文件**，①/⑤ 拆分会留下指向 §5.5 的悬空引用（F11 行、勘正 3 均提前引用 §5.5）⇒ ①⑤ 合并。
   证据：上述 import 行 + `git diff --stat`（7 改 / 4 增）+ 独立复跑 `npx vitest run bridge-fetch-events.test.ts
   bridge-fetch-assets.test.ts` = **27 + 15 = 42 passed**（与 §5.5 / 00-master-spec §7 的"单测 42"一致）。
+- 2026-09-11 **勘正 10（本 spec 代码锚点坐标族在 51/52 两轮后过期 → 逐点实测重新登记；按 `:400` 规则 append-only，正文旧坐标不回改）**：
+  根因是**基准错位**，不是笔误 —— §2 表头（`:42`）声明"行号以 head `7d92705` 为准"，而 `7d92705` 早于 **51 轮 ctx 改造**。
+  此后 51 的插入（ctx 通道 + sink 链）与 52 的删除（`deriveSessionId` 收敛等）**叠加**在同一族文件上
+  ⇒ 位移**逐点不同、无统一增量**（`skill-bridge.ts` 实测同时存在 +1 / +5 / +9 三种偏移）
+  ⇒ 本 spec 的锚点一律"**先 grep 符号、再抄行号**"，**不能算**。
+  受影响文件只有 3 个（51/52 均改过）：`src/skill/skill-bridge.ts`、`src/memory/memory-bridge.ts`、`src/memory/bridge-telemetry.ts`。
+
+  **仍有效的锚点（两轮均未触碰，`git diff --name-only` 实测 = 0 行）**：
+  `clickhouse.ts:1070-1093`（`buildToolCallLogRow`，F14 不变性证明的唯一来源）、`db/schema.ts`（`attribution_events` + `idx_ae_unit_dedupe`）、
+  `db/attributionEventRepo.ts:28-40,250,263,271,276`、`config.ts:89-93,327-360`、`server.ts:124-129`（勘正 9 已另给 `:12`/`:130`）、
+  `injection/index.ts:414-418`、`anthropicHandler.ts:647-650`。
+
+  **52 后实测真值表（旧 → 新）**：
+
+  | # | 文档位置 | 原锚点 | 52 后实测 |
+  |---|---|---|---|
+  | 1 | §2 F1、§9「埋点入口 + sink 参数」 | `bridge-telemetry.ts:44-46` | `:128-131`（emit + 默认 `sink` 参数） |
+  | 2 | §2 F9、§9「埋点入口 + sink 参数」 | `bridge-telemetry.ts:120-136` | `:219`（`emitBridgeRejectTelemetry`） |
+  | 3 | §9「ctx 通道（P5 新增）」 | `bridge-telemetry.ts:14-38` | `:14-64`（`BridgeCallTelemetryInput` 接口） |
+  | 4 | §9「ctx 通道」、勘正 4 | `bridge-telemetry.ts:44-66` | `:134-151`（`const row: ToolCallLogInput = {` 逐字段构造） |
+  | 5 | §5.5 | `bridge-telemetry.ts:89`（`_sinks`） | `:107` |
+  | 6 | §2 F3 | `skill-bridge.ts:920` | `:894`（fetch 抛错）/ `:922`（主路径） |
+  | 7 | §2 F7、§9「skill 桥已解析点 + lazy-pin」 | `skill-bridge.ts:845` | `:843` |
+  | 8 | §2 F7、§2 F13、§9「skill 桥已解析点 + lazy-pin」 | `tryLazyPin :1017-1096`（F13 记 `:1040-1096`） | `:1024-1100` |
+  | 9 | §2 F12、§9「注入面（F12）」 | `skill-bridge.ts:118-134` | `:119`（`resolveBacking`） |
+  | 10 | §2 F12、§9「注入面（F12）」 | `skill-bridge.ts:510-512` | `:505-506`（`resolveBacking(config)` / `pinRepoInline`） |
+  | 11 | §2 F12、§9「skill 桥已解析点 + lazy-pin」 | `skill-bridge.ts:948-949` | `:956`（`await tryLazyPin(...)`） |
+  | 12 | §2 F15、§9「ctx 素材点（F15）」 | `skill-bridge.ts:546` / `:897` / `:911` | `:540` / `:905` / `:913` |
+  | 13 | §2 F17、§9「files/download 分支（F17）」 | `skill-bridge.ts:575-591` | `:569-597` |
+  | 14 | §3.1 口径注 | `skill-bridge.ts:253-254` / `:273` | `:245-248` / `:267`（`binding.agentSource`） |
+  | 15 | §3.3 表（3 行） | `:606` / `:887` / `:911` | `:600`（新增 `:614`）/ `:885`（新增 `:899`）/ `:913`（新增 `:927`、`:929`） |
+  | 16 | §9「skill 桥埋点（9 reject + 3 emit）」 | reject `458,465,473,483,496,521,535,554,565`；emit `606,887,911` | reject `452,459,467,477,490,515,529,548,559`；emit `600,885,913` |
+  | 17 | 勘正 1 | `skill-bridge.ts:458…911` | `:452…913` |
+  | 18 | 勘正 5 | `skill-bridge.ts:887` | `:885` |
+  | 19 | §2 F3 | `memory-bridge.ts:429` | `:414` |
+  | 20 | §2 F8、§9「memory 桥（响应 shape + emit）」 | `memory-bridge.ts:431-460` | `:423-452` |
+  | 21 | §2 F15、§9「ctx 素材点（F15）」 | `memory-bridge.ts:394-412` | `:386-405` |
+  | 22 | §3.3 表、§9「memory 桥」 | `memory-bridge.ts:412` | `:405`（新增 `:419`、`:421`） |
+  | 23 | 勘正 1 | `memory-bridge.ts:263…412` | `:256…405` |
+
+  **唯一未实测锚点（登记时现取，勿抄旧值）**：§5.5 引 `bridge-fetch-events.test.ts:198-207` —— 该测试文件本身是 51/52 两轮共 7 项 `M` 之一，
+  行号同样漂移；用符号 `__resetBridgeTelemetrySinksForTests` 现取。
+
+  **注**：§3.3 表改写后写的是"`skill-bridge.ts:614`"等**内容坐标**（该处应传什么），不是 emit 调用起始行 ——
+  两者已不同（起始行 `:600`/`:885`/`:913`，新增行 `:614`/`:899`/`:927`,`:929`），阅读时以"新增行"为准。
+
+  证据：2026-09-11 工作树逐点 `grep -n`（符号 → 行号）实测；`git diff --name-only` 对上述"仍有效"7 文件输出 0 行；
+  §2 F16 的"4 + 17 + 1"分母复核为 `skill` 9 reject + `memory` 8 reject = 17 ✅、emit 4 处 ✅。
+- 2026-09-11 **勘正 11（勘正 10 的两处收尾；append-only，正文不回改）**：
+  ① `clickhouse.ts:1070-1093` 补全为 `src/clickhouse.ts:1070-1093` —— 真身不在 `src/attribution/`（同族 `bridge-fetch-*.ts` 才在该目录），勘正 10 那份"仍有效"清单里只有它会被按就近目录误读；`:356` 原本已写全路径。现取：`:1070` = `export function buildToolCallLogRow(input: ToolCallLogInput): ToolCallLogRow {`、`:1093` = 函数收尾 `}`（范围 24 行，与旧引一致）。
+  ② 勘正 10 的"唯一未实测锚点"已实测：§5.5（`:282`）引的 `bridge-fetch-events.test.ts:198-207`（"beforeEach/afterEach 双向复位"）**已过期**；现取符号 `__resetBridgeTelemetrySinksForTests` = `:38`（import）、`:223`（`beforeEach` 体，`:222` 起）、`:230`（`afterEach` 体，`:228` 起）、`:913`（用例内复位）。旧 `:198-207` 现值 = session-init fixture 尾部（`:198-203`）+ 空行（`:204`）+ `baseInput` 辅助函数起头（`:205-207`），与复位无关。
+  证据：2026-09-11 工作树 `grep -n` / `awk` 逐点实测；`git diff --name-only` 仍为 6 项、无新增文件。

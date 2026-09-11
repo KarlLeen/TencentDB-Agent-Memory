@@ -49,6 +49,18 @@ export interface BridgeCallTelemetryInput {
    * **仅供 sink 提取；绝不入 CH row、绝不落库、绝不打印**。
    */
   responseText?: string;
+  /**
+   * S4（P5）: **归因域**会话键（bare，如 `conv-abc`）—— 由调用点用
+   * `resolveConversationId(c)` 取值，与 `decision_unit.created` 同域。
+   *
+   * 与 `sessionKey` 的区别：`sessionKey` 是**埋点域**契约（composite
+   * `claude-code:conv-abc`，与 `session_init_logs` 对齐，不能动）；本字段是
+   * **归因域**裸键，供 S4 sink 落 `attribution_events.session_key`。两者不可混用，
+   * 裁决见 `51-anchoring-decision-brief.md` §7.1。
+   *
+   * **仅供 sink 提取；绝不入 CH row、绝不落库、绝不打印** —— 见 BridgeFetchContext。
+   */
+  attributionSessionKey?: string;
 }
 
 /**
@@ -68,6 +80,12 @@ export interface BridgeFetchContext {
   inboundBody?: Record<string, unknown>;
   /** 上游响应体原文（未截断）；fetch 失败/未响应时为 undefined */
   responseText?: string;
+  /**
+   * **归因域**会话键（bare，如 `conv-abc`），与 `decision_unit.created` 同域。
+   * 供 S4 sink 落 `attribution_events.session_key`；未传 = 逐字回退 `row.sessionKey`
+   * （埋点域 composite）。**仅供 sink 提取；绝不落库、绝不打印。**
+   */
+  attributionSessionKey?: string;
 }
 
 /** S4 sink 签名：`(row, ctx)`。`ctx` 是独立第 2 参，**不进 row**（F14）。 */
@@ -136,6 +154,7 @@ export function emitBridgeToolCallTelemetry(
     const ctx: BridgeFetchContext = {};
     if (input.inboundBody !== undefined) ctx.inboundBody = input.inboundBody;
     if (input.responseText !== undefined) ctx.responseText = input.responseText;
+    if (input.attributionSessionKey !== undefined) ctx.attributionSessionKey = input.attributionSessionKey;
 
     try {
       sink(row, ctx);

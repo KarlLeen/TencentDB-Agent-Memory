@@ -79,7 +79,9 @@ export function createBridgeFetchEventSink(): BridgeTelemetrySink {
       spaceId: row.spaceId,
       userId: row.userId,
       agentSource: row.agentSource,
-      sessionKey: row.sessionKey,
+      // 归因域键优先（与 decision_unit.created 同域）；未传（reject / 老调用点）时
+      // 逐字回退到埋点域键 ⇒ 行为与改动前完全一致。
+      sessionKey: ctx.attributionSessionKey ?? row.sessionKey,
       // S4 不做轮次/单元关联：bridge 侧拿不到轮次（F2），不猜、不伪造。
       turnSeq: null,
       msgSeq: null,
