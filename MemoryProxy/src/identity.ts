@@ -286,13 +286,8 @@ function extractBearer(authHeader: string): string {
 /**
  * Inspect the incoming request and log the extracted identity signals.
  * Called from handler.ts and anthropicHandler.ts.
- *
- * 53 起不再产出 inspection 记录（ring buffer 已删）：`method` / `path` 仅为不动两个调用点
- * 而保留的形参，不参与任何产出。
  */
 export function inspectAndRecord(
-  method: string,
-  path: string,
   headers: Record<string, string>,
   body: Record<string, unknown>,
   agentSource = "claude-code",

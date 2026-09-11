@@ -776,3 +776,16 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
 **数字（编码侧，node v22.19.0，销案后）**：S4 冒烟 **10 passed**；`vitest run src/injection` → 9 files / **93 passed**；全量 → 16 files / **247 passed**；`typecheck:baseline` → `PASS — 55 errors, all within allow-list`。**与 §12.5 步骤 5 的期望（10 / 93 / 247）逐项相同** —— 销案前后用例数不变（`it.fails` → `it`），符合 §9.6 口径。
 
 **顺带勘误 1 条（仅文档分项，不改代码）**：§10/§11 写"S4a 5 条"，实测 S4a 是 **4 条**（A1–A4）；冒烟 10 条的准确构成 = S4a 4 + S4b 2 + 护栏 1 + 表级 2 + 登记项 1。分项口径记于此，历史小节不回改。
+
+### 54 · 既有 `typecheck:baseline` 红灯登记（2026-09-11，零行为）
+
+> 登记目的：该门在**本系列（51/52/53）基线上就是 FAIL**，逐轮登记防下一轮把它误判成"本系列引入"。
+
+- **实测原文**（`3b8f783` 上实跑；`f1df854`（51/52 落档）上复跑**逐字同一**）：
+  `UNALLOWED  src/config.ts(527,41): error TS2339: Property 'skipAssetConfirm' does not exist on type '{ enabled?: boolean | undefined; maxRetries?: number | undefined; … }'.`
+  `tsc-baseline: FAIL — 1 file|code outside allow-list (total 60 errors).`
+- **归属**：`config.ts:527` 与 `types.ts:284` 同属 **`220af622`（chrishuan，2026-09-07，`feat: release v2.0.2-beta.1`）**；**upstream base 既有**：`git merge-base --is-ancestor 220af622 origin/feat/server_team` ⇒ exit 0（YES）；`git show origin/feat/server_team:MemoryProxy/src/types.ts | grep skipAssetConfirm` ⇒ 仅 `:284` 一处（即上游的 `RawYamlConfig.sessionInit` **同样缺**该字段声明）。
+- **性质**：`loadYamlConfig` 是 `return parsed as RawYamlConfig`（当时实测 `config.ts:200`，**cast 非校验**）⇒ 运行时未知键不被裁剪、该字段照样读得到；**纯类型门**，非功能缺失。
+- **本系列口径（51/52/53 三轮同一）**：同一条 UNALLOWED + allow-list（`scripts/qa/tsc-baseline.json`）**零新增** + 该门在 base 与每轮落档后同为 FAIL；`config.ts` / `types.ts` / `tsc-baseline.json` 在三轮的 diff 中**均未出现**（`git show --stat` / `git log --name-only` 分母式核对）。
+- **处置**：**保持现状**。建议单开 upstream-facing 1 行修（`RawYamlConfig.sessionInit` 补 `skipAssetConfirm?: boolean`，注释照 `types.ts:284`）或上游提 issue —— **不在本系列做**（PR 主题污染 / 上游或自行修 → 冲突）。**不 re-baseline**：allow-list 是给"有意保留"的历史错误，此处是漏写的类型缺口，入清单 = 把上游缺口洗成有意。
+- **回归窗口**：S4 期间该门为 **`PASS — 55 errors, all within allow-list`**（本文 §12 多处记录）⇒ 现在的 `FAIL（60 errors / 1 UNALLOWED）` 是**后续上游提交 `220af622` 那一行**带入，**不是 S0–S4 的遗产**。

@@ -670,7 +670,7 @@ export async function handleChatCompletions(
   for (const [k, v] of c.req.raw.headers.entries()) {
     reqHeaders[k] = v;
   }
-  inspectAndRecord("POST", c.req.path, reqHeaders, body as Record<string, unknown>, agentSource);
+  inspectAndRecord(reqHeaders, body as Record<string, unknown>, agentSource);
 
   // ── Resolve apiKey → project name ──────────────────────────────────────
   const authHeader = c.req.header("authorization") ?? c.req.header("Authorization") ?? "";
