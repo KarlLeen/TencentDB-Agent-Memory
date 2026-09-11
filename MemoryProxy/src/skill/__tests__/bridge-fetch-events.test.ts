@@ -146,6 +146,9 @@ function makeFakeRepo(): AttributionEventRepo & { rows: NewAttributionEvent[] } 
     listByAsset(): AttributionEventRow[] {
       return [];
     },
+    listBySessionWithRowid() {
+      return [];
+    },
   };
 }
 

@@ -34,6 +34,9 @@ class FakeEventRepo implements AttributionEventRepo {
   listByAsset(): AttributionEventRow[] {
     return [];
   }
+  listBySessionWithRowid() {
+    return [];
+  }
 }
 
 // ── fake 队列 repo（只数入队，别的都不参与）─────────────────────────────────────

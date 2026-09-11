@@ -238,3 +238,67 @@ Test Files  4 passed (4)
 3. `asset_used` 汇总与 outcome/validated 链接；`excluded` 清单形状（`citation/source.ts` 留有 `TODO(50 spec)`）。
 4. 真 provider 替换 deterministic mock；`round>0` 重判路径；`task_boundary` / `manual` 触发。
 5. 消费侧：tombstone（unknown + resultMissing）、双通道一致性、top-N 截断移交判定侧、F4 metadata key 统一。
+
+## 10 决策单元锚定（fetched 行 → 决策单元；55 落地）
+
+> 本节是 §9 第 1 项的交付。前置事实（全部复核到 `129e1e8`；出处 = `51-anchoring-decision-brief.md`
+> §1.2/§2/§3 K1–K4 + `51-p0-probe-report.md` + `52` 的 e2e 哨兵）：
+> ① 键已可 join —— fetched 与 units 同 `session_key`（51；`bridge-fetch-events-e2e.test.ts` 用例 12 钉死）；
+> ② fetched 行 `turn_seq`/`msg_seq`/`unit_id` 一律 NULL（`src/attribution/bridge-fetch-events.ts`，"不伪造"）⇒ 锚定只能靠**序**；
+> ③ 时序反直觉 —— 抓取所属单元在抓取**之后**才落行（brief §2 / K1）⇒ "取前一个单元"系统性错一轮；
+> ④ 时间窗分辨率到"轮"（K2：同轮多单元同批 `appendMany` 落行，`listBySession` 同毫秒按随机 `event_id` 排）；
+> ⑤ `created_at` 是墙钟可回拨（K4）；`rowid` = 真实插入序（无 `AUTOINCREMENT` + 全仓无 `DELETE FROM attribution_events`）。
+
+### 10.1 C1 · 输入域与输出类型
+
+纯函数（零 IO；实现于 `src/attribution/fetched-anchoring.ts`）：
+
+```ts
+anchorFetchedRows(rows: SessionEventRowLite[]): AnchoredFetchedRow[]
+// rows = 事件行（须显式带 rowid，见 C4②；可含多个 session，函数内按 session_key 分组）
+type FetchedAnchorVerdict =
+  | { kind: "in_turn"; turnSeq: number }
+  | { kind: "unresolved"; reason: "head" | "tail" | "boundary" | "non_monotonic" };
+```
+
+- 每条 `asset_fetched` 行产一个判定；**输出不得含 `unit_id`**（④：分辨率到"轮"为止；
+  挂具体 unit_id = 在同轮多单元里任选一个并报成功，禁）。
+- 签名相对 55 工单 C1 的"建议双参"有一处**有意偏离**：单参 `rows`（函数内按 `session_key` 分组）——
+  理由：(a) 跨会话隔离（T7）由分组天然保证；(b) C2 的 `non_monotonic` 自检需要夹缝内**全部事件行**
+  （不限类型），双参形状拿不到。
+
+### 10.2 C2 · 判定真值表（按 rowid 序）
+
+对每个 session：行按 `rowid` 升序；unit 行 = `event_type = 'decision_unit.created'` 且 `turn_seq` 非 NULL。
+对每条 fetched 行 F，取 rowid 前最近的 unit 行 prev、后最近的 unit 行 next：
+
+| # | 情形（按优先级自上而下） | 判定 |
+|---|---|---|
+| 1 | F 的**夹缝**（闭区间 `[prev.rowid, next.rowid]`，缺侧取会话边界）内**全部事件行**（不限类型）的 `created_at` 沿 rowid **非单调**（出现严格下降；同毫秒并列不算） | `unresolved(non_monotonic)` —— ⑤：该段时间不可信，只否决、不肯定 |
+| 2 | 无 prev | `unresolved(head)` |
+| 3 | 无 next | `unresolved(tail)` |
+| 4 | `prev.turn_seq ≠ next.turn_seq` | `unresolved(boundary)` —— **禁猜方向**（③：取"前一个"系统性错一轮；取"后一个"在尾部甩给不存在的单元） |
+| 5 | `prev.turn_seq = next.turn_seq = t` | `in_turn(t)` |
+
+### 10.3 C3 · 定序与窗口
+
+- **`rowid` 是唯一定序键**（插入序；允许有空洞，只要求单调，不得假设 `rowid = prev + 1`）。
+- `created_at` **不参与裁决**：仅用于 (a) `non_monotonic` 自检（C2 第 1 行，K4 处置③）；
+  (b) 展示/窗口宽度。候选池 = 同 session 全部 unit 行，**不做时间窗裁剪**。
+- 前提声明（brief §1.2 警告段）：锚定基于**插入序**，不声称等于全局真实发生序 ——
+  延后落库（缓冲 / 下一 tick / 队列）会按**确定的代码路径**错开：这是可审计的确定性偏差，
+  不是墙钟回拨那种随机偏差。本节只量"边界不可判定"的占比，不用来证明"插入序 = 真序"。
+
+### 10.4 C4 · 两条承重前提（违反即整套失效，写死）
+
+1. **将来对 `attribution_events` 加任何删除**（保留策略/清理）⇒ `max(rowid)` 回落、rowid 被复用
+   ⇒ **必须同批加 `AUTOINCREMENT`**，否则本节地基失效。
+2. **新读口必须显式 `SELECT rowid`**（既有 `listBySession` 是 `SELECT *`、不含 rowid）。
+   本节配套读口 = `AttributionEventRepo.listBySessionWithRowid(sessionKey)`（`SELECT rowid, * …
+   ORDER BY rowid ASC`，**无 LIMIT** —— 锚定需要会话全量，截断 = 伪造夹缝）。
+
+### 10.5 C5 · 消费方声明（防陷阱 14 死代码）
+
+- 第一消费方 = **§9 第 2 项候选分档（下一单）**；本轮**不接** judge 队列 / worker（接上 = 扩面）。
+- 本轮的消费证明 = **P-0a 复测 harness 调生产函数 `anchorFetchedRows`** 跑 51 后真库快照
+  （不许 test-only 平行实现），判定分布（分母 = fetched 行数）进 55 报告。

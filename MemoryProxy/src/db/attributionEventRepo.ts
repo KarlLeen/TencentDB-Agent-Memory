@@ -56,6 +56,11 @@ export interface AttributionEventRow {
   created_at: number;
 }
 
+/** `listBySessionWithRowid` 的行形状：全部列 + `rowid`（插入序，50 spec §10 的唯一定序键）。 */
+export interface AttributionEventRowWithRowid extends AttributionEventRow {
+  rowid: number;
+}
+
 export interface AttributionEventRepo {
   /** 追加单条。event_id 由实现生成（randomUUID）。写失败静默降级（console.warn）。 */
   append(e: NewAttributionEvent): void;
@@ -68,6 +73,11 @@ export interface AttributionEventRepo {
   ): AttributionEventRow[];
   /** 按真实资产维度取事件（v1 S0/S2 填充后即有数据）。 */
   listByAsset(assetId: string, opts?: { limit?: number }): AttributionEventRow[];
+  /**
+   * 50 spec §10 C4② 锚定专用读口：显式取 `rowid`、按插入序升序、**会话全量（无 LIMIT）**。
+   * （既有 `listBySession` 是 `SELECT *` 不含 rowid、按 created_at 倒序且有 LIMIT，不能复用。）
+   */
+  listBySessionWithRowid(sessionKey: string): AttributionEventRowWithRowid[];
 }
 
 const DEFAULT_SPACE_ID = "_default";
@@ -148,6 +158,7 @@ class SqliteAttributionEventRepo implements AttributionEventRepo {
   private bySessionStmt: Database.Statement;
   private bySessionTypeStmt: Database.Statement;
   private byAssetStmt: Database.Statement;
+  private bySessionWithRowidStmt: Database.Statement;
 
   constructor(private db: Database.Database) {
     this.insertStmt = db.prepare(INSERT_SQL);
@@ -159,6 +170,9 @@ class SqliteAttributionEventRepo implements AttributionEventRepo {
     );
     this.byAssetStmt = db.prepare(
       "SELECT * FROM attribution_events WHERE asset_id = ? ORDER BY created_at DESC, event_id ASC LIMIT ?",
+    );
+    this.bySessionWithRowidStmt = db.prepare(
+      "SELECT rowid, * FROM attribution_events WHERE session_key = ? ORDER BY rowid ASC",
     );
   }
 
@@ -245,6 +259,14 @@ class SqliteAttributionEventRepo implements AttributionEventRepo {
       return [];
     }
   }
+
+  listBySessionWithRowid(sessionKey: string): AttributionEventRowWithRowid[] {
+    try {
+      return (this.bySessionWithRowidStmt.all(sessionKey) ?? []) as AttributionEventRowWithRowid[];
+    } catch {
+      return [];
+    }
+  }
 }
 
 class NullAttributionEventRepo implements AttributionEventRepo {
@@ -254,6 +276,9 @@ class NullAttributionEventRepo implements AttributionEventRepo {
     return [];
   }
   listByAsset(): AttributionEventRow[] {
+    return [];
+  }
+  listBySessionWithRowid(): AttributionEventRowWithRowid[] {
     return [];
   }
 }

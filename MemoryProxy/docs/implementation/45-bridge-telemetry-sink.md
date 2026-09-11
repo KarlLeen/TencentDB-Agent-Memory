@@ -525,3 +525,11 @@ bridge 侧（LLM curl）需要新增传递机制 ⇒ 属新接缝，不在 S4 �
   ① `clickhouse.ts:1070-1093` 补全为 `src/clickhouse.ts:1070-1093` —— 真身不在 `src/attribution/`（同族 `bridge-fetch-*.ts` 才在该目录），勘正 10 那份"仍有效"清单里只有它会被按就近目录误读；`:356` 原本已写全路径。现取：`:1070` = `export function buildToolCallLogRow(input: ToolCallLogInput): ToolCallLogRow {`、`:1093` = 函数收尾 `}`（范围 24 行，与旧引一致）。
   ② 勘正 10 的"唯一未实测锚点"已实测：§5.5（`:282`）引的 `bridge-fetch-events.test.ts:198-207`（"beforeEach/afterEach 双向复位"）**已过期**；现取符号 `__resetBridgeTelemetrySinksForTests` = `:38`（import）、`:223`（`beforeEach` 体，`:222` 起）、`:230`（`afterEach` 体，`:228` 起）、`:913`（用例内复位）。旧 `:198-207` 现值 = session-init fixture 尾部（`:198-203`）+ 空行（`:204`）+ `baseInput` 辅助函数起头（`:205-207`），与复位无关。
   证据：2026-09-11 工作树 `grep -n` / `awk` 逐点实测；`git diff --name-only` 仍为 6 项、无新增文件。
+- 2026-09-11 **勘正 12（§7 R1 的锚定策略已定；append-only，R1 原行不回改）**：
+  §7 表 R1 行（当时 `:308`）写"S5 只能按 `session_key + created_at` 时间窗/排他性锚定"——**两处表述已过时**：
+  ① `session_key` 连接条件：P-0 发现 A（fetched 落 `claude-code:<sid>`、units 落 `<sid>`，永不相等）已由 **51 键归一**修掉
+  （e2e `bridge-fetch-events-e2e.test.ts` 用例 12 钉死；P-0a 真库复测：同会话 fetched 与 units 同 bare 键、composite 前缀行数 = 0）；
+  ② `created_at` 定序：K4（墙钟可回拨）⇒ 定序键已定为 **`rowid`**（插入序），`created_at` 只做 `non_monotonic` 自检与展示。
+  **锚定策略本体 = `50-attribution-judge-worker.md` §10**（55 交付：契约 C1–C5 + 纯函数 `src/attribution/fetched-anchoring.ts`
+  + 读口 `AttributionEventRepo.listBySessionWithRowid` + T1–T7 红绿 + P-0a 真库复测）。
+  R1 行的"若 S5 要求精确轮次，需另开捕获点，不在 S4 假造"结论**不受影响**（§10 C2 跨轮边界仍 `unresolved`，禁猜方向）。
