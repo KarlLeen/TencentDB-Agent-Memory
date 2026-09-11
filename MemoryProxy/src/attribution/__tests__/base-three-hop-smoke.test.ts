@@ -205,11 +205,11 @@ interface WorkerRun {
   stderr: string;
 }
 
-/** 真 worker 子进程（`--once`）：跨进程边界的唯一入口。 */
-function runWorkerOnce(): WorkerRun {
+/** 真 worker 子进程（`--once`）：跨进程边界的唯一入口。configPath 缺省 = mock 配置。 */
+function runWorkerOnce(configPath?: string): WorkerRun {
   const res = spawnSync(
     process.execPath,
-    ["--import", "tsx/esm", path.join(pkgRoot, "src/attribution/worker.ts"), "--once", "--config", workerConfigPath],
+    ["--import", "tsx/esm", path.join(pkgRoot, "src/attribution/worker.ts"), "--once", "--config", configPath ?? workerConfigPath],
     {
       cwd: pkgRoot,
       env: { ...process.env, PROXY_DB_PATH: dbPath, PROXY_DATA_DIR: dataDir },
@@ -634,6 +634,89 @@ describe("57 · T6 三道机械锚点 e2e（真 proxy + 真 worker 子进程 + �
       assertNoBoolean(detail.shortlist);
     } finally {
       await proxyT6.close();
+    }
+  }, 60_000);
+});
+
+describe("58 · T5 mechanical:v1 e2e（真 proxy + 真 worker 子进程（provider=mechanical）+ 真库）", () => {
+  it("judgement 的 verdict 由度量规则产出（与手算一致）+ detail_json.citationMetrics 仍在（度量与裁决同源）", async () => {
+    const T5 = "base-3hop-t5";
+    const t5Config = baseConfig(upstream.url, kernel.url, ["skill"], true);
+    t5Config.injection.bridgeFetchEvents = { enabled: true };
+    const proxyT5 = await startProxy(t5Config);
+    // mechanical 的 worker 配置（provider=mechanical；缺省关闭 ⇒ 必须显式）
+    const mechWorkerConfigPath = path.join(tmpDir, "worker-mech.yaml");
+    fs.writeFileSync(mechWorkerConfigPath, "attribution:\n  judge:\n    provider: mechanical\n", "utf8");
+    try {
+      const headers = SESSION_HEADERS(T5);
+      const bridgeHeaders = { "x-conversation-id": T5, authorization: "Bearer sk-mem-base-local" };
+      const body = (messages: unknown[]): unknown => ({
+        model: "claude-base-3hop-stub",
+        max_tokens: 64,
+        stream: false,
+        system: "You are Claude Code (base-3hop).",
+        messages,
+      });
+      const H = (text: string): unknown => ({ role: "user", content: text });
+      const EDIT = (id: string, file: string): unknown => ({
+        role: "assistant",
+        content: [{ type: "tool_use", id, name: "Edit", input: { file_path: file } }],
+      });
+      const RES = (id: string): unknown => ({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+      });
+      const main = (messages: unknown[]) =>
+        postJson(proxyT5.port, `/claude-code/${SPACE_ID}/v1/messages`, body(messages), headers);
+      const fetchSkill = (skillId: string) =>
+        postJson(proxyT5.port, "/skill-bridge/v3/skill/get", { skill_id: skillId, name: skillId }, bridgeHeaders);
+
+      // 会话形状同 T7：F0 头窗 → u1(turn1) → F1 轮内 → u2(turn1)
+      const m0: unknown[] = [H("改 skl-t5-f1.ts")];
+      expect((await main(m0)).status).toBe(200);
+      await sleep(150);
+      expect((await fetchSkill("skl-t5-f0")).status).toBe(200);
+      await sleep(150);
+      const m1: unknown[] = [...m0, EDIT("e1", "skl-t5-f1.ts"), RES("e1")];
+      expect((await main(m1)).status).toBe(200);
+      await sleep(150);
+      expect((await fetchSkill("skl-t5-f1")).status).toBe(200);
+      await sleep(150);
+      const m2: unknown[] = [...m1, EDIT("e2", "c-t5.ts"), RES("e2")];
+      expect((await main(m2)).status).toBe(200);
+      expect(await waitFor(() => queueRows("pending", T5).length >= 2), "T5 单元未入队").toBe(true);
+
+      const run = runWorkerOnce(mechWorkerConfigPath);
+      if (run.status !== 0) {
+        throw new Error(`T5 worker --once 退出码 ${run.status}\n--- stderr ---\n${run.stderr}`);
+      }
+
+      const rows = getAttributionJudgementDetailsRepo().listBySession(T5);
+      expect(rows.length).toBe(2);
+      const u1Row = rows.find((r) => r.verdict === "confirmed");
+      expect(u1Row, "u1 应有一条 confirmed（注入资产 exact 命中 + 排他 0）").toBeDefined();
+      // 手算一致：fetched skl-t5-f1 无档①文本 ⇒ null ⇒ unconfirmed 候选；
+      //           注入资产有档① ⇒ exact 命中 + coverage 高 + 排他 0 ⇒ confirmed 候选 ⇒ 最强归因
+      expect(u1Row!.asset_id, "mechanical 应归因到注入资产（不是 mock 的 assetId 文本命中）").toBe(
+        "skl-s4-smoke-0001",
+      );
+      expect(u1Row!.judge_impl).toBe("mechanical:v1");
+
+      const detail = JSON.parse(u1Row!.detail_json) as {
+        citationMetrics?: Array<{ assetId: string; matchLevel: string | null; coverage: number | "unknown" }>;
+      };
+      const metrics = detail.citationMetrics;
+      expect(metrics, "citationMetrics 必须仍在（度量与裁决同源，不许两份）").toBeDefined();
+      const fetchedM = metrics!.find((m) => m.assetId === "skl-t5-f1");
+      const injectedM = metrics!.find((m) => m.assetId === "skl-s4-smoke-0001");
+      console.log(
+        `T5 观测点 → verdict=${u1Row!.verdict}@${u1Row!.asset_id} impl=${u1Row!.judge_impl} ` +
+          `fetchedM=${fetchedM?.matchLevel}/${fetchedM?.coverage} injectedM=${injectedM?.matchLevel}/${injectedM?.coverage}`,
+      );
+      expect(fetchedM?.matchLevel).toBe(null); // 无档①文本（不猜）
+      expect(injectedM?.matchLevel).toBe("exact"); // 注入原文命中 ⇒ confirmed 候选
+    } finally {
+      await proxyT5.close();
     }
   }, 60_000);
 });

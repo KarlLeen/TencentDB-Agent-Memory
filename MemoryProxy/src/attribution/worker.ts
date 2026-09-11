@@ -176,6 +176,8 @@ async function consumeRow(
     unit: { kind, payload },
     candidates: shortlist.candidates,
     promptRef: deps.judge.promptRef,
+    // 58 · C0：度量无条件随调用传入（mock 不读 ⇒ 行为不变；mechanical 缺它 ⇒ 全 unconfirmed）
+    citationMetrics,
   };
 
   /** 失败收束：fail() → 分桶 → error 日志 → 退避。catch 与"落库明确说没落成"共用同一条路径。 */

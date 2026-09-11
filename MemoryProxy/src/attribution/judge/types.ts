@@ -44,6 +44,11 @@ export interface JudgeInput {
   unit: { kind: string; payload: unknown };
   candidates: JudgeCandidate[];
   promptRef: PromptRef;
+  /**
+   * 58 · 可选：三道机械锚点的逐候选度量（§12 `grading.ts` 产物，worker 无条件传入）。
+   * 可选 ⇒ golden / 既有契约不破；mock 不读；`mechanical` 缺它 ⇒ 全 unconfirmed（不猜）。
+   */
+  citationMetrics?: import("../citation/grading.js").CandidateCitationMetrics[];
 }
 
 /**

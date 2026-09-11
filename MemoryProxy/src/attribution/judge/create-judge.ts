@@ -7,9 +7,10 @@
  */
 
 import { DeterministicMockJudge, type MockJudgeScript } from "./deterministic-mock-judge.js";
+import { MechanicalJudge } from "./mechanical-judge.js";
 import type { Judge } from "./types.js";
 
-export type AttributionJudgeProviderId = "mock";
+export type AttributionJudgeProviderId = "mock" | "mechanical";
 
 /** 只依赖到最小结构，避免把整个 ProxyConfig 拖进来（worker 与纯单测都能用）。 */
 export interface JudgeFactoryConfig {
@@ -25,6 +26,10 @@ export function createJudge(config: JudgeFactoryConfig, deps: CreateJudgeDeps = 
   const provider = config?.attribution?.judge?.provider ?? "mock";
   if (provider === "mock") {
     return new DeterministicMockJudge({ script: deps.script });
+  }
+  // 58 · mechanical:v1（50 spec §13；缺省关闭 —— 需显式配置才到这）
+  if (provider === "mechanical") {
+    return new MechanicalJudge();
   }
   console.warn(
     `[attribution-judge] unknown judge provider "${provider}" → falling back to "mock" (judge_impl=mock:v1)`,

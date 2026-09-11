@@ -421,3 +421,72 @@ visibleAssets 按原数组序）；双源合并不新增位置。
 
 worker `consumeRow`：候选（§11 供给）→ **shortlist（前 K）→ judge**；`grading.ts` 对前 K 逐候选出度量 →
 `detail_json.citationMetrics` + `detail_json.shortlist`。供给层（§11）一行不动。
+
+## 13 裁决与阈值（漏斗⑥；58 落地）
+
+> 本节是 §9 第 2 项收尾（⑥）的交付。**结构**：S2 标定（标注集 + 扫描表 + 指纹）先于 S3 入码；
+> 阈值未标定 ⇒ `mechanical` 不上线（B5 红线：缺省关闭）。
+
+### 13.1 C0 · 裁决 ↔ judge 的关系（定死）
+
+- 新增**确定性 Judge 实现 `mechanical:v1`**（实现既有 `Judge` 接口；`create-judge.ts` 注册 provider id
+  `"mechanical"`；`AttributionJudgeProviderId` 扩为 `"mock" | "mechanical"`）。**mock 与既有 golden 不动**。
+- 度量入参接缝：`JudgeInput` 加**可选**字段 `citationMetrics?: CandidateCitationMetrics[]`
+  （可选 ⇒ golden / 既有契约不破）；worker **无条件**把当次度量随调用传入（mock 不读该字段 ⇒ 行为不变）。
+  mechanical 缺该字段 ⇒ **全 `unconfirmed` + 计数**（不猜）。
+- **mechanical 不绕过 worker 自己重算度量**（两份度量 = 52 教训）：度量唯一来源 = §12 `grading.ts` 的产物。
+
+### 13.2 C1 · 裁决规则（语义写死；数值 `T_COV` / `T_EXCL` 由 S2 标定填充）
+
+**候选级结论**（逐候选，全格子枚举）：
+
+| matchLevel | coverage | exclusionCount | 候选级结论 |
+|---|---|---|---|
+| `null`（无资产文本） | * | * | `unconfirmed`（不猜） |
+| `none` | * | * | `unconfirmed`（缺席非反证，K3） |
+| exact / whitespace / punctuation | `unknown` | * | `unconfirmed`（NaN 门禁，不进比较） |
+| exact / whitespace / punctuation | `< T_COV` | * | `unconfirmed`（覆盖不足 = 证据弱，非反证） |
+| exact / whitespace / punctuation | `≥ T_COV` | `≤ T_EXCL` | **confirmed 候选** |
+| exact / whitespace / punctuation | `≥ T_COV` | `> T_EXCL` | **refuted 候选**（引用不排他 ⇒ 驳斥该候选） |
+
+**汇总**（B2 改判 (a)：一次调用只出**单一最强归因**）：
+
+1. 有 confirmed 候选 ⇒ `confirmed` + `assetId` = 最强者（全序：matchLevel 强度降序（exact > whitespace >
+   punctuation）→ coverage 降序 → exclusionCount 升序 → §11.2 候选顺序）。
+2. 无 confirmed、有 refuted 候选 ⇒ `refuted` + `assetId` = 最强 refuted 候选（同序）。
+3. 否则 ⇒ `unconfirmed` + `assetId = null`。
+4. `candidates.length === 0` ⇒ **显式 `unconfirmed`**（B5 原话：不得静默 false）。
+5. 护栏断言：`verdict.assetId ∈ candidates ∪ {null}`（mechanical 按构造满足，仍写断言）。
+
+### 13.3 C2 · "四类覆盖"定义（P-3 未指明 ⇒ 本单定死）
+
+标注集 **N ≥ 20**，四类**每类 ≥ 5**；四类必须**同时**张成 `{injected, fetched} × {正例, 反例}` 两轴
+（正例 = 期望 `confirmed`；反例 = 期望非 confirmed（`refuted` / `unconfirmed`））；
+含 **≥1 条版本漂移正例**（DR-6a：注入 v1 → 库存改 v2 → 引文仍命中**档①锚版** v1 ⇒ 按锚版判；
+锚版 = 会话存档窗口（档①/档②），**不得回查当前资产存储**）与 **≥1 组双通道样本**（DR-6b：
+同逻辑会话 anthropic / openai 两形状 ⇒ 度量与 verdict 逐条一致）；含 **≥2 条边界类**
+（空语料 / 无资产文本 / `unknown` coverage）。
+**fetched 正例只能构造为双源场景**（只抓不注 ⇒ 档①无其文本 ⇒ 恒 `null` ⇒ `unconfirmed`）。
+
+### 13.4 C3 · 阈值形态
+
+`T_COV` / `T_EXCL` 常量**写死**在实现模块（带标定指纹 + 扫描表出处注释，照 `SHORTLIST_K` 姿势），
+**不进 config**；改阈值 = 改码 + 重跑标定（S2 全套）。
+
+### 13.5 C4 · 缺省关闭
+
+`provider` 缺省 `"mock"` 不变；`mechanical` **显式配置**才启用（B5：未标定 ⇒ toggle 缺省关闭）。
+配置类型（`types.ts` 的 judge config）扩枚举 = 最小改动 + 语义变更声明。
+
+### 13.6 标定指纹（S2 已完成，2026-09-11）
+
+- 标注集：`src/attribution/judge/__tests__/fixtures/verdict-calibration-cases.json`（入库）；
+  **sha256 = `b92698e383379f5fef268ac613ae515d7f6c869437245e7324292a3df48a137c`**；**N = 25**
+  （injected 正/反 各 5 + fetched 正/反 各 5 + DR-6a×1 + DR-6b×1 组（2 条）+ 边界×2；真链路 11 / 构造 14）。
+- 阈值扫描表：`/tmp/58/scan-table.json`（探针，不入库）。网格 `T_COV ∈ {0.3…0.9}` × `T_EXCL ∈ {0,1,2}`：
+  **满分组合三个（T_COV = 0.4 / 0.5 / 0.6 × T_EXCL = 0，exact 25/25，P = R = 1.000）**；
+  选点 **`T_COV = 0.5`、`T_EXCL = 0`** —— 满分组合中位（上下各 0.1 余量；几何上恰是 0.38（误报临界）
+  与 0.62（漏报临界）的中点）；T_EXCL ≥ 1 会误判全部 4 条排他反例（exact 21/25）。
+- 可复现指纹 = 标注集 sha256（上）+ `ngramTableSha256`（随每条度量落 `detail_json.citationMetrics`）
+  + 扫描参数（网格范围见上；`minIdf` 缺省 0；`n = 4`）。
+- 标定驱动 / 扫描探针：`/tmp/58/scripts/zz-calib-drive.tmp.mts` / `zz-calib-scan.tmp.mts`（不入库）。
