@@ -511,3 +511,129 @@ describe("56 · T7 证据供给 e2e（真 proxy + 真 worker 子进程 + 真库�
     }
   }, 60_000);
 });
+
+describe("57 · T6 三道机械锚点 e2e（真 proxy + 真 worker 子进程 + 真库）", () => {
+  it("judgement detail_json.citationMetrics 存在、形状正确、无布尔（fetched 无文本 ⇒ null；injected 命中 ⇒ 级别+block 层）", async () => {
+    const T6 = "base-3hop-t6";
+    const t6Config = baseConfig(upstream.url, kernel.url, ["skill"], true);
+    t6Config.injection.bridgeFetchEvents = { enabled: true };
+    const proxyT6 = await startProxy(t6Config);
+    try {
+      const headers = SESSION_HEADERS(T6);
+      const bridgeHeaders = { "x-conversation-id": T6, authorization: "Bearer sk-mem-base-local" };
+      const body = (messages: unknown[]): unknown => ({
+        model: "claude-base-3hop-stub",
+        max_tokens: 64,
+        stream: false,
+        system: "You are Claude Code (base-3hop).",
+        messages,
+      });
+      const H = (text: string): unknown => ({ role: "user", content: text });
+      const EDIT = (id: string, file: string): unknown => ({
+        role: "assistant",
+        content: [{ type: "tool_use", id, name: "Edit", input: { file_path: file } }],
+      });
+      const RES = (id: string): unknown => ({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+      });
+      const main = (messages: unknown[]) =>
+        postJson(proxyT6.port, `/claude-code/${SPACE_ID}/v1/messages`, body(messages), headers);
+      const fetchSkill = (skillId: string) =>
+        postJson(proxyT6.port, "/skill-bridge/v3/skill/get", { skill_id: skillId, name: skillId }, bridgeHeaders);
+
+      // 会话形状同 T7：F0 头窗 → u1(turn1) → F1 轮内 → u2(turn1)
+      const m0: unknown[] = [H("改 skl-t6-0001.ts")];
+      expect((await main(m0)).status).toBe(200);
+      await sleep(150);
+      expect((await fetchSkill("skl-t6-0000")).status).toBe(200);
+      await sleep(150);
+      const m1: unknown[] = [...m0, EDIT("e1", "skl-t6-0001.ts"), RES("e1")];
+      expect((await main(m1)).status).toBe(200);
+      await sleep(150);
+      expect((await fetchSkill("skl-t6-0001")).status).toBe(200);
+      await sleep(150);
+      // ⚠️ u2 的文件名必须与同文件其它用例错开：queue 幂等键 (unit_id, round) 是**内容哈希、
+      // 跨会话**——T7 的 u2 也是 Edit("b.ts") ⇒ 同 unitId ⇒ T6 的 u2 会被入队去重吞掉（实测：
+      // decision_unit.created=2 而 pending=1）。
+      const m2: unknown[] = [...m1, EDIT("e2", "c-t6.ts"), RES("e2")];
+      expect((await main(m2)).status).toBe(200);
+      const enqueued = await waitFor(() => queueRows("pending", T6).length >= 2);
+      if (!enqueued) {
+        const evts = getAttributionEventRepo().listBySession(T6, { limit: 5000 });
+        const typeCount = new Map<string, number>();
+        for (const e of evts) typeCount.set(e.event_type, (typeCount.get(e.event_type) ?? 0) + 1);
+        console.log(
+          `[T6-diag] events=${evts.length} types=${JSON.stringify([...typeCount])} ` +
+            `queue(pending=${queueRows("pending", T6).length},done=${queueRows("done", T6).length},` +
+            `failed=${queueRows("failed", T6).length})`,
+        );
+      }
+      expect(enqueued, "T6 单元未入队").toBe(true);
+
+      const run = runWorkerOnce();
+      if (run.status !== 0) {
+        throw new Error(`T6 worker --once 退出码 ${run.status}\n--- stderr ---\n${run.stderr}`);
+      }
+
+      const rows = getAttributionJudgementDetailsRepo().listBySession(T6);
+      expect(rows.length).toBe(2);
+      const u1Row = rows.find((r) => r.verdict === "confirmed");
+      expect(u1Row, "u1 judgement 缺失").toBeDefined();
+
+      interface Metrics {
+        assetId: string;
+        matchLevel: string | null;
+        matchedTier: string | null;
+        coverage: number | "unknown";
+        coverageDistinct: number;
+        coverageCovered: number;
+        exclusionCount: number;
+        ngramTableSha256: string;
+      }
+      const detail = JSON.parse(u1Row!.detail_json) as {
+        shortlist: { k: number; total: number; overflowCount: number; overflowAssetIds: string[] };
+        citationMetrics?: Metrics[];
+      };
+      expect(detail.shortlist, "shortlist 溢出可观测键").toEqual({
+        k: 16,
+        total: 2,
+        overflowCount: 0,
+        overflowAssetIds: [],
+      });
+      const metrics = detail.citationMetrics;
+      expect(metrics, "citationMetrics 缺失（生产 buildWorkerDeps 总装 citationSource）").toBeDefined();
+      expect(metrics!.length, "度量只对前 K（2 候选）").toBe(2);
+
+      const fetchedM = metrics!.find((m) => m.assetId === "skl-t6-0001");
+      expect(fetchedM, "fetched 候选的度量缺失").toBeDefined();
+      expect(fetchedM!.matchLevel, "fetched 资产未注入 ⇒ 档①无其文本 ⇒ null（不猜）").toBe(null);
+      expect(fetchedM!.coverage).toBe("unknown");
+
+      const injectedM = metrics!.find((m) => m.assetId !== "skl-t6-0001");
+      expect(injectedM, "injected 候选的度量缺失").toBeDefined();
+      expect(
+        ["exact", "whitespace", "punctuation"],
+        "injected 资产原文在窗口 ⇒ 归一化命中（三级之一）",
+      ).toContain(injectedM!.matchLevel);
+      expect(injectedM!.matchedTier, "注入原文在 block 层").toBe("block");
+      expect(typeof injectedM!.ngramTableSha256).toBe("string");
+
+      console.log(
+        `T6 观测点 → shortlist=${JSON.stringify(detail.shortlist)} fetchedM=${fetchedM!.matchLevel}/${fetchedM!.coverage} ` +
+          `injectedM=${injectedM!.matchLevel}(${injectedM!.matchedTier}) coverage=${injectedM!.coverage} sha=${injectedM!.ngramTableSha256.slice(0, 12)}…`,
+      );
+
+      // 零布尔（递归检查两份度量 + shortlist）
+      const assertNoBoolean = (v: unknown, p = "root"): void => {
+        if (typeof v === "boolean") throw new Error(`布尔出现在 ${p}`);
+        if (Array.isArray(v)) v.forEach((x, i) => assertNoBoolean(x, `${p}[${i}]`));
+        else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) assertNoBoolean(x, `${p}.${k}`);
+      };
+      assertNoBoolean(metrics);
+      assertNoBoolean(detail.shortlist);
+    } finally {
+      await proxyT6.close();
+    }
+  }, 60_000);
+});

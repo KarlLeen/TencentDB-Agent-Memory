@@ -359,3 +359,65 @@ visibleAssets 按原数组序）；双源合并不新增位置。
   （`fetchedOtherTurn` / `fetchedNoAssetId` / `injectedDuplicate` 三桶是对工单计数清单的**补充** ——
   无它们分母凑不齐；`injectedDuplicate` = injected 两分支互撞去重（hook.done ∩ visibleAssets，同 assetId），
   **不算**双源合并 —— `mergedDualSource` 只计 fetched ∩ injected。）
+
+## 12 shortlist 与三道机械锚点（漏斗④⑤；57 落地）
+
+> 本节是 §9 第 2 项第二刀的交付。**边界**：只出度量、零阈值零布尔；⑥ 裁决/阈值 = B5 标定单另开；
+> DR-6 两类 golden 样本（版本漂移引用正例 / 双通道一致性抽样）**登记为 B5 标定单的交付物**
+> （与 P-3 标注集 N≥20 同批；本单不做，但不许丢）。
+
+### 12.1 C1 · shortlist（成本闸门）
+
+- **排序键 = §11.2 已钉的顺序**（fetched 首见 → hook.done → visibleAssets），**不重排** ——
+  ④ 在 ⑤ 之前 ⇒ 排序键本就不能用度量（鸡生蛋）；mock judge 按序取第一个命中（`deterministic-mock-judge.ts:77`），
+  任何重排都会改 verdict。
+- **K = 16（写死，非 config）**：保险丝不是常态路径（fan-out 命中集不进候选，brainstorm A4 ⇒ 候选 = 实际资产数）；
+  分布依据 = 57 报告的候选计数直方图（多形态实测，含高扇出构造；若不支持 16 则改值并写理由）。
+- **前 K 喂 judge；溢出 = 计数 + assetId 清单落 `detail_json.shortlist`**（"不丢弃" = 可观测，不是全喂）。
+- **度量只对前 K 计算**（这才是闸门语义；全量算 = 没有闸门）。
+
+### 12.2 C2 · 三道机械锚点（逐候选，只出度量）
+
+**引文口径（写死，不许新造）**：引文 = `sessionWindow` 中 `turnSeq == 当前单元轮` 的 **pieces**
+（档① block + 档② message，`(turn_seq, tier, seq)` 窗口序）；piece 文本 = `visibleTextOfPiece(piece)`
+（`citation/visible-text.ts` 唯一口径）。**逐 piece 比对**，取最强结果（piece 序 + 级别序，确定性）。
+**资产侧文本** = `sessionAssetTexts(sessionKey).get(assetId)` 的片段，各经 **c2 剥离**后按首见序拼接
+（"模型看到的注入文本 ↔ 资产自身正文"对齐口径，design §4.8.3）；资产文本缺失 ⇒ 走 C3 的 `null` 路径（不猜）。
+
+1. **引文归一化命中**：对每个 piece，按 `exact → whitespace → punctuation` 逐级
+   `normalizeForMatch(piece文本, level) ⊆ normalizeForMatch(资产文本, level)` 判定；
+   **命中级别 = 所有 piece × 级别中的最强级**（exact > whitespace > punctuation），全不命中 ⇒ `none`。
+   **命中文段** = 首个最强命中的 piece 文本（供 ②③ 使用）。
+2. **稀有度覆盖**：`gramCoverage(windowText = 命中文段, quote = 资产文本, rarityTable())` ——
+   **资产文本**的 distinctive grams 被命中文段（引文）覆盖的比例（"这次引用覆盖了资产内容的多少
+   独特成分"；反接则恒 1：命中 ⇒ 引文 ⊆ 资产 ⇒ 引文的 gram 全在资产里，度量失效）
+   ⇒ `coverage / distinct / covered / n`；**NaN ⇒ 显式 `unknown`**（`isCoverageKnown` 门禁，绝不落 0/1）；
+   无命中（`none` / `null`）⇒ `unknown`（无 quote 依据）。
+3. **排他性**：命中文段在同会话**其他**资产文本（`sessionAssetTexts` 去掉本资产，c2 剥离后）中
+   **exact 级**（原字节，最严 —— 归一化放大会夸大排他反证的证据等级）子串命中的**资产数**（只出数字）。
+
+### 12.3 C3 · 输出形状（零阈值零布尔）
+
+每候选（前 K）一份，落 `detail_json.citationMetrics[]`：
+
+```ts
+{ assetId, matchLevel: "exact"|"whitespace"|"punctuation"|"none"|null,
+  matchedTier: "block"|"message"|null,          // 命中 piece 的层（审计；未命中/无文本 ⇒ null）
+  coverage: number | "unknown", coverageDistinct: number, coverageCovered: number,
+  exclusionCount: number, ngramTableSha256: string }
+```
+
+- `matchLevel: null` = **无资产文本可比**（fetched 资产未注入 ⇒ 档①无其文本；不知道就不写，别猜）；
+  此时 `coverage="unknown"`、`exclusionCount=0`。
+- `ngramTableSha256` 随每候选落（design §4.8.4 的可复算要求）。
+- `detail_json.shortlist = { k, total, overflowCount, overflowAssetIds[] }`（C1 的溢出可观测）。
+
+### 12.4 C4 · 只读边界
+
+全路径零写（T25 姿势：写计数增量全 0 + `attribution_archive_watermark` 行数不变）；
+`rarityTable` 只在内存构建（c4 懒缓存复用）；`sessionWindow/sessionAssetTexts` 只 SELECT。
+
+### 12.5 C5 · 消费方（同单落地）
+
+worker `consumeRow`：候选（§11 供给）→ **shortlist（前 K）→ judge**；`grading.ts` 对前 K 逐候选出度量 →
+`detail_json.citationMetrics` + `detail_json.shortlist`。供给层（§11）一行不动。

@@ -26,6 +26,8 @@ import {
   extractVisibleAssetCandidates,
   type EvidenceSupplyProvider,
 } from "./evidence-supply.js";
+import { gradeCandidates, shortlistCandidates } from "./citation/grading.js";
+import { getCitationSourceProvider, type CitationSourceProvider } from "./citation/source.js";
 import { createJudge, type CreateJudgeDeps } from "./judge/create-judge.js";
 import type { Judge, JudgeCandidate, JudgeInput } from "./judge/types.js";
 import {
@@ -72,6 +74,12 @@ export interface AttributionWorkerDeps {
    * 生产 `buildWorkerDeps` 总装真 provider。
    */
   evidenceSupply?: EvidenceSupplyProvider;
+  /**
+   * 57 · 三道机械锚点的只读输入源（50 spec §12）：装配 ⇒ 对 shortlist 前 K 逐候选出度量落
+   * `detail_json.citationMetrics`；缺省 ⇒ 不出度量（shortlist 截断与溢出可观测**不受影响**，
+   * 它不依赖本字段）。生产 `buildWorkerDeps` 总装。
+   */
+  citationSource?: CitationSourceProvider;
 }
 
 export interface AttributionWorkerCycleResult {
@@ -149,12 +157,24 @@ async function consumeRow(
         : undefined,
   });
 
+  // 57 · ④ shortlist（不重排，§11.2 顺序；前 K 喂 judge；溢出 = 计数 + 清单落 detail_json）
+  const shortlist = shortlistCandidates(supply ? supply.candidates : extractJudgeCandidates(payload));
+  // 57 · ⑤ 三道机械锚点（只对前 K；缺 citationSource ⇒ 不出度量，见 deps 注释）
+  const citationMetrics = deps.citationSource
+    ? gradeCandidates({
+        sessionKey: row.session_key,
+        turnSeq,
+        candidates: shortlist.candidates,
+        source: deps.citationSource,
+      })
+    : undefined;
+
   const input: JudgeInput = {
     unitId: row.unit_id,
     sessionKey: row.session_key,
     round: row.round,
     unit: { kind, payload },
-    candidates: supply ? supply.candidates : extractJudgeCandidates(payload),
+    candidates: shortlist.candidates,
     promptRef: deps.judge.promptRef,
   };
 
@@ -209,6 +229,14 @@ async function consumeRow(
               },
             }
           : {}),
+        // 57 · C1 溢出可观测（总落；候选 ≤K 时 overflowCount=0）+ ⑤ 度量（装配 citationSource 才落）
+        shortlist: {
+          k: shortlist.k,
+          total: shortlist.total,
+          overflowCount: shortlist.overflowCount,
+          overflowAssetIds: shortlist.overflowAssetIds,
+        },
+        ...(citationMetrics ? { citationMetrics } : {}),
       },
     });
 
@@ -343,6 +371,8 @@ export function buildWorkerDeps(
     judge: createJudge(judgedConfig, overrides),
     // 56 · 生产总装真 provider（DB 降级 ⇒ Null repo，两路空 + visibleAssets 便捷路径不失联）
     evidenceSupply: createEvidenceSupplyProvider(getAttributionEventRepo()),
+    // 57 · 生产总装真引文输入源（DB 降级 ⇒ 窗口/资产文本空 ⇒ 度量全 null/unknown，安全降级）
+    citationSource: getCitationSourceProvider(),
     owner,
     batchSize: workerCfg?.batchSize ?? 8,
     leaseTtlMs: workerCfg?.leaseTtlMs ?? 600_000,
