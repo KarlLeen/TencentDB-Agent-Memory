@@ -6,6 +6,10 @@
  *   2. **缺省零访问**：`attribution.judge.enqueue` 非 `true` 时立刻返回，不建/不读队列表；
  *   3. **自足 payload**：worker 只读队列行，不 v1 回查 ⇒ payload 里带齐 judge 需要的全部输入。
  *
+ * 【56 · D7 修订】第 3 条自 56 起修订为：**worker 只读队列行 + 只读证据 provider**
+ * （provider 零写、不推进水位）—— 契约见 50 spec §11（docs/implementation/50-attribution-judge-worker.md）。
+ * 本文件的组包行为不变（payload 仍带齐 kind/turnSeq/msgSeq/payload）。
+ *
  * 由 `decision-unit-runner` 用**动态 import** 调用（design §4.6）：关闭时连本模块都不加载。
  */
 

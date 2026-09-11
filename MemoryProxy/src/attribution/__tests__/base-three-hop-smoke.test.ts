@@ -414,3 +414,100 @@ describe("基座三跳冒烟（真 proxy 链路 + 真 worker 子进程）", () =
     ).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe("56 · T7 证据供给 e2e（真 proxy + 真 worker 子进程 + 真库）", () => {
+  it("fetched 资产经 §10 锚定进入 JudgeInput.candidates（观测点 = detail_json.candidateCount / mock verdict）", async () => {
+    const T7 = "base-3hop-t7";
+    // 本用例需要 fetched 落行 ⇒ 自带开 bridgeFetchEvents 的 proxy（beforeAll 的 proxyPos 缺省关，
+    // 不为一个用例改共享装置）。
+    const t7Config = baseConfig(upstream.url, kernel.url, ["skill"], true);
+    t7Config.injection.bridgeFetchEvents = { enabled: true };
+    const proxyT7 = await startProxy(t7Config);
+    try {
+    const headers = SESSION_HEADERS(T7);
+    const bridgeHeaders = { "x-conversation-id": T7, authorization: "Bearer sk-mem-base-local" };
+    const body = (messages: unknown[]): unknown => ({
+      model: "claude-base-3hop-stub",
+      max_tokens: 64,
+      stream: false,
+      system: "You are Claude Code (base-3hop).",
+      messages,
+    });
+    const H = (text: string): unknown => ({ role: "user", content: text });
+    const EDIT = (id: string, file: string): unknown => ({
+      role: "assistant",
+      content: [{ type: "tool_use", id, name: "Edit", input: { file_path: file } }],
+    });
+    const RES = (id: string): unknown => ({
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+    });
+    const main = (messages: unknown[]) =>
+      postJson(proxyT7.port, `/claude-code/${SPACE_ID}/v1/messages`, body(messages), headers);
+    const fetchSkill = (skillId: string) =>
+      postJson(proxyT7.port, "/skill-bridge/v3/skill/get", { skill_id: skillId, name: skillId }, bridgeHeaders);
+
+    // 会话形状：F0 头窗（门控排除）→ u1(turn1) → F1 轮内（进）→ u2(turn1)
+    const m0: unknown[] = [H("改 skl-t7-0001.ts")];
+    expect((await main(m0)).status).toBe(200);
+    await sleep(150);
+    expect((await fetchSkill("skl-t7-0000")).status, "F0 抓取未 200").toBe(200);
+    await sleep(150);
+    const m1: unknown[] = [...m0, EDIT("e1", "skl-t7-0001.ts"), RES("e1")];
+    expect((await main(m1)).status).toBe(200);
+    await sleep(150);
+    expect((await fetchSkill("skl-t7-0001")).status, "F1 抓取未 200").toBe(200);
+    await sleep(150);
+    const m2: unknown[] = [...m1, EDIT("e2", "b.ts"), RES("e2")];
+    expect((await main(m2)).status).toBe(200);
+    expect(await waitFor(() => queueRows("pending", T7).length >= 2), "T7 单元未入队").toBe(true);
+
+    const run = runWorkerOnce();
+    if (run.status !== 0) {
+      throw new Error(`T7 worker --once 退出码 ${run.status}\n--- stderr ---\n${run.stderr}`);
+    }
+
+    const rows = getAttributionJudgementDetailsRepo().listBySession(T7);
+    expect(rows.length, "u1 + u2 两条判定").toBe(2);
+    const u1Row = rows.find((r) => r.verdict === "confirmed");
+    expect(u1Row, "u1（payload 文本含 skl-t7-0001 ⇒ mock 命中 confirmed）缺失").toBeDefined();
+    expect(u1Row!.asset_id).toBe("skl-t7-0001");
+    expect(u1Row!.evidence_source_type, "fetched 路标注落库（硬编码删除的生产侧证据）").toBe("fetched");
+
+    const detail = JSON.parse(u1Row!.detail_json) as {
+      candidateCount: number;
+      evidenceSupply?: {
+        stats: {
+          fetchedRows: number;
+          fetchedIn: number;
+          fetchedExcludedHead: number;
+          injectedInHookDone: number;
+          injectedInVisibleAssets: number;
+        };
+        fetchedTurnSeq: number | null;
+      };
+    };
+    const stats = detail.evidenceSupply?.stats;
+    const sessionRows = getAttributionEventRepo().listBySession(T7, { limit: 5000 }).length;
+    console.log(
+      `T7 观测点 → candidateCount=${detail.candidateCount} fetchedIn=${stats?.fetchedIn} hookDoneIn=${stats?.injectedInHookDone} ` +
+        `headExcluded=${stats?.fetchedExcludedHead} fetchedTurnSeq=${detail.evidenceSupply?.fetchedTurnSeq} ` +
+        `（分母：会话行数=${sessionRows} / fetched=${stats?.fetchedRows} / details=${rows.length}）`,
+    );
+    // 两路真链路供给：fetched 路 = 仅 F1（F0 被头窗门控排除）；injected 路 = injectors=["skill"]
+    // 在 turn1 注入的资产经 hook.done 分支按轮对齐进候选（u1 是 code_change、无 visibleAssets 分支）。
+    expect(stats?.fetchedRows).toBe(2); // F0 + F1
+    expect(stats?.fetchedIn).toBe(1);
+    expect(stats?.fetchedExcludedHead).toBe(1);
+    expect(stats?.injectedInHookDone).toBe(1);
+    expect(stats?.injectedInVisibleAssets).toBe(0);
+    expect(
+      detail.candidateCount,
+      "candidateCount = fetchedIn(1) + hookDoneIn(1)（双源不同 assetId，无合并）",
+    ).toBe((stats?.fetchedIn ?? 0) + (stats?.injectedInHookDone ?? 0));
+    expect(detail.evidenceSupply?.fetchedTurnSeq).toBe(1);
+    } finally {
+      await proxyT7.close();
+    }
+  }, 60_000);
+});

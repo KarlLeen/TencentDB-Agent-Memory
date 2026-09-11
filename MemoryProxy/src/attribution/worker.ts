@@ -20,6 +20,12 @@ import { pathToFileURL } from "node:url";
 
 import { buildConfig } from "../config.js";
 import { getDb } from "../db/index.js";
+import { getAttributionEventRepo } from "../db/attributionEventRepo.js";
+import {
+  createEvidenceSupplyProvider,
+  extractVisibleAssetCandidates,
+  type EvidenceSupplyProvider,
+} from "./evidence-supply.js";
 import { createJudge, type CreateJudgeDeps } from "./judge/create-judge.js";
 import type { Judge, JudgeCandidate, JudgeInput } from "./judge/types.js";
 import {
@@ -60,6 +66,12 @@ export interface AttributionWorkerDeps {
   sleep?: (ms: number) => Promise<void>;
   /** 测试用：日志落点。缺省写 attribution-judge.log。 */
   emitLog?: (record: Parameters<typeof writeAttributionJudgeLog>[0]) => void;
+  /**
+   * 56 · 证据供给 provider（50 spec §11）：候选组装换调它（fetched + injected 两路）。
+   * 缺省 ⇒ 回退旧路径 `extractJudgeCandidates`（只搬 visibleAssets 快照）—— 单测兼容；
+   * 生产 `buildWorkerDeps` 总装真 provider。
+   */
+  evidenceSupply?: EvidenceSupplyProvider;
 }
 
 export interface AttributionWorkerCycleResult {
@@ -92,41 +104,28 @@ function emptyCycleResult(): AttributionWorkerCycleResult {
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** 容错解析队列 payload（坏 JSON 不该让整轮挂掉）。 */
-function safeParsePayload(payloadJson: string): { kind: string; payload: unknown } {
+/** 容错解析队列 payload（坏 JSON 不该让整轮挂掉）。56 起扩解 `turnSeq`（单元轮次，§11 C1）。 */
+function safeParsePayload(payloadJson: string): { kind: string; payload: unknown; turnSeq: number | null } {
   try {
-    const parsed = JSON.parse(payloadJson) as { kind?: unknown; payload?: unknown };
-    return { kind: typeof parsed?.kind === "string" ? parsed.kind : "unknown", payload: parsed?.payload };
+    const parsed = JSON.parse(payloadJson) as { kind?: unknown; payload?: unknown; turnSeq?: unknown };
+    return {
+      kind: typeof parsed?.kind === "string" ? parsed.kind : "unknown",
+      payload: parsed?.payload,
+      turnSeq: typeof parsed?.turnSeq === "number" ? parsed.turnSeq : null,
+    };
   } catch {
-    return { kind: "unknown", payload: undefined };
+    return { kind: "unknown", payload: undefined, turnSeq: null };
   }
 }
 
 /**
- * 候选抽取：**只搬运 v1 已落库的 visibleAssets 快照**（A2），不在这里做筛选/推断。
- * 基座-c 的排他性检查才会给出"哪些候选被正文引到"这类**度量**（只出度量不出阈值）。
+ * 候选抽取（旧路径 fallback）：**只搬运 v1 已落库的 visibleAssets 快照**（A2），不在这里做筛选/推断。
+ * 搬运逻辑单份在 `evidence-supply.ts` 的 `extractVisibleAssetCandidates`（不许第二份）；
+ * 真实两路供给（fetched + injected）见 `EvidenceSupplyProvider`（50 spec §11）。
  */
 export function extractJudgeCandidates(unitPayload: unknown): JudgeCandidate[] {
   if (!unitPayload || typeof unitPayload !== "object") return [];
-  const visible = (unitPayload as { visibleAssets?: unknown }).visibleAssets;
-  if (!Array.isArray(visible)) return [];
-  const out: JudgeCandidate[] = [];
-  const seen = new Set<string>();
-  for (const raw of visible) {
-    if (!raw || typeof raw !== "object") continue;
-    const assetId = (raw as { assetId?: unknown }).assetId;
-    const assetType = (raw as { assetType?: unknown }).assetType;
-    if (typeof assetId !== "string" || assetId.length === 0) continue;
-    if (seen.has(assetId)) continue;
-    seen.add(assetId);
-    out.push({
-      assetId,
-      assetType: typeof assetType === "string" ? assetType : "unknown",
-      // 来源 = S2 注入切片 ⇒ injected（fetched 形态随 40 spec 后续档位补齐）。
-      evidenceSourceType: "injected",
-    });
-  }
-  return out;
+  return extractVisibleAssetCandidates((unitPayload as { visibleAssets?: unknown }).visibleAssets);
 }
 
 /** 消费一行：judge → 幂等落库 → complete/fail → 一行引用式日志。 */
@@ -138,14 +137,24 @@ async function consumeRow(
   const now = deps.now ?? Date.now;
   const emit = deps.emitLog ?? writeAttributionJudgeLog;
   const started = now();
-  const { kind, payload } = safeParsePayload(row.payload_json);
+  const { kind, payload, turnSeq } = safeParsePayload(row.payload_json);
+
+  // 56 · 候选组装换调证据 provider（50 spec §11；缺省回退旧路径，见 deps 注释）。
+  const supply = deps.evidenceSupply?.supply({
+    sessionKey: row.session_key,
+    turnSeq,
+    visibleAssets:
+      payload && typeof payload === "object"
+        ? (payload as { visibleAssets?: unknown }).visibleAssets
+        : undefined,
+  });
 
   const input: JudgeInput = {
     unitId: row.unit_id,
     sessionKey: row.session_key,
     round: row.round,
     unit: { kind, payload },
-    candidates: extractJudgeCandidates(payload),
+    candidates: supply ? supply.candidates : extractJudgeCandidates(payload),
     promptRef: deps.judge.promptRef,
   };
 
@@ -190,6 +199,16 @@ async function consumeRow(
         rationaleRef: verdict.rationaleRef,
         candidateCount: input.candidates.length,
         unitKind: kind,
+        // 56 · C5 观测计数 + C2 双源事实 + C1 轮次落点（缺省走旧路径时不落该键 ⇒ 旧 detail_json 形状不变）
+        ...(supply
+          ? {
+              evidenceSupply: {
+                stats: supply.stats,
+                dualSource: supply.dualSource,
+                fetchedTurnSeq: supply.fetchedTurnSeq,
+              },
+            }
+          : {}),
       },
     });
 
@@ -322,6 +341,8 @@ export function buildWorkerDeps(
     queueRepo: getAttributionJudgeQueueRepo(),
     detailsRepo: getAttributionJudgementDetailsRepo(),
     judge: createJudge(judgedConfig, overrides),
+    // 56 · 生产总装真 provider（DB 降级 ⇒ Null repo，两路空 + visibleAssets 便捷路径不失联）
+    evidenceSupply: createEvidenceSupplyProvider(getAttributionEventRepo()),
     owner,
     batchSize: workerCfg?.batchSize ?? 8,
     leaseTtlMs: workerCfg?.leaseTtlMs ?? 600_000,

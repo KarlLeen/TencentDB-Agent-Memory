@@ -302,3 +302,60 @@ type FetchedAnchorVerdict =
 - 第一消费方 = **§9 第 2 项候选分档（下一单）**；本轮**不接** judge 队列 / worker（接上 = 扩面）。
 - 本轮的消费证明 = **P-0a 复测 harness 调生产函数 `anchorFetchedRows`** 跑 51 后真库快照
   （不许 test-only 平行实现），判定分布（分母 = fetched 行数）进 55 报告。
+
+## 11 证据供给与候选分档（漏斗②③；56 落地）
+
+> 本节是 §9 第 2 项第一刀的交付（② 证据供给 + ③ 候选分档合并；④ shortlist + ⑤ 三道机械锚点属 57）。
+> **取代登记**：brainstorm §2 ② 写于 55 之前，其 fetched 路"按 `created_at` 后向窗口切分"一句
+> **被 §10 取代**（锚定以 rowid 定序 + 四态门控为准；brainstorm 不回改）。
+> **D7 纪律修订**（brainstorm B1 原话，`enqueue.ts` 头注原写"worker 只读队列行，不 v1 回查"）：
+> 修订为"**worker 只读队列行 + 只读证据 provider；provider 零写、不推进水位**"。`enqueue.ts` 头注
+> 已 append 指针（不改其运行行为）。
+
+### 11.1 C1 · 两路形状
+
+单元轮次来源 = 队列 `payload_json` 的 `turnSeq`（`enqueue.ts` 入队时已带；worker 的 `safeParsePayload`
+扩解该字段，**不改队列 DDL、不改 enqueue**）；缺失 ⇒ 按"永不匹配的轮"处理（两路空，不猜）。
+
+- **injected 路** = `injection.hook.done` 行（`asset_id IS NOT NULL`，按 **`turn_seq` 列**对齐当前单元轮）
+  ∪ 队列 payload `visibleAssets`（restraint 便捷路径，`decision-units/types.ts` A2 快照）。
+- **fetched 路** = `asset_fetched` 行，**经 §10 锚定门控**：
+  - `in_turn(t)` 且 `t ==` 当前单元轮 ⇒ **进候选**；轮次 `t` 的落点 = `detail_json.evidenceSupply.fetchedTurnSeq`
+    （双源时另见 `dualSource[].fetchedTurnSeq`），**不进 `JudgeCandidate`** —— 契约零改动；
+  - `head / tail / boundary / non_monotonic` ⇒ **不进**，按原因分别计数（不许"带标记进"）；
+  - `in_turn` 但**非当前轮** ⇒ 不进，计入 `fetchedOtherTurn`；
+  - `asset_id` 为 NULL ⇒ 不进（brainstorm A3：有抓取行为 ≠ 用了哪个资产），计入 `fetchedNoAssetId`。
+- 重复行去重（brainstorm A2）：同 `assetId` 重复按 `(created_at ASC, rowid ASC)` **取首见**；
+  锚定已排除 `non_monotonic` ⇒ 进候选段内该序与 rowid 序等价。
+
+### 11.2 C2 · 合并规则（= "分档"的真实含义）
+
+同 `assetId` 双源 ⇒ **一条候选，`fetched` 优先**（`evidenceSourceType: "fetched"`）。
+双源事实**不进 `JudgeCandidate`**（契约零改动），落 worker 写 judgement 时的 `detail_json.evidenceSupply.dualSource`
+（`assetId / assetType / fetchedTurnSeq / injectedVia("hook.done"|"visibleAssets")`）。
+**候选顺序写死**（mock judge 按顺序取第一个命中，T7 依赖确定性）：
+fetched 路按 `(created_at, rowid)` 首见序在前，injected 路新增资产在后（hook.done 按 `(created_at, rowid)`，
+visibleAssets 按原数组序）；双源合并不新增位置。
+
+### 11.3 C3 · 标注规则
+
+`evidenceSourceType` 由**来源**决定：fetched 路 ⇒ `"fetched"`；injected 路两分支 ⇒ `"injected"`。
+`worker.ts` 候选组装处的 `"injected"` 硬编码删除（B1 第二处独立缺陷）。
+
+### 11.4 C4 · 只读边界与降级
+
+- provider 全路径**零写**（T25 姿势：跑完后 `getAttributionWriteCounters()` 增量全 0 +
+  `attribution_archive_watermark` 行数不变）；一次 `listBySessionWithRowid` 读会话全量，**不重复读库**。
+- DB 降级（Null repo）⇒ 两路空、**保留 payload `visibleAssets` 便捷路径**（不失联）。
+  ⇒ 无证据行时 provider 输出与旧路径（`extractJudgeCandidates`）**逐字节一致**。
+
+### 11.5 C5 · 消费方（同单落地，防陷阱 14）
+
+- worker `consumeRow` 候选组装**换调 provider**（`deps.evidenceSupply`；缺省回退旧路径
+  `extractJudgeCandidates` —— 单测兼容；生产 `buildWorkerDeps` 总装真 provider）。
+- 可观测计数落 `detail_json.evidenceSupply.stats`，**分母齐全**：
+  `fetchedRows = fetchedIn + head + tail + boundary + non_monotonic + fetchedOtherTurn + fetchedNoAssetId`；
+  另 `injectedInHookDone / injectedInVisibleAssets / mergedDualSource / injectedDuplicate`。
+  （`fetchedOtherTurn` / `fetchedNoAssetId` / `injectedDuplicate` 三桶是对工单计数清单的**补充** ——
+  无它们分母凑不齐；`injectedDuplicate` = injected 两分支互撞去重（hook.done ∩ visibleAssets，同 assetId），
+  **不算**双源合并 —— `mergedDualSource` 只计 fetched ∩ injected。）
