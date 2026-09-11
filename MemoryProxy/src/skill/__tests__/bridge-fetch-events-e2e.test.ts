@@ -18,7 +18,10 @@
  *      同时出现；以及"cc 排在第 5 位"这种**位置错**）—— 见用例 13 的 27 格矩阵，
  *      `#7/#8/#9` 正是这三类。**生效前提**：三条链路共用**同一个** `resolveConversationId`
  *      （两份私有 `deriveSessionId` 已删除）；若有人再抄一份列表或改动优先级，`#7/#8/#9` 会红。
- *   1b. **仍未覆盖**：`identity.ts:131-139` 的第 4 份解析器（§2 只判不改，且它不进 bridge 路径）。
+ *   1b. **已收敛（53）**：`identity.ts` 原先自带的第 4 份解析器（53 前在 `identity.ts:131-139`）已改为直调
+ *      唯一真相 `resolveConversationIdFromHeaders` —— 该函数现在同时被 `resolveConversationId` 与
+ *      `identity.ts` 的调试日志调用，**会话头名单只剩一份**；这个 `sessionId` 只进 `[identity]` 日志、
+ *      不进 bridge 路径（故本矩阵无需覆盖它）。
  *   2. 上游 / kernel 用 stub（只记录、不参与判定），判定全在落行侧（与 S4a 同纪律）。
  *
  * 变红的**第一嫌疑**（写给将来看到失败的人）：若主链路退回 composite，

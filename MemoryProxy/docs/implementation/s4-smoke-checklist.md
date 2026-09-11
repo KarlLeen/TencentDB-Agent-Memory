@@ -261,3 +261,15 @@ S4a 已实现并全绿。**逐条对照本 checklist 的偏差**（完整版见 
 - **变异测试**：M1 塞回 `skill-injector.ts:8` → 红并点名该文件；M2 塞回 `index.ts:378` → 红并点名该文件（专测新第 4 条断言）。两次均已还原。
 - 数字（销案后）：S4 冒烟 **10**｜`src/injection` 9 files / **93**｜全量 16 files / **247**｜`typecheck:baseline` `PASS — 55`｜生产代码零行为改动 —— 与 §12.5 步骤 5 期望逐项相同。
 - 勘误（仅分项口径）：design §10/§11 的"S4a 5 条"实为 **4 条**（A1–A4）；冒烟 10 = S4a 4 + S4b 2 + 护栏 1 + 表级 2 + 登记项 1。
+
+### 53 · 锚点重登：会话头名单（2026-09-11，编码侧）
+
+- **被改的锚点**：§3 `:106`「会话锚定」按行号引 `src/session/session-key.ts:9-17`（= 该文件的会话头名单）。
+- **变更**（`53-identity-deadcode`）：`resolveConversationId(c)` 退化为薄包装，名单挪进新函数
+  `resolveConversationIdFromHeaders`；行号因此不再稳定。本轮实测快照（仅记录，不作判据）：
+  薄包装 `:9-11`、新函数文档注释 `:13-20`、签名 `:21-23`、名单 `??` 链 `:24-31`、文件共 48 行。
+- **重登口径**（沿用 45-bridge 勘正 10 的纪律）：后续判据**只按符号名引用**
+  `src/session/session-key.ts` 的 `resolveConversationIdFromHeaders`，**不再抄行号**。
+- **§3 `:106` 的语义未变**：`x-claude-code-session-id` 仍是名单里第 3 优先级（前两名 `x-conversation-id`
+  → `x-session-id`）；fixture 只带这一个头时，取值结果与 53 前**逐字相同**（15 格同键矩阵 + 反向控制
+  实测见 `53-identity-deadcode` 报告）。

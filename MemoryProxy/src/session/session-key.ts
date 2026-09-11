@@ -7,13 +7,27 @@ import type { Context } from "hono";
 
 /** Extract conversation ID from request headers. Returns null if no valid ID found. */
 export function resolveConversationId(c: Context): string | null {
+  return resolveConversationIdFromHeaders((name) => c.req.header(name));
+}
+
+/**
+ * 会话头解析的**唯一真相**（53 起名单只此一份）：`resolveConversationId` 是本函数的 Hono 取头薄包装，
+ * `identity.ts` 的调试日志同调本函数 —— 任何"另一份名单"都是漂移源。
+ *
+ * 契约：`get` **大小写不敏感**；空串按"未提供"处理（归 `null`）。
+ * 两处输入域语义变更（53 收敛时显式声明，生产调用点均不受影响，见 53 报告 §语义变更）：
+ * 大小写混合键由"取不到"→"命中"；空串由 `""` → `null`。
+ */
+export function resolveConversationIdFromHeaders(
+  get: (name: string) => string | undefined,
+): string | null {
   const id =
-    c.req.header("x-conversation-id") ??
-    c.req.header("x-session-id") ??
-    c.req.header("x-claude-code-session-id") ?? // Claude Code CLI sends this
-    c.req.header("x-deepseek-harness-session-id") ?? // dsh (deepseek-harness) CLI/web sends this
-    c.req.header("x-chat-id") ??
-    c.req.header("x-thread-id") ??
+    get("x-conversation-id") ??
+    get("x-session-id") ??
+    get("x-claude-code-session-id") ?? // Claude Code CLI sends this
+    get("x-deepseek-harness-session-id") ?? // dsh (deepseek-harness) CLI/web sends this
+    get("x-chat-id") ??
+    get("x-thread-id") ??
     null;
   return id && id.length > 0 ? id : null;
 }

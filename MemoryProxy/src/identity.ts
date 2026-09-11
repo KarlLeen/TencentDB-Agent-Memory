@@ -9,11 +9,13 @@
  *
  * This module:
  * - Extracts all available identity signals from headers and body
- * - Maintains a ring buffer of recent inspections for debugging
  * - Provides a stable `userId` derived from the API key structure
+ *
+ * 会话键唯一真相 = `session/session-key.ts` 的 `resolveConversationId`（52 起；本模块不再自带名单）。
  */
 
 import { createHash } from "node:crypto";
+import { resolveConversationIdFromHeaders } from "./session/session-key.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -59,41 +61,6 @@ export interface UserInfoFromPrompt {
   planId: string | null;
 }
 
-export interface RequestInspection {
-  timestamp: string;
-  method: string;
-  path: string;
-  identity: ClientIdentity;
-  allHeaders: Record<string, string>;
-  bodyMeta: {
-    model: string | null;
-    messageCount: number;
-    stream: boolean;
-    hasTools: boolean;
-    hasSystemPrompt: boolean;
-    systemPromptLength: number;
-    systemContentType?: string;
-    systemPromptPreview?: string;
-    systemPromptTail?: string;
-  };
-}
-
-// ── Ring buffer for recent inspections ─────────────────────────────────────────
-
-const MAX_INSPECTIONS = 20;
-const recentInspections: RequestInspection[] = [];
-
-export function recordInspection(inspection: RequestInspection): void {
-  recentInspections.push(inspection);
-  if (recentInspections.length > MAX_INSPECTIONS) {
-    recentInspections.shift();
-  }
-}
-
-export function getRecentInspections(): RequestInspection[] {
-  return [...recentInspections];
-}
-
 // ── Identity extraction from headers ───────────────────────────────────────────
 
 /**
@@ -127,17 +94,6 @@ export function extractClientIdentity(
     ? createHash("sha256").update(apiKey).digest("hex").slice(0, 8)
     : "unknown";
 
-  // Look for session/conversation ID in common header patterns
-  let sessionId: string | null =
-    headers["x-session-id"] ??
-    headers["x-conversation-id"] ??
-    headers["x-chat-id"] ??
-    headers["x-thread-id"] ??
-    headers["x-cb-session-id"] ??
-    headers["x-codebuddy-session-id"] ??
-    headers["x-request-session"] ??
-    null;
-
   // Enterprise WeChat ID
   let wechatWorkId: string | null =
     headers["x-wechat-work-id"] ??
@@ -165,14 +121,21 @@ export function extractClientIdentity(
     headers["X-Tdai-User-Token"] ??
     null;
 
-  // Collect ALL custom x- headers for discovery
+  // Collect ALL custom x- headers for discovery, plus a lowercased view for the
+  // session-key resolver（唯一真相在 session/session-key.ts；53 起本模块不再自带名单）。
   const customHeaders: Record<string, string> = {};
+  const lowerHeaders: Record<string, string> = {};
   for (const [k, v] of Object.entries(headers)) {
     const lower = k.toLowerCase();
+    lowerHeaders[lower] = v;
     if (lower.startsWith("x-") || lower.startsWith("cb-") || lower.startsWith("codebuddy-")) {
       customHeaders[k] = v;
     }
   }
+
+  // Session/conversation ID —— 取值器大小写不敏感：`headers` 可能是 Headers 的小写视图，
+  // 也可能是调用方给的原始 map（见 53 报告 §语义变更 A2′）。
+  let sessionId: string | null = resolveConversationIdFromHeaders((name) => lowerHeaders[name]);
 
   // Extract user info from system prompt
   let userInfo: UserInfoFromPrompt | null = null;
@@ -321,8 +284,11 @@ function extractBearer(authHeader: string): string {
 // ── Full inspection helper (called from handler) ───────────────────────────────
 
 /**
- * Perform a full inspection of the incoming request and record it.
+ * Inspect the incoming request and log the extracted identity signals.
  * Called from handler.ts and anthropicHandler.ts.
+ *
+ * 53 起不再产出 inspection 记录（ring buffer 已删）：`method` / `path` 仅为不动两个调用点
+ * 而保留的形参，不参与任何产出。
  */
 export function inspectAndRecord(
   method: string,
@@ -332,89 +298,6 @@ export function inspectAndRecord(
   agentSource = "claude-code",
 ): ClientIdentity {
   const identity = extractClientIdentity(headers, body, agentSource);
-
-  const messages = Array.isArray(body.messages) ? body.messages : [];
-  const systemMsg = messages.find(
-    (m: unknown) => (m as Record<string, unknown>).role === "system",
-  ) as Record<string, unknown> | undefined;
-
-  // Anthropic 协议的 system prompt 在 body.system 字段（不在 messages 中）
-  // Claude Code 走 Anthropic 协议，system prompt 是 body.system
-  const anthropicSystem = body.system;
-  let anthropicSystemText: string | null = null;
-  if (typeof anthropicSystem === "string") {
-    anthropicSystemText = anthropicSystem;
-  } else if (Array.isArray(anthropicSystem)) {
-    anthropicSystemText = (anthropicSystem as Array<{ type?: string; text?: string }>)
-      .filter((c) => c.type === "text")
-      .map((c) => c.text ?? "")
-      .join("\n");
-  }
-
-  let systemPromptLength = 0;
-  if (systemMsg) {
-    if (typeof systemMsg.content === "string") {
-      systemPromptLength = systemMsg.content.length;
-    } else if (Array.isArray(systemMsg.content)) {
-      systemPromptLength = JSON.stringify(systemMsg.content).length;
-    }
-  } else if (anthropicSystemText) {
-    systemPromptLength = anthropicSystemText.length;
-  }
-
-  // Extract system prompt preview (first 5000 chars) for debugging
-  let systemPromptPreview: string | null = null;
-  let systemPromptTail: string | null = null;
-  let systemContentType: string | null = null;
-
-  // 优先用 OpenAI 格式的 system message
-  if (systemMsg) {
-    if (typeof systemMsg.content === "string") {
-      systemContentType = "string";
-      systemPromptPreview = systemMsg.content.slice(0, 5000);
-      if (systemMsg.content.length > 5000) {
-        systemPromptTail = systemMsg.content.slice(-3000);
-      }
-    } else if (Array.isArray(systemMsg.content)) {
-      systemContentType = "array";
-      const textBlocks = (systemMsg.content as Array<{ type?: string; text?: string }>)
-        .filter((c) => c.type === "text")
-        .map((c) => c.text ?? "")
-        .join("\n");
-      systemPromptPreview = textBlocks.slice(0, 5000);
-      if (textBlocks.length > 5000) {
-        systemPromptTail = textBlocks.slice(-3000);
-      }
-    }
-  } else if (anthropicSystemText) {
-    // Anthropic 格式的 system prompt（Claude Code 走这里）
-    systemContentType = typeof anthropicSystem === "string" ? "anthropic-string" : "anthropic-array";
-    systemPromptPreview = anthropicSystemText.slice(0, 5000);
-    if (anthropicSystemText.length > 5000) {
-      systemPromptTail = anthropicSystemText.slice(-3000);
-    }
-  }
-
-  const inspection: RequestInspection = {
-    timestamp: new Date().toISOString(),
-    method,
-    path,
-    identity,
-    allHeaders: headers,
-    bodyMeta: {
-      model: typeof body.model === "string" ? body.model : null,
-      messageCount: messages.length,
-      stream: body.stream === true,
-      hasTools: Array.isArray(body.tools) && body.tools.length > 0,
-      hasSystemPrompt: !!systemMsg || !!anthropicSystemText,
-      systemPromptLength,
-      systemContentType: systemContentType as string | undefined,
-      systemPromptPreview: systemPromptPreview as string | undefined,
-      systemPromptTail: systemPromptTail as string | undefined,
-    },
-  };
-
-  recordInspection(inspection);
 
   // Also log to stderr for real-time visibility
   console.error(

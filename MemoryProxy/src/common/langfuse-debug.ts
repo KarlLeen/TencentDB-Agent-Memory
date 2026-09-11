@@ -22,7 +22,8 @@ import type { CcRequestKind } from "./cc-request-classifier.js";
 import { findLastCacheControlIndex } from "./cc-request-classifier.js";
 
 // ─── 白名单与截断上限 ────────────────────────────────────────────────────────
-// 请求头前缀：跟 identity.ts:172 一致，避免各处对 CB header 认知漂移。
+// 请求头前缀：跟 identity.ts 的 customHeaders 前缀判定一致（53 起按**符号**引用、不抄行号，
+// 避免行号漂移）；避免各处对 CB header 认知漂移。
 const HEADER_PREFIX_WHITELIST = ["x-", "cb-", "codebuddy-"];
 // 单个 tool description / string 字段最多截断到多少字符（防 langfuse 单条上报膨胀）。
 const STRING_TRUNC = 200;
