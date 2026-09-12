@@ -807,3 +807,12 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   非新步骤）；**`.db` 本体 `sha256` 仅作参考**。（样例：本轮 `.backup` 的
   `sha256=e5865666fa878ddf26b12bf1634adecbccda44dc2ca284c9c38932b413361aed`，与复核方上一轮
   独立快照**逐字相同**；`wal_checkpoint(PASSIVE)=0|0|0` 时主文件证书与 backup 等价。）
+- **上游 1 行修已独立开出（70 append；2026-09-12，append-only）**：该 UNALLOWED 已由**独立单**
+  `fix/raw-yaml-skip-asset-confirm`（**`dfb676e`**；base `906b582`）修掉——`RawYamlConfig.sessionInit`
+  补 `skipAssetConfirm?: boolean`（类型声明 + 照抄 `SessionInitConfig` 注释；**`+6/−0`**）；
+  **只推 fork、未并入上游、不发 PR**。**本分支（`feature/attribution-v2`）保持红灯不变**：
+  **不 cherry-pick、不 rebase、不改判据**。**判据分叉**：主系列 = "同一 UNALLOWED + total 60"
+  （**仍 FAIL**）；修复分支 = "**59 + PASS**"。⚠️ **该门在修复分支上已由 FAIL 翻转为 PASS**
+  ——留痕目的 = 防下一轮把"绿灯"当异常（或以"两处不一致"误判为漂移）。
+  （实测注：`typecheck:baseline` 工具与测试套均为 **fork-local 产物、不在 `906b582`** ⇒ 修复分支上
+  以 `tsc=59` + 主系列工作区**临时同款 patch** 实测 `PASS — 59 errors` / `544 passed`（已还原）为证。）
