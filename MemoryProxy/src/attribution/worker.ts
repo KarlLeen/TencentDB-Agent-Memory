@@ -29,6 +29,14 @@ import {
 import { gradeCandidates, shortlistCandidates, type CandidateCitationMetrics } from "./citation/grading.js";
 import { getCitationSourceProvider, type CitationSourceProvider } from "./citation/source.js";
 import { createJudge, JudgeConfigError, validateJudgeConfig, type CreateJudgeDeps } from "./judge/create-judge.js";
+import {
+  createPostCycleL1Hook,
+  enumerateL1Sessions,
+  formatL1Outcome,
+  parseSinceMs,
+  runL1ForSessions,
+  validateL1CliScope,
+} from "./l1-wiring.js";
 import type { Judge, JudgeCandidate, JudgeInput, JudgeVerdict } from "./judge/types.js";
 import {
   getAttributionStatusEventsRepo,
@@ -413,6 +421,13 @@ export interface RunWorkerOptions {
   shouldStop?: () => boolean;
   /** 每轮之间回调（观测/测试）。 */
   onRound?: (result: AttributionWorkerCycleResult) => void;
+  /**
+   * 69 · C1：**空闲回调**（post-cycle L1 挂点；与 `onRound` 分开命名、语义明确）。
+   * 仅当 `claimBatch` 返回 **0 行**（队列空闲）时调用：常驻 = 每次空转；`--once` drain =
+   * 抽干结束返回前。参数 = 本进程**消费过**的 session 脏集（去重；C2）——钩子内部按 C3 节流
+   * + 脏集判断"是否真跑"。
+   */
+  onIdle?: (consumedSessions: Set<string>) => void;
 }
 
 /**
@@ -434,6 +449,10 @@ export async function runWorker(
   // 62 · C2/C4：top-N 成本闸门（每 cycle 送 judge 单元数上限）。
   const topN = Math.max(1, Math.trunc(deps.topNPerCycle ?? DEFAULT_TOP_N_PER_CYCLE));
   const gate = { judged: 0 };
+
+  // 69 · C2：脏集 = 本进程消费过的 session（**仅 onIdle 挂载时收集** ⇒ 无钩子零开销；
+  // 不扩到写入侧 —— 理由见 l1-wiring.ts 头注）。
+  const consumedSessions = new Set<string>();
 
   while (true) {
     if (opts.shouldStop?.()) break;
@@ -461,6 +480,8 @@ export async function runWorker(
 
     if (rows.length === 0) {
       opts.onRound?.(result);
+      // 69 · C1：队列空闲 ⇒ onIdle（常驻每次空转 / drain 抽干结束各一次；内部节流）。
+      opts.onIdle?.(consumedSessions);
       if (opts.drain) break;
       await (deps.sleep ?? defaultSleep)(deps.pollIntervalMs);
       continue;
@@ -469,6 +490,7 @@ export async function runWorker(
     result.claimed += rows.length;
     for (const row of rows) {
       alreadyAttempted?.add(row.queue_id);
+      if (opts.onIdle) consumedSessions.add(row.session_key);
       await consumeRow(row, deps, result, gate);
     }
     opts.onRound?.(result);
@@ -485,15 +507,41 @@ export interface WorkerCliOptions {
   retryFailed: boolean;
   /** 61 · 人工重判目标（50 spec §16 C2；`--rejudge <unit_id>`）。 */
   rejudgeUnitId?: string;
+  /** 69 · L1 修正入口（50 spec §20 C1；显式调用即开，不受 `correctL1.enabled` 开关约束）。 */
+  correctL1: boolean;
+  /** 69 · 范围：`--session=<key>`（与 `--all-sessions` 二选一）。 */
+  sessionKey?: string;
+  /** 69 · 范围：`--all-sessions`（须配 `--since`）。 */
+  allSessions: boolean;
+  /** 69 · 水位原始串（ms | ISO8601；`--since=`；仅 all-sessions 搭配）。 */
+  sinceRaw?: string;
 }
 
 export function parseWorkerArgs(argv: string[]): WorkerCliOptions {
-  const opts: WorkerCliOptions = { once: false, retryFailed: false };
+  const opts: WorkerCliOptions = { once: false, retryFailed: false, correctL1: false, allSessions: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--once") opts.once = true;
     else if (arg === "--retry-failed") opts.retryFailed = true;
-    else if (arg === "--rejudge") {
+    else if (arg === "--correct-l1") opts.correctL1 = true;
+    else if (arg === "--all-sessions") opts.allSessions = true;
+    else if (arg === "--session") {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("--")) {
+        opts.sessionKey = next;
+        i += 1;
+      }
+    } else if (arg.startsWith("--session=")) {
+      opts.sessionKey = arg.slice("--session=".length);
+    } else if (arg === "--since") {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("--")) {
+        opts.sinceRaw = next;
+        i += 1;
+      }
+    } else if (arg.startsWith("--since=")) {
+      opts.sinceRaw = arg.slice("--since=".length);
+    } else if (arg === "--rejudge") {
       const next = argv[i + 1];
       if (next && !next.startsWith("--")) {
         opts.rejudgeUnitId = next;
@@ -549,6 +597,11 @@ export const EXIT_DB_UNAVAILABLE = 2;
 export const EXIT_CONFIG_INVALID = 3;
 /** 61 · `--rejudge` 目标没有首判行（50 spec §16 C2）：明确报错，零入队。 */
 export const EXIT_REJUDGE_TARGET_MISSING = 4;
+/**
+ * 69 · L1 范围参数不合法（50 spec §20 C1）：无范围 / 双范围 / `--all-sessions` 缺 `--since` /
+ * `--since` 值非法 —— 明确报错退出、**零扫描**（不猜、不默认无界全表扫）。
+ */
+export const EXIT_L1_SCOPE_INVALID = 5;
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   const opts = parseWorkerArgs(argv);
@@ -565,6 +618,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     throw err;
   }
 
+  // 69 · C1：L1 范围参数校验（纯参数、不碰库；失败 ⇒ 码 5、零扫描 —— 不猜、不默认无界全表扫）。
+  if (opts.correctL1) {
+    const why = validateL1CliScope(opts);
+    if (why !== null) {
+      process.stderr.write(`[attribution-judge] FATAL: ${why}\n`);
+      return EXIT_L1_SCOPE_INVALID;
+    }
+  }
+
   initAttributionJudgeLogger(resolveAttributionJudgeLogDir(config));
 
   // 先探库：DB 不可用时 win/lin 都要给明确报错 + 非零码，不能装成功。
@@ -578,6 +640,14 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
   const owner = `attribution-judge-${process.pid}-${Date.now()}`;
   const deps = buildWorkerDeps(config, owner);
+
+  // 69 · C1：解析 L1 范围（`--all-sessions` 枚举需 DB；探库已过；T8 = fetched ∪ used 两来源并集）。
+  let l1Sessions: string[] | null = null;
+  if (opts.correctL1) {
+    l1Sessions = opts.sessionKey
+      ? [opts.sessionKey]
+      : enumerateL1Sessions(parseSinceMs(opts.sinceRaw!)!); // 校验已保证非空且合法
+  }
 
   process.stderr.write(
     `[attribution-judge] worker start owner=${owner} once=${opts.once} retryFailed=${opts.retryFailed} ` +
@@ -606,6 +676,16 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     );
   }
 
+  // 69 · C1：`--correct-l1`（无 `--once`）⇒ 只修正、不消费（可离线圈用）。
+  if (opts.correctL1 && !opts.once) {
+    const out = runL1ForSessions(l1Sessions!);
+    process.stderr.write(
+      `[attribution-judge] l1-correct sessions=${l1Sessions!.length} ${formatL1Outcome(out)}\n`,
+    );
+    await shutdownAttributionJudgeLogger();
+    return EXIT_OK;
+  }
+
   let stopping = false;
   const onSignal = (signal: string): void => {
     if (stopping) return;
@@ -615,9 +695,16 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   process.on("SIGINT", () => onSignal("SIGINT"));
   process.on("SIGTERM", () => onSignal("SIGTERM"));
 
+  // 69 · C1：post-cycle 钩子（config 开 **且** 无显式 `--correct-l1` 时挂；缺省关 ⇒ 零回归：
+  // 不挂钩子 ⇒ runWorker 不收集脏集、不新增任何输出）。
+  const l1Cfg = config.attribution?.judge?.worker?.correctL1;
+  const onIdle =
+    !opts.correctL1 && l1Cfg?.enabled === true ? createPostCycleL1Hook(l1Cfg) : undefined;
+
   const result = await runWorker(deps, {
     drain: opts.once,
     shouldStop: () => stopping,
+    onIdle,
   });
 
   process.stderr.write(
@@ -631,6 +718,15 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     process.stderr.write(
       `[attribution-judge] overflow: 另有 ${result.overflowed} 个次要决策未逐一归因` +
         `（top-N 闸门；保持 pending，下轮 FIFO 优先）\n`,
+    );
+  }
+
+  // 69 · C1：`--correct-l1 --once` ⇒ **先抽干消费、后修正**（顺序写死：修正对象是 used 行，
+  // 先消费才可能有新对象）。
+  if (opts.correctL1) {
+    const out = runL1ForSessions(l1Sessions!);
+    process.stderr.write(
+      `[attribution-judge] l1-correct sessions=${l1Sessions!.length} ${formatL1Outcome(out)}\n`,
     );
   }
 

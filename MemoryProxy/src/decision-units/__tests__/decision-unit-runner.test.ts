@@ -70,6 +70,9 @@ class FakeRepo implements AttributionEventRepo {
   listBySessionWithRowid() {
     return [];
   }
+  distinctSessionKeys() {
+    return [];
+  }
 }
 
 // ── 消息构造器（anthropic content-block 形状）───────────────────────────────────

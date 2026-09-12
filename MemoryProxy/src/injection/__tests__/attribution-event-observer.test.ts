@@ -50,6 +50,9 @@ class FakeRepo implements AttributionEventRepo {
   listBySessionWithRowid() {
     return [];
   }
+  distinctSessionKeys() {
+    return [];
+  }
 }
 
 // 轻量桩类型：listBySession/listByAsset 的实现可空（本套用例不读行）。

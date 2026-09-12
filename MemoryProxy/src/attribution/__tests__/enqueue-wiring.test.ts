@@ -37,6 +37,9 @@ class FakeEventRepo implements AttributionEventRepo {
   listBySessionWithRowid() {
     return [];
   }
+  distinctSessionKeys() {
+    return [];
+  }
 }
 
 // ── fake 队列 repo（只数入队，别的都不参与）─────────────────────────────────────

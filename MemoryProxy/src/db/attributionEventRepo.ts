@@ -78,6 +78,12 @@ export interface AttributionEventRepo {
    * （既有 `listBySession` 是 `SELECT *` 不含 rowid、按 created_at 倒序且有 LIMIT，不能复用。）
    */
   listBySessionWithRowid(sessionKey: string): AttributionEventRowWithRowid[];
+  /**
+   * 69 · 会话枚举读口（50 spec §20 C1/T8；**只读、无副作用**）：
+   * `created_at >= sinceMs` 水位内出现过的 session（去重、确定性排序；sinceMs 缺省 0 = 全量）。
+   * DB 降级 ⇒ 空数组（与 Null repo 姿势一致）。
+   */
+  distinctSessionKeys(sinceMs?: number): string[];
 }
 
 const DEFAULT_SPACE_ID = "_default";
@@ -159,6 +165,7 @@ class SqliteAttributionEventRepo implements AttributionEventRepo {
   private bySessionTypeStmt: Database.Statement;
   private byAssetStmt: Database.Statement;
   private bySessionWithRowidStmt: Database.Statement;
+  private distinctSessionsStmt: Database.Statement;
 
   constructor(private db: Database.Database) {
     this.insertStmt = db.prepare(INSERT_SQL);
@@ -173,6 +180,10 @@ class SqliteAttributionEventRepo implements AttributionEventRepo {
     );
     this.bySessionWithRowidStmt = db.prepare(
       "SELECT rowid, * FROM attribution_events WHERE session_key = ? ORDER BY rowid ASC",
+    );
+    // 69 · 会话枚举（只读；确定性排序）。
+    this.distinctSessionsStmt = db.prepare(
+      "SELECT DISTINCT session_key FROM attribution_events WHERE session_key != '' AND created_at >= ? ORDER BY session_key ASC",
     );
   }
 
@@ -267,6 +278,17 @@ class SqliteAttributionEventRepo implements AttributionEventRepo {
       return [];
     }
   }
+
+  distinctSessionKeys(sinceMs = 0): string[] {
+    try {
+      const rows = (this.distinctSessionsStmt.all(Math.max(0, Math.trunc(sinceMs))) ?? []) as Array<{
+        session_key: string;
+      }>;
+      return rows.map((r) => r.session_key);
+    } catch {
+      return [];
+    }
+  }
 }
 
 class NullAttributionEventRepo implements AttributionEventRepo {
@@ -279,6 +301,9 @@ class NullAttributionEventRepo implements AttributionEventRepo {
     return [];
   }
   listBySessionWithRowid(): AttributionEventRowWithRowid[] {
+    return [];
+  }
+  distinctSessionKeys(): string[] {
     return [];
   }
 }

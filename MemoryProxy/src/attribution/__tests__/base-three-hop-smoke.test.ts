@@ -172,6 +172,7 @@ function baseConfig(upstreamUrl: string, kernelUrl: string, injectors: string[],
       maxAttempts: 3,
       backoffMs: 1000,
       topNPerCycle: 30,
+      correctL1: { enabled: false, minIdleMs: 30_000 },
     },
   };
   cfg.attribution = { judge: { ...judge, enqueue } };

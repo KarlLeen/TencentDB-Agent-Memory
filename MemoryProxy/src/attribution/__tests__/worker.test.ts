@@ -65,22 +65,28 @@ describe("T9 worker --once", () => {
     expect(detailsRepo().count()).toBe(2);
   });
 
-  it("参数解析：--once / --retry-failed / --config <p> / --config=<p>", () => {
-    expect(parseWorkerArgs([])).toEqual({ once: false, retryFailed: false });
-    expect(parseWorkerArgs(["--once"])).toEqual({ once: true, retryFailed: false });
-    expect(parseWorkerArgs(["--retry-failed", "--once"])).toEqual({ once: true, retryFailed: true });
-    expect(parseWorkerArgs(["--config", "/tmp/a.yaml"])).toEqual({
-      once: false,
-      retryFailed: false,
-      configFile: "/tmp/a.yaml",
-    });
-    expect(parseWorkerArgs(["--config=/tmp/b.yaml"])).toEqual({
-      once: false,
-      retryFailed: false,
-      configFile: "/tmp/b.yaml",
-    });
+  it("参数解析：--once / --retry-failed / --config <p> / --config=<p>（69：+correctL1/allSessions 默认位）", () => {
+    // 69 · CLI options 扩容（correctL1 / allSessions 有显式缺省 false）⇒ 期望同步为显式全字段。
+    const base = { once: false, retryFailed: false, correctL1: false, allSessions: false };
+    expect(parseWorkerArgs([])).toEqual(base);
+    expect(parseWorkerArgs(["--once"])).toEqual({ ...base, once: true });
+    expect(parseWorkerArgs(["--retry-failed", "--once"])).toEqual({ ...base, once: true, retryFailed: true });
+    expect(parseWorkerArgs(["--config", "/tmp/a.yaml"])).toEqual({ ...base, configFile: "/tmp/a.yaml" });
+    expect(parseWorkerArgs(["--config=/tmp/b.yaml"])).toEqual({ ...base, configFile: "/tmp/b.yaml" });
     // 悬空 --config 不吞下一个 flag
-    expect(parseWorkerArgs(["--config", "--once"])).toEqual({ once: true, retryFailed: false });
+    expect(parseWorkerArgs(["--config", "--once"])).toEqual({ ...base, once: true });
+    // 69 · L1 参数解析（新格）：--correct-l1 / --session / --all-sessions / --since
+    expect(parseWorkerArgs(["--correct-l1", "--session=s-1"])).toEqual({
+      ...base,
+      correctL1: true,
+      sessionKey: "s-1",
+    });
+    expect(parseWorkerArgs(["--correct-l1", "--all-sessions", "--since=1700000000000"])).toEqual({
+      ...base,
+      correctL1: true,
+      allSessions: true,
+      sinceRaw: "1700000000000",
+    });
   });
 
   it("--retry-failed 真入口：死信被复位并消费", async () => {

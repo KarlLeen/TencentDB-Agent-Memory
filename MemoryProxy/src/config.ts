@@ -110,6 +110,8 @@ export const DEFAULT_CONFIG: ProxyConfig = {
         backoffMs: 1000,
         // 62 · top-N 成本闸门（30 spec 口径）
         topNPerCycle: 30,
+        // 69 · L1 自动接线：post-cycle 缺省关（显式 CLI `--correct-l1` 调用即开）
+        correctL1: { enabled: false, minIdleMs: 30_000 },
       },
     },
   },
@@ -539,6 +541,17 @@ export function buildConfig(overrides: CliOverrides = {}): ProxyConfig {
             yaml.attribution?.judge?.worker?.topNPerCycle,
             DEFAULT_CONFIG.attribution!.judge.worker.topNPerCycle,
           ),
+          // 69 · L1 自动接线（缺省关；minIdleMs 非法 ⇒ 回缺省 30000，同全仓守卫口径）
+          correctL1: {
+            enabled:
+              typeof yaml.attribution?.judge?.worker?.correctL1?.enabled === "boolean"
+                ? yaml.attribution.judge.worker.correctL1.enabled
+                : DEFAULT_CONFIG.attribution!.judge.worker.correctL1.enabled,
+            minIdleMs: positiveIntOrDefault(
+              yaml.attribution?.judge?.worker?.correctL1?.minIdleMs,
+              DEFAULT_CONFIG.attribution!.judge.worker.correctL1.minIdleMs,
+            ),
+          },
         },
       },
     },

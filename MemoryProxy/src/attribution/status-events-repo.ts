@@ -157,6 +157,12 @@ export interface AttributionStatusEventsRepo {
   latestByUnit(unitId: string): StatusEventRow | null;
   /** 66 · 会话维度读口（S6 corrected 规则用；可过滤事件型）。 */
   listBySession(sessionKey: string, opts?: { limit?: number; eventType?: string }): StatusEventRow[];
+  /**
+   * 69 · 会话枚举读口（50 spec §20 C1/T8；**只读、无副作用**）：
+   * `created_at >= sinceMs` 水位内出现过的 session（去重、确定性排序；sinceMs 缺省 0 = 全量）。
+   * DB 降级 ⇒ 空数组（与 Null repo 姿势一致）。
+   */
+  distinctSessionKeys(sinceMs?: number): string[];
 }
 
 /** 进程内**严格单调**的 created_at（同 judgement repo 姿势：消同毫秒重放误判）。 */
@@ -183,6 +189,7 @@ class SqliteAttributionStatusEventsRepo implements AttributionStatusEventsRepo {
   private readonly latestByUnitStmt: Database.Statement;
   private readonly bySessionStmt: Database.Statement;
   private readonly bySessionTypeStmt: Database.Statement;
+  private readonly distinctSessionsStmt: Database.Statement;
 
   constructor(db: Database.Database) {
     // 定向 upsert：冲突目标 = 主键 status_id（锚全等，无 anomaly 面）。
@@ -224,6 +231,10 @@ RETURNING created_at
     );
     this.bySessionTypeStmt = db.prepare(
       `SELECT ${SELECT_COLUMNS} FROM attribution_status_events WHERE session_key = ? AND event_type = ? ORDER BY created_at ASC, status_id ASC LIMIT ?`,
+    );
+    // 69 · 会话枚举（只读；确定性排序）。
+    this.distinctSessionsStmt = db.prepare(
+      "SELECT DISTINCT session_key FROM attribution_status_events WHERE session_key != '' AND created_at >= ? ORDER BY session_key ASC",
     );
   }
 
@@ -365,6 +376,17 @@ RETURNING created_at
       return [];
     }
   }
+
+  distinctSessionKeys(sinceMs = 0): string[] {
+    try {
+      const rows = (this.distinctSessionsStmt.all(Math.max(0, Math.trunc(sinceMs))) ?? []) as Array<{
+        session_key: string;
+      }>;
+      return rows.map((r) => r.session_key);
+    } catch {
+      return [];
+    }
+  }
 }
 
 class NullAttributionStatusEventsRepo implements AttributionStatusEventsRepo {
@@ -400,6 +422,9 @@ class NullAttributionStatusEventsRepo implements AttributionStatusEventsRepo {
     return null;
   }
   listBySession(): StatusEventRow[] {
+    return [];
+  }
+  distinctSessionKeys(): string[] {
     return [];
   }
 }

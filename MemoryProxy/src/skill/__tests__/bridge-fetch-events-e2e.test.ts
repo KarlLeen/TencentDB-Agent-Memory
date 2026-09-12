@@ -118,6 +118,9 @@ function makeFakeRepo(): FakeAttributionRepo {
     listBySessionWithRowid() {
       return [];
     },
+    distinctSessionKeys() {
+      return [];
+    },
   };
 }
 

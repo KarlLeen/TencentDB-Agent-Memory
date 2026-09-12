@@ -149,6 +149,9 @@ function makeFakeRepo(): AttributionEventRepo & { rows: NewAttributionEvent[] } 
     listBySessionWithRowid() {
       return [];
     },
+    distinctSessionKeys() {
+      return [];
+    },
   };
 }
 
