@@ -12,6 +12,10 @@
  *
  * 与 grading 的关系：**共用**同一 `rarityTable` / 同一 message-tier 检索面 / 同一
  * `assetOwnText` 口径；只加旁路数字，不改既有 `citationMetrics` 条目任何键（C2/C5）。
+ *
+ * **108（(d)-1c）**：+**逐字连续重合轴**（"最长连续字符重合"——coverage 量词面重合、
+ * 与"是否引用"甚至负相关（改写保 trigram 反而分高），此轴量逐字连续；见 108 报告）
+ * +**引号/代码跨度计数**（C4；只记数字）。均可复跑：`npx tsx scripts/qa/shadow-calibration.ts`。
  */
 import { createHash } from "node:crypto";
 
@@ -36,11 +40,20 @@ export interface CandidateShadowMetrics {
   shadowBestSegCoverage: number | "unknown";
   /** **107 · C1**：逐消息口径 —— `max over (片段 × 单条消息)` 的 coverage（不做 join，防跨消息 trigram 拼凑）。 */
   shadowBestSegCoveragePerMsg: number | "unknown";
+  /** **108 · C2**：逐字连续重合（正轴候选）—— `max over (片段 × 单条消息)` 的最长连续字符重合**长度**
+   *  （UTF-16 code units；单条消息内、不 join；无片段/无重合 ⇒ 0）。 */
+  shadowBestContiguousRunChars: number;
+  /** **108 · C2**：上值的归一化 = run / 达成该 run 的**片段长度**；无片段 ⇒ `"unknown"`（无分母）。 */
+  shadowBestContiguousRunNorm: number | "unknown";
   shadowBestSegIndex: number | null;
   shadowBestSegSha256_16: string | null;
   /** (d1) 向（附带）：消息行级片段 ⊆ 资产正文 */
   shadowMsgSegMaxCoverage: number | "unknown";
   shadowMsgSegIdx: number | null;
+  /** **108 · C4**：消息面内**引号 / 代码块 / 行内 code** 跨度总数（消息侧特征；只记数字，不落正文）。 */
+  shadowQuotedSpanCount: number;
+  /** **108 · C4**：上述跨度的最长内容 chars（无跨度 ⇒ 0）。 */
+  shadowQuotedSpanMaxChars: number;
   /** **107 · C3**：短资产回退 —— 仅当 `shadowAssetSegCount === 0` 时计算 `gramCoverage(消息面, 资产全文)`
    *  （"资产整体 ⊆ 消息"的覆盖比；只记录只报数），否则 `"unknown"`（不适用）。 */
   shadowWholeAssetCoverage: number | "unknown";
@@ -58,8 +71,110 @@ function sha16(text: string): string {
 }
 
 /**
+ * 108 · C2：两串的**最长连续公共子串**长度（UTF-16 code units）。
+ * 实现 = 后缀自动机（SAM）：对 `b` 建机、拿 `a` 走一遍，均摊 O(|a| + |b|)。
+ * 导出供单测与朴素 DP 对拍（防实现漂移）。
+ */
+export function longestCommonSubstringLen(a: string, b: string): number {
+  if (a.length === 0 || b.length === 0) return 0;
+  // 建 b 的 SAM
+  const next: Array<Map<number, number>> = [new Map()];
+  const link: number[] = [-1];
+  const len: number[] = [0];
+  let last = 0;
+  for (let i = 0; i < b.length; i += 1) {
+    const c = b.charCodeAt(i);
+    const cur = next.length;
+    next.push(new Map());
+    link.push(-1);
+    len.push(len[last]! + 1);
+    let p = last;
+    while (p !== -1 && !next[p]!.has(c)) {
+      next[p]!.set(c, cur);
+      p = link[p]!;
+    }
+    if (p === -1) {
+      link[cur] = 0;
+    } else {
+      const q = next[p]!.get(c)!;
+      if (len[p]! + 1 === len[q]!) {
+        link[cur] = q;
+      } else {
+        const clone = next.length;
+        next.push(new Map(next[q]!));
+        link.push(link[q]!);
+        len.push(len[p]! + 1);
+        while (p !== -1 && next[p]!.get(c) === q) {
+          next[p]!.set(c, clone);
+          p = link[p]!;
+        }
+        link[q] = clone;
+        link[cur] = clone;
+      }
+    }
+    last = cur;
+  }
+  // 拿 a 走 SAM
+  let v = 0;
+  let l = 0;
+  let best = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    const c = a.charCodeAt(i);
+    while (v !== 0 && !next[v]!.has(c)) {
+      v = link[v]!;
+      l = Math.min(l, len[v]!);
+    }
+    if (next[v]!.has(c)) {
+      v = next[v]!.get(c)!;
+      l += 1;
+    } else {
+      v = 0;
+      l = 0;
+    }
+    if (l > best) best = l;
+  }
+  return best;
+}
+
+/**
+ * 108 · C4：消息内**引号 / 代码块 / 行内 code** 跨度计数与最长内容长度（只出数字）。
+ * 形态写死（确定性）：```…```（跨行代码块）→ `` `…` ``（行内 code）→ 「…」 → `“…”` → ASCII `"…"`（均不跨行）。
+ * 代码块先扣（防块内 ` 被行内 code 重复计）；全部只计内容长度，不保留内容。
+ */
+function countQuotedSpans(text: string): { count: number; maxChars: number } {
+  let count = 0;
+  let maxChars = 0;
+  const record = (inner: string): void => {
+    count += 1;
+    if (inner.length > maxChars) maxChars = inner.length;
+  };
+  let rest = text.replace(/```([\s\S]*?)```/g, (m, inner: string) => {
+    record(inner);
+    return "\u0000".repeat(m.length);
+  });
+  rest = rest.replace(/`([^`\n]+)`/g, (m, inner: string) => {
+    record(inner);
+    return "\u0000".repeat(m.length);
+  });
+  rest = rest.replace(/「([^」\n]{1,1000})」/g, (m, inner: string) => {
+    record(inner);
+    return "\u0000".repeat(m.length);
+  });
+  rest = rest.replace(/\u201c([^\u201d\n]{1,1000})\u201d/g, (m, inner: string) => {
+    record(inner);
+    return "\u0000".repeat(m.length);
+  });
+  rest.replace(/"([^"\n]{1,1000})"/g, (m, inner: string) => {
+    record(inner);
+    return "\u0000".repeat(m.length);
+  });
+  return { count, maxChars };
+}
+
+/**
  * 影子度量入口（同 `gradeCandidates` 的取数面；**纯只读**）。
  * `turnSeq` 为 null ⇒ 引文集为空 ⇒ 消息面为空 ⇒ 覆盖全 `"unknown"`（不猜轮次；同 grading）。
+ * `minIdf`（**108 · C3**）：只影响 coverage 族（缺省 0 = 现状不变）；连续重合与标记计数与它无关。
  */
 export function shadowGradeCandidates(input: {
   sessionKey: string;
@@ -67,9 +182,11 @@ export function shadowGradeCandidates(input: {
   candidates: JudgeCandidate[];
   source: CitationSourceProvider;
   lMin?: number;
+  minIdf?: number;
 }): CandidateShadowMetrics[] {
   const lMin =
     Number.isInteger(input.lMin) && (input.lMin as number) > 0 ? (input.lMin as number) : SHADOW_L_MIN;
+  const minIdf = Number.isFinite(input.minIdf) ? (input.minIdf as number) : 0;
   const window = input.source.sessionWindow(input.sessionKey);
   const msgTexts = window.pieces
     .filter((p) => p.turnSeq === input.turnSeq && p.tier === "message")
@@ -78,6 +195,15 @@ export function shadowGradeCandidates(input: {
   const assetTexts = input.source.sessionAssetTexts(input.sessionKey);
   const table = input.source.rarityTable();
 
+  // 108 · C4：消息侧标记计数（对全部候选相同；只算一次）。
+  let quotedSpanCount = 0;
+  let quotedSpanMaxChars = 0;
+  for (const t of msgTexts) {
+    const spans = countQuotedSpans(t);
+    quotedSpanCount += spans.count;
+    if (spans.maxChars > quotedSpanMaxChars) quotedSpanMaxChars = spans.maxChars;
+  }
+
   return input.candidates.map((candidate) => {
     const rawTexts = assetTexts.get(candidate.assetId);
     const base: CandidateShadowMetrics = {
@@ -85,10 +211,14 @@ export function shadowGradeCandidates(input: {
       shadowAssetSegCount: 0,
       shadowBestSegCoverage: "unknown",
       shadowBestSegCoveragePerMsg: "unknown",
+      shadowBestContiguousRunChars: 0,
+      shadowBestContiguousRunNorm: "unknown",
       shadowBestSegIndex: null,
       shadowBestSegSha256_16: null,
       shadowMsgSegMaxCoverage: "unknown",
       shadowMsgSegIdx: null,
+      shadowQuotedSpanCount: quotedSpanCount,
+      shadowQuotedSpanMaxChars: quotedSpanMaxChars,
       shadowWholeAssetCoverage: "unknown",
     };
     // 无资产文本可比 ⇒ 全 unknown/null（不猜；与 grading 的 null 路径同姿势）。
@@ -99,7 +229,7 @@ export function shadowGradeCandidates(input: {
     const assetSegs = segmentsOf(assetText, lMin);
     let bestCov = Number.NaN;
     for (let i = 0; i < assetSegs.length; i++) {
-      const cov = gramCoverage(msgText, assetSegs[i]!, table).coverage;
+      const cov = gramCoverage(msgText, assetSegs[i]!, table, { minIdf }).coverage;
       if (isCoverageKnown(cov) && (!isCoverageKnown(bestCov) || cov > bestCov)) {
         bestCov = cov;
         base.shadowBestSegIndex = i;
@@ -113,7 +243,7 @@ export function shadowGradeCandidates(input: {
     let bestPerMsg = Number.NaN;
     for (const seg of assetSegs) {
       for (const msg of msgTexts) {
-        const cov = gramCoverage(msg, seg, table).coverage;
+        const cov = gramCoverage(msg, seg, table, { minIdf }).coverage;
         if (isCoverageKnown(cov) && (!isCoverageKnown(bestPerMsg) || cov > bestPerMsg)) {
           bestPerMsg = cov;
         }
@@ -121,9 +251,26 @@ export function shadowGradeCandidates(input: {
     }
     base.shadowBestSegCoveragePerMsg = isCoverageKnown(bestPerMsg) ? bestPerMsg : "unknown";
 
+    // 108 · C2：逐字连续重合轴 —— max over (片段 × 单条消息) 的最长连续公共子串长度；
+    // 归一化分母 = **达成该 run 的片段长度**（无片段 ⇒ unknown）。
+    let bestRun = 0;
+    let bestRunSegLen = 0;
+    for (const msg of msgTexts) {
+      for (const seg of assetSegs) {
+        const run = longestCommonSubstringLen(seg, msg);
+        if (run > bestRun) {
+          bestRun = run;
+          bestRunSegLen = seg.length;
+        }
+      }
+    }
+    base.shadowBestContiguousRunChars = bestRun;
+    base.shadowBestContiguousRunNorm =
+      assetSegs.length === 0 ? "unknown" : bestRunSegLen > 0 ? bestRun / bestRunSegLen : 0;
+
     // 107 · C3：短资产回退（F-c）——segCount === 0 时记"资产整体 ⊆ 消息"覆盖比（只记录只报数）。
     if (assetSegs.length === 0) {
-      const whole = gramCoverage(msgText, assetText, table).coverage;
+      const whole = gramCoverage(msgText, assetText, table, { minIdf }).coverage;
       base.shadowWholeAssetCoverage = isCoverageKnown(whole) ? whole : "unknown";
     }
 
@@ -131,7 +278,7 @@ export function shadowGradeCandidates(input: {
     const msgSegs = msgTexts.flatMap((t) => segmentsOf(t, lMin));
     let bestMsgCov = Number.NaN;
     for (let i = 0; i < msgSegs.length; i++) {
-      const cov = gramCoverage(assetText, msgSegs[i]!, table).coverage;
+      const cov = gramCoverage(assetText, msgSegs[i]!, table, { minIdf }).coverage;
       if (isCoverageKnown(cov) && (!isCoverageKnown(bestMsgCov) || cov > bestMsgCov)) {
         bestMsgCov = cov;
         base.shadowMsgSegIdx = i;

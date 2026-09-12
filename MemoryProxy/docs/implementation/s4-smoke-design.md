@@ -971,3 +971,11 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   （`shadowBestSegCoveragePerMsg`；旧 join 字段不改义、并存对照）+ **短资产回退列**（`shadowWholeAssetCoverage`）。
   **hard negatives 四类**（同主题散文 / 他资产的行 / 去引用改写 / 常见短语；trigram∩目标行 = 25/17/198/28）
   ⇒ **重叠区 [0.605, 0.877]：当前口径不可分**（如实推翻 106 "完美分离"的乐观读数；(d)-2 不得据此下阈值）。
+- **影子标定台可复跑化 + 连续重合轴（随单条；2026-09-12，append-only）**：`108` 把 107 的标定台落成
+  仓内夹具（`src/attribution/citation/__tests__/fixtures/shadow-calibration-cases.json`；资产以**行号 + sha16**
+  引用、**不放正文**）与一条命令入口（`npx tsx scripts/qa/shadow-calibration.ts`；默认对真库 `.backup`
+  副本只读并**逐数字对照夹具**，`--record` 回填；本单读数与 107 三组分布逐数字一致）。新增
+  **逐字连续重合轴**（`shadowBestContiguousRunChars/Norm`）与**引号/代码跨度计数**（`shadowQuotedSpanCount/MaxChars`）。
+  **读数**：连续重合轴 **重叠 [0.596, 0.791]**（HN3 改写 0.791 > 正例-半行 0.596；"改写算不算引用"本身是
+  语义待决项）；`n∈{3,4,5,8} × minIdf∈{0,0.5}` 扫描 **全部不可分**（增大 n 不能分开改写与引用）。
+  ⇒ 按结论口径明写：**(d2) 路线不能单独定案**（回 `103` D6 重选；不得用"调阈值"掩盖）。

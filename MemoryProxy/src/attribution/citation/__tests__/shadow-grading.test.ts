@@ -24,7 +24,7 @@ import {
 import type { JudgeCandidate } from "../../judge/types.js";
 import { runWorker } from "../../worker.js";
 import { buildRarityTable, type RarityTable } from "../ngram.js";
-import { shadowGradeCandidates, SHADOW_L_MIN } from "../shadow-grading.js";
+import { longestCommonSubstringLen, shadowGradeCandidates, SHADOW_L_MIN } from "../shadow-grading.js";
 import type { CitationSourceProvider } from "../source.js";
 
 const cand = (assetId: string): JudgeCandidate => ({
@@ -192,6 +192,98 @@ describe("106 · 影子度量形状与两向语义", () => {
     expect(m.shadowWholeAssetCoverage === "unknown" || typeof m.shadowWholeAssetCoverage === "number").toBe(true);
   });
 
+  it("108 · C2 连续重合轴：引用长串 ⇒ run=串长、norm=run/段长；插断改写 ⇒ run 显著变小", () => {
+    const seg = "abcdefghij0123456789XYZABC"; // 26 chars
+    const runOf = (msg: string) =>
+      shadowGradeCandidates({
+        sessionKey: "s",
+        turnSeq: 1,
+        candidates: [cand("A")],
+        source: fakeSource({
+          pieces: [{ turnSeq: 1, tier: "message", content: JSON.stringify(msg) }],
+          assetTexts: { A: [seg] },
+          table: buildRarityTable([seg, "语料甲", "语料乙"]),
+        }),
+      })[0]!;
+    const quoted = runOf(`前缀 ${seg} 后缀`);
+    expect(quoted.shadowBestContiguousRunChars).toBe(26);
+    expect(quoted.shadowBestContiguousRunNorm).toBe(1);
+    const rewritten = runOf("abcdefghij0-123456789XYZABC"); // 中间插一个 "-" 打断
+    expect(rewritten.shadowBestContiguousRunChars).toBe(15); // 最长残留段 "123456789XYZABC"
+    expect(rewritten.shadowBestContiguousRunNorm as number).toBeCloseTo(15 / 26, 6);
+  });
+
+  it("108 · C2 对拍：SAM 版最长连续重合 == 朴素 DP（固定种子随机串 200 组）", () => {
+    const dp = (a: string, b: string): number => {
+      let best = 0;
+      const prev = new Array<number>(b.length + 1).fill(0);
+      for (let i = 1; i <= a.length; i += 1) {
+        let diag = 0; // dp[i-1][j-1]
+        for (let j = 1; j <= b.length; j += 1) {
+          const old = prev[j]!; // dp[i-1][j]
+          prev[j] = a[i - 1] === b[j - 1] ? diag + 1 : 0;
+          if (prev[j]! > best) best = prev[j]!;
+          diag = old;
+        }
+      }
+      return best;
+    };
+    let seed = 20260912;
+    const rnd = (m: number): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % m;
+    };
+    const chars = ["a", "b", "c", "中", "文", "\n", " ", "Z"];
+    const gen = (maxLen: number): string => {
+      const n = rnd(maxLen + 1);
+      let out = "";
+      for (let i = 0; i < n; i += 1) out += chars[rnd(chars.length)];
+      return out;
+    };
+    for (let k = 0; k < 200; k += 1) {
+      const a = gen(40);
+      const b = gen(40);
+      expect(longestCommonSubstringLen(a, b), `a=${JSON.stringify(a)} b=${JSON.stringify(b)}`).toBe(dp(a, b));
+    }
+    expect(longestCommonSubstringLen("", "abc")).toBe(0);
+    expect(longestCommonSubstringLen("中文", "中文中文")).toBe(2);
+  });
+
+  it("108 · C4 引号/代码跨度计数：成对计入、未闭合不计、代码块内容最长", () => {
+    const msg = '他说"引号内容"以及「中文书名」和 `inline code`；\n```js\nconst x = 1;\n```\n还有未闭合的 "这里不闭合';
+    const out = shadowGradeCandidates({
+      sessionKey: "s",
+      turnSeq: 1,
+      candidates: [cand("A")],
+      source: fakeSource({
+        pieces: [{ turnSeq: 1, tier: "message", content: JSON.stringify(msg) }],
+        assetTexts: { A: ["与消息无关的资产行，用来占位。"] },
+        table: buildRarityTable(["语料甲", "语料乙"]),
+      }),
+    });
+    const m = out[0]!;
+    expect(m.shadowQuotedSpanCount).toBe(4); // "引号内容" / 「中文书名」 / `inline code` / ```…```
+    expect(m.shadowQuotedSpanMaxChars).toBe("js\nconst x = 1;\n".length); // 代码块内容最长
+  });
+
+  it("108 · C3 minIdf：全常见 gram 被滤 ⇒ coverage=unknown（与合法 0 严格区分）", () => {
+    const seg = "abcdefghij0123456789"; // 20 chars
+    const out = (minIdf?: number) =>
+      shadowGradeCandidates({
+        sessionKey: "s",
+        turnSeq: 1,
+        candidates: [cand("A")],
+        source: fakeSource({
+          pieces: [{ turnSeq: 1, tier: "message", content: JSON.stringify("完全无关的消息内容。") }],
+          assetTexts: { A: [seg] },
+          table: buildRarityTable([seg, seg]), // 两条语料 = seg ⇒ 全部 trigram df=2/2 ⇒ idf=ln(3/3)=0
+        }),
+        ...(minIdf === undefined ? {} : { minIdf }),
+      })[0]!;
+    expect(out().shadowBestSegCoverage).toBe(0); // 合法 0（有依据、确实不覆盖）
+    expect(out(0.5).shadowBestSegCoverage).toBe("unknown"); // 全被 minIdf 滤掉 ⇒ 无依据
+  });
+
   it("无资产文本 ⇒ 全 unknown/null（不猜）", () => {
     const out = shadowGradeCandidates({
       sessionKey: "s",
@@ -204,10 +296,14 @@ describe("106 · 影子度量形状与两向语义", () => {
       shadowAssetSegCount: 0,
       shadowBestSegCoverage: "unknown",
       shadowBestSegCoveragePerMsg: "unknown",
+      shadowBestContiguousRunChars: 0,
+      shadowBestContiguousRunNorm: "unknown",
       shadowBestSegIndex: null,
       shadowBestSegSha256_16: null,
       shadowMsgSegMaxCoverage: "unknown",
       shadowMsgSegIdx: null,
+      shadowQuotedSpanCount: 0,
+      shadowQuotedSpanMaxChars: 0,
       shadowWholeAssetCoverage: "unknown",
     });
   });
@@ -273,17 +369,21 @@ describe("106 · C5 两态键集（worker 组装；兄弟键不改既有条目�
           "ngramTableSha256",
         ].sort(),
       );
-      // 影子条目键 = assetId + 8（106 六 + 107 两：PerMsg / WholeAsset；兄弟键形状）
+      // 影子条目键 = assetId + 12（106 六 + 107 两 + 108 四：Run×2 / Quoted×2；兄弟键形状）
       expect(Object.keys(d.citationMetricsShadow![0]!).sort()).toEqual(
         [
           "assetId",
           "shadowAssetSegCount",
           "shadowBestSegCoverage",
           "shadowBestSegCoveragePerMsg",
+          "shadowBestContiguousRunChars",
+          "shadowBestContiguousRunNorm",
           "shadowBestSegIndex",
           "shadowBestSegSha256_16",
           "shadowMsgSegIdx",
           "shadowMsgSegMaxCoverage",
+          "shadowQuotedSpanCount",
+          "shadowQuotedSpanMaxChars",
           "shadowWholeAssetCoverage",
         ].sort(),
       );

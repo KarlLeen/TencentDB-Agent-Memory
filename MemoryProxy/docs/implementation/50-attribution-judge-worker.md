@@ -399,6 +399,14 @@ trigram 拼凑；旧 `shadowBestSegCoverage` = join 口径**不改义**，供对
 `shadowWholeAssetCoverage`（`segCount === 0` 时记"资产整体 ⊆ 消息"覆盖比，短资产不再永久不可见）。
 **标定台警示（107 C4）**：hard negatives（改写型，未算引用）cov 最高 **0.877** ≥ 构造正例 min **0.605**
 ⇒ **重叠区 [0.605, 0.877]，当前口径不可分** —— (d)-2 不得据 106 的"完美分离"下阈值。
+**108 补强（两条）**：①**可复跑**——标定夹具 `citation/__tests__/fixtures/shadow-calibration-cases.json`
+（资产仅以"块文本行号 + sha16"引用、**不放正文**）+ 入口 `npx tsx scripts/qa/shadow-calibration.ts`
+（默认对真库 `.backup` 副本只读；默认模式逐数字对照夹具、`--record` 回填）；②**逐字连续重合轴**
+（`shadowBestContiguousRunChars/Norm` = 最长连续公共子串；因 coverage 量的是词面重合、与"是否引用"甚至
+负相关）+ **引号/代码跨度计数**（`shadowQuotedSpanCount/MaxChars`；只记数字）。
+**读数（只报数）**：连续重合轴 **HN3 改写 norm 最高 0.791 ≥ 正例 min 0.596 ⇒ 重叠 [0.596, 0.791]，
+也不能分开**；`n∈{3,4,5,8} × minIdf∈{0,0.5}` 扫描 **8 行全部不可分**（增大 n 不能分开改写与引用）。
+⇒ **(d2) 路线不能单独定案**（回 `103` D6 重选；不得用调阈值掩盖）。
 
 1. **引文归一化命中**：对每个 piece，按 `exact → whitespace → punctuation` 逐级
    `normalizeForMatch(piece文本, level) ⊆ normalizeForMatch(资产文本, level)` 判定；

@@ -1,0 +1,737 @@
+{
+  "note": "108 · (d)-1c 影子标定夹具（**可复跑**）：资产片段以【真库块文本行号 + sha256[:16] 指纹】引用，**不放真库正文**；HN1/HN4 消息为作者**合成**（synthetic: true）。一条命令复现：`npx tsx scripts/qa/shadow-calibration.ts`（默认对真库 .backup 副本只读；--record 回填 expected）。",
+  "dbSeed": {
+    "blockContentId": 10,
+    "items": [
+      {
+        "index": 0,
+        "sha16": "73f4f4c6b4b7088d",
+        "note": "目标资产行（tdai-memory-hub-asset-import 行，HN3 改写基材）"
+      },
+      {
+        "index": 1,
+        "sha16": "d29ed61777f7bf96",
+        "note": "他资产行（HN2 基材）"
+      },
+      {
+        "index": 2,
+        "sha16": "828bc073608badc6",
+        "note": "构造正例第 3 行（loopx-contributor-workflow-preferences 行）"
+      }
+    ],
+    "offlineCorpus": [
+      "第八段离线语料",
+      "第九段离线语料"
+    ],
+    "trueNegatives": [
+      {
+        "jid": "jd_5567d5ba2e3e",
+        "sessionKey": "cc-vis-1789241312",
+        "turnSeq": 1
+      },
+      {
+        "jid": "jd_4b755d869f5e",
+        "sessionKey": "cc-vis-1789241312",
+        "turnSeq": 1
+      },
+      {
+        "jid": "jd_811b548fc267",
+        "sessionKey": "cc-vis-1789241312",
+        "turnSeq": 1
+      },
+      {
+        "jid": "jd_9f87bd473721",
+        "sessionKey": "cc-real2-1789240499",
+        "turnSeq": 1
+      },
+      {
+        "jid": "jd_a26906227607",
+        "sessionKey": "sess-1",
+        "turnSeq": 1
+      }
+    ]
+  },
+  "hardNegatives": [
+    {
+      "id": "HN1",
+      "kind": "同主题散文（提 memory/SOP，不含该行）",
+      "synthetic": true,
+      "messages": [
+        "这个 memory hub 的 SOP 流程大致是：先定位资产包，再导入会话历史，最后核对 reconfiguration 说明。",
+        "Background + SOP 的写作规范：先给背景，再给操作步骤，最后给导出与再配置说明。",
+        "关于 tdai Memory Hub 的说明文档：定位导入包的位置、导入历史会话、以及为何与代理重配置解耦。"
+      ]
+    },
+    {
+      "id": "HN2",
+      "kind": "他资产的行（含另一资产整行）",
+      "synthetic": true,
+      "generators": [
+        {
+          "op": "item",
+          "index": 1
+        },
+        {
+          "op": "itemSlice",
+          "index": 1,
+          "ratio": 0.8
+        },
+        {
+          "op": "item",
+          "index": 1
+        }
+      ]
+    },
+    {
+      "id": "HN3",
+      "kind": "去引用改写（同义改写目标行）",
+      "synthetic": true,
+      "generators": [
+        {
+          "op": "rewriteItem",
+          "index": 0,
+          "ops": [
+            {
+              "replaceAll": [
+                "Background",
+                "背景"
+              ]
+            },
+            {
+              "replaceAll": [
+                "SOP",
+                "标准流程"
+              ]
+            },
+            {
+              "replaceAll": [
+                "KarlLeen",
+                "作者"
+              ]
+            }
+          ]
+        },
+        {
+          "op": "rewriteItem",
+          "index": 0,
+          "ops": [
+            {
+              "replaceAll": [
+                "import",
+                "导入"
+              ]
+            },
+            {
+              "replaceAll": [
+                "session history",
+                "会话历史"
+              ]
+            }
+          ]
+        },
+        {
+          "op": "itemWordReverse",
+          "index": 0
+        }
+      ]
+    },
+    {
+      "id": "HN4",
+      "kind": "常见短语（只共享模板词）",
+      "synthetic": true,
+      "messages": [
+        "Background + SOP for anything: this generic template is used everywhere.",
+        "This is a Background + SOP template placeholder text without specifics.",
+        "Background + SOP for dummies — a generic, asset-free boilerplate."
+      ]
+    }
+  ],
+  "positives": [
+    {
+      "itemIndex": 0,
+      "shapes": [
+        {
+          "shape": "整行原文",
+          "generator": {
+            "op": "item",
+            "index": 0
+          }
+        },
+        {
+          "shape": "行的一部分",
+          "generator": {
+            "op": "itemSlice",
+            "index": 0,
+            "ratio": 0.6
+          }
+        },
+        {
+          "shape": "轻微改写",
+          "generator": {
+            "op": "itemPunctRewrite",
+            "index": 0,
+            "replacePairs": [
+              [
+                "，",
+                " "
+              ],
+              [
+                "。",
+                " "
+              ]
+            ],
+            "suffix": "（转述）"
+          }
+        }
+      ]
+    },
+    {
+      "itemIndex": 1,
+      "shapes": [
+        {
+          "shape": "整行原文",
+          "generator": {
+            "op": "item",
+            "index": 1
+          }
+        },
+        {
+          "shape": "行的一部分",
+          "generator": {
+            "op": "itemSlice",
+            "index": 1,
+            "ratio": 0.6
+          }
+        },
+        {
+          "shape": "轻微改写",
+          "generator": {
+            "op": "itemPunctRewrite",
+            "index": 1,
+            "replacePairs": [
+              [
+                "，",
+                " "
+              ],
+              [
+                "。",
+                " "
+              ]
+            ],
+            "suffix": "（转述）"
+          }
+        }
+      ]
+    },
+    {
+      "itemIndex": 2,
+      "shapes": [
+        {
+          "shape": "整行原文",
+          "generator": {
+            "op": "item",
+            "index": 2
+          }
+        },
+        {
+          "shape": "行的一部分",
+          "generator": {
+            "op": "itemSlice",
+            "index": 2,
+            "ratio": 0.6
+          }
+        },
+        {
+          "shape": "轻微改写",
+          "generator": {
+            "op": "itemPunctRewrite",
+            "index": 2,
+            "replacePairs": [
+              [
+                "，",
+                " "
+              ],
+              [
+                "。",
+                " "
+              ]
+            ],
+            "suffix": "（转述）"
+          }
+        }
+      ]
+    }
+  ],
+  "lMinScan": {
+    "values": [
+      16,
+      8,
+      32
+    ]
+  },
+  "nMinIdfScan": {
+    "nValues": [
+      3,
+      4,
+      5,
+      8
+    ],
+    "minIdfValues": [
+      0,
+      0.5
+    ],
+    "note": "n=4 行 = 107 基线口径（DEFAULT_NGRAM_N=4）；n=3/5/8 为 108 扫描行"
+  },
+  "expected": {
+    "coverageAxis": {
+      "trueNegatives": [
+        {
+          "jid": "jd_5567d5ba2e3e",
+          "n": 13,
+          "joinMax": 0,
+          "perMsgMax": 0,
+          "runCharsMax": 3,
+          "runNormMax": 0.053,
+          "numericJoinCount": 13
+        },
+        {
+          "jid": "jd_4b755d869f5e",
+          "n": 13,
+          "joinMax": 0,
+          "perMsgMax": 0,
+          "runCharsMax": 3,
+          "runNormMax": 0.053,
+          "numericJoinCount": 13
+        },
+        {
+          "jid": "jd_811b548fc267",
+          "n": 13,
+          "joinMax": 0,
+          "perMsgMax": 0,
+          "runCharsMax": 3,
+          "runNormMax": 0.053,
+          "numericJoinCount": 13
+        },
+        {
+          "jid": "jd_9f87bd473721",
+          "n": 13,
+          "joinMax": null,
+          "perMsgMax": null,
+          "runCharsMax": 0,
+          "runNormMax": null,
+          "numericJoinCount": 0
+        },
+        {
+          "jid": "jd_a26906227607",
+          "n": 0,
+          "joinMax": null,
+          "perMsgMax": null,
+          "runCharsMax": null,
+          "runNormMax": null,
+          "numericJoinCount": 0
+        }
+      ],
+      "hardNegatives": [
+        {
+          "id": "HN1",
+          "kind": "同主题散文（提 memory/SOP，不含该行）",
+          "samples": [
+            {
+              "join": 0.086,
+              "perMsg": 0.086,
+              "runChars": 16,
+              "runNorm": 0.055,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            },
+            {
+              "join": 0.057,
+              "perMsg": 0.057,
+              "runChars": 17,
+              "runNorm": 0.058,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            },
+            {
+              "join": 0.041,
+              "perMsg": 0.041,
+              "runChars": 10,
+              "runNorm": 0.034,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            }
+          ]
+        },
+        {
+          "id": "HN2",
+          "kind": "他资产的行（含另一资产整行）",
+          "samples": [
+            {
+              "join": 0.049,
+              "perMsg": 0.049,
+              "runChars": 12,
+              "runNorm": 0.041,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            },
+            {
+              "join": 0.012,
+              "perMsg": 0.012,
+              "runChars": 6,
+              "runNorm": 0.021,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            },
+            {
+              "join": 0.049,
+              "perMsg": 0.049,
+              "runChars": 12,
+              "runNorm": 0.041,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            }
+          ]
+        },
+        {
+          "id": "HN3",
+          "kind": "去引用改写（同义改写目标行）",
+          "samples": [
+            {
+              "join": 0.877,
+              "perMsg": 0.877,
+              "runChars": 231,
+              "runNorm": 0.791,
+              "quotedSpanCount": 2,
+              "quotedSpanMaxChars": 12
+            },
+            {
+              "join": 0.852,
+              "perMsg": 0.852,
+              "runChars": 102,
+              "runNorm": 0.349,
+              "quotedSpanCount": 2,
+              "quotedSpanMaxChars": 12
+            },
+            {
+              "join": 0.713,
+              "perMsg": 0.713,
+              "runChars": 31,
+              "runNorm": 0.106,
+              "quotedSpanCount": 2,
+              "quotedSpanMaxChars": 7
+            }
+          ]
+        },
+        {
+          "id": "HN4",
+          "kind": "常见短语（只共享模板词）",
+          "samples": [
+            {
+              "join": 0.078,
+              "perMsg": 0.078,
+              "runChars": 21,
+              "runNorm": 0.072,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            },
+            {
+              "join": 0.066,
+              "perMsg": 0.066,
+              "runChars": 18,
+              "runNorm": 0.062,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            },
+            {
+              "join": 0.09,
+              "perMsg": 0.09,
+              "runChars": 21,
+              "runNorm": 0.072,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            }
+          ]
+        }
+      ],
+      "positives": [
+        {
+          "itemIndex": 0,
+          "shapes": [
+            {
+              "shape": "整行原文",
+              "join": 1,
+              "perMsg": 1,
+              "runChars": 292,
+              "runNorm": 1,
+              "quotedSpanCount": 2,
+              "quotedSpanMaxChars": 12
+            },
+            {
+              "shape": "行的一部分",
+              "join": 0.611,
+              "perMsg": 0.611,
+              "runChars": 175,
+              "runNorm": 0.599,
+              "quotedSpanCount": 2,
+              "quotedSpanMaxChars": 12
+            },
+            {
+              "shape": "轻微改写",
+              "join": 1,
+              "perMsg": 1,
+              "runChars": 292,
+              "runNorm": 1,
+              "quotedSpanCount": 2,
+              "quotedSpanMaxChars": 12
+            }
+          ]
+        },
+        {
+          "itemIndex": 1,
+          "shapes": [
+            {
+              "shape": "整行原文",
+              "join": 1,
+              "perMsg": 1,
+              "runChars": 136,
+              "runNorm": 1,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            },
+            {
+              "shape": "行的一部分",
+              "join": 0.605,
+              "perMsg": 0.605,
+              "runChars": 81,
+              "runNorm": 0.596,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            },
+            {
+              "shape": "轻微改写",
+              "join": 1,
+              "perMsg": 1,
+              "runChars": 136,
+              "runNorm": 1,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            }
+          ]
+        },
+        {
+          "itemIndex": 2,
+          "shapes": [
+            {
+              "shape": "整行原文",
+              "join": 1,
+              "perMsg": 1,
+              "runChars": 270,
+              "runNorm": 1,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            },
+            {
+              "shape": "行的一部分",
+              "join": 0.616,
+              "perMsg": 0.616,
+              "runChars": 162,
+              "runNorm": 0.6,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            },
+            {
+              "shape": "轻微改写",
+              "join": 1,
+              "perMsg": 1,
+              "runChars": 270,
+              "runNorm": 1,
+              "quotedSpanCount": 0,
+              "quotedSpanMaxChars": 0
+            }
+          ]
+        }
+      ],
+      "lMinScan": [
+        {
+          "lMin": 16,
+          "negJoinMax": [
+            0,
+            0,
+            0
+          ],
+          "posJoin": 1,
+          "posRunNorm": 1
+        },
+        {
+          "lMin": 8,
+          "negJoinMax": [
+            0,
+            0,
+            0
+          ],
+          "posJoin": 1,
+          "posRunNorm": 1
+        },
+        {
+          "lMin": 32,
+          "negJoinMax": [
+            0,
+            0,
+            0
+          ],
+          "posJoin": 1,
+          "posRunNorm": 1
+        }
+      ],
+      "hnJoinMax": 0.877,
+      "posJoinMin": 0.605
+    },
+    "contiguousAxis": {
+      "hnRunNormMax": 0.791,
+      "posRunNormMin": 0.596,
+      "hnByClass": {
+        "HN1": [
+          0.055,
+          0.058,
+          0.034
+        ],
+        "HN2": [
+          0.041,
+          0.021,
+          0.041
+        ],
+        "HN3": [
+          0.791,
+          0.349,
+          0.106
+        ],
+        "HN4": [
+          0.072,
+          0.062,
+          0.072
+        ]
+      },
+      "tnegRunNormMax": 0.053
+    },
+    "markers": [
+      {
+        "group": "HN1",
+        "count": 0,
+        "maxChars": 0
+      },
+      {
+        "group": "HN1",
+        "count": 0,
+        "maxChars": 0
+      },
+      {
+        "group": "HN1",
+        "count": 0,
+        "maxChars": 0
+      },
+      {
+        "group": "HN2",
+        "count": 0,
+        "maxChars": 0
+      },
+      {
+        "group": "HN2",
+        "count": 0,
+        "maxChars": 0
+      },
+      {
+        "group": "HN2",
+        "count": 0,
+        "maxChars": 0
+      },
+      {
+        "group": "HN3",
+        "count": 2,
+        "maxChars": 12
+      },
+      {
+        "group": "HN3",
+        "count": 2,
+        "maxChars": 12
+      },
+      {
+        "group": "HN3",
+        "count": 2,
+        "maxChars": 7
+      },
+      {
+        "group": "HN4",
+        "count": 0,
+        "maxChars": 0
+      },
+      {
+        "group": "HN4",
+        "count": 0,
+        "maxChars": 0
+      },
+      {
+        "group": "HN4",
+        "count": 0,
+        "maxChars": 0
+      }
+    ],
+    "nMinIdfScan": [
+      {
+        "n": 3,
+        "minIdf": 0,
+        "hn3Max": 0.888,
+        "posMin": 0.614,
+        "separable": false
+      },
+      {
+        "n": 3,
+        "minIdf": 0.5,
+        "hn3Max": 0.888,
+        "posMin": 0.614,
+        "separable": false
+      },
+      {
+        "n": 4,
+        "minIdf": 0,
+        "hn3Max": 0.877,
+        "posMin": 0.605,
+        "separable": false
+      },
+      {
+        "n": 4,
+        "minIdf": 0.5,
+        "hn3Max": 0.877,
+        "posMin": 0.605,
+        "separable": false
+      },
+      {
+        "n": 5,
+        "minIdf": 0,
+        "hn3Max": 0.875,
+        "posMin": 0.592,
+        "separable": false
+      },
+      {
+        "n": 5,
+        "minIdf": 0.5,
+        "hn3Max": 0.875,
+        "posMin": 0.592,
+        "separable": false
+      },
+      {
+        "n": 8,
+        "minIdf": 0,
+        "hn3Max": 0.868,
+        "posMin": 0.574,
+        "separable": false
+      },
+      {
+        "n": 8,
+        "minIdf": 0.5,
+        "hn3Max": 0.868,
+        "posMin": 0.574,
+        "separable": false
+      }
+    ]
+  }
+}
