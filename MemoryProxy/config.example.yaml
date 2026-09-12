@@ -719,3 +719,29 @@ ccRequestRouting:
 traceArchive:
   enabled: false                   # true = 启用本地 JSONL trace 归档；false = 关闭（默认）
   dir: "logs/traces"               # 归档目录（相对于项目根目录或绝对路径）
+
+
+# ── 归因判定（S5–S7 共享基座；全段可选，缺省整段 off）─────────────────────────
+# 键名与嵌套逐字照 src/types.ts 的 attribution 块；缺省一律取 config.ts 的 DEFAULT_CONFIG。
+# 全段缺省 off：不开 = 不碰队列表、不加载 judge 模块（enqueue 缺省 false）。
+attribution:
+  judge:
+    enqueue: false                 # 总开关：只有显式 true 才入队（attribution-base-design.md §4.6）
+    provider: mock                 # "mock"(缺省) | "mechanical" | "real"；未知 ⇒ 启动失败（50 spec §15.1 C1）
+    # 真 provider 参数（仅 provider="real" 消费；baseUrl/apiKey/model 无缺省 ——
+    # 缺任一必需项 ⇒ 启动期 fail-closed，绝不"用缺省值去连空地址"；50 spec §15.2 C2）
+    # real:
+    #   baseUrl: "https://<openai-兼容端点>"
+    #   apiKey: "<密钥>"
+    #   model: "<模型名>"
+    #   timeoutMs: 30000
+    worker:
+      pollIntervalMs: 200          # 空闲轮询间隔（缺省 200；对齐 attribution-base-design.md F18）
+      batchSize: 8                 # 单批 claim 上限（缺省 8；实际钳制 = min(batchSize, 剩余额度)）
+      leaseTtlMs: 600000           # 认领租约 TTL（缺省 600000；对齐 F18 lockTtlMs 缺省）
+      maxAttempts: 3               # 失败重试上限（缺省 3）
+      backoffMs: 1000              # 失败退避（缺省 1000）
+      topNPerCycle: 30             # top-N 成本闸门（缺省 30；50 spec §17.2 C2）
+      correctL1:                   # L1 自动接线（缺省关；70 spec §3.3 节流）
+        enabled: false             # 缺省 false（显式 CLI --correct-l1 调用即开）
+        minIdleMs: 30000           # post-cycle 空转节流（缺省 30000）
