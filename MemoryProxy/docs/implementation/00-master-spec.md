@@ -142,4 +142,4 @@ unknown tombstone、vocab 命中矩阵 corpus、开启 checklist / 组合矩阵 
   n-gram 稀有度 / 排他性检查输入源）。design 是任务书，checklist 是开启 checklist + 组合矩阵 + DB 清理
 - `45-bridge-telemetry-sink.md` — **v2 S4 已完成**（bridge 遥测**叠加式** SQLite sink：`(row, ctx)` 双通道 +
   纯函数提取器 + 缺省关闭；产出 `event_type='asset_fetched'` 硬档行。CH 通路保留，零 DDL）
-- （v2 起）`50-attribution-judge-worker.md` / `60-corrected-rules.md` / `70-receipt-panel.md`
+- （v2 起）`50-attribution-judge-worker.md` / `60-corrected-rules.md` / `70-panel-read-and-audit-pool.md`

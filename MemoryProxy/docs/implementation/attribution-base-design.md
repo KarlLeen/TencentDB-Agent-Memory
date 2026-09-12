@@ -525,6 +525,7 @@ export interface CitationSourceProvider {
   - `00-master-spec.md` **§9 L135** 文档清单仍把 `40-…` 写成"（v2 起）待写" ⇒ 改为 **已完成**，并补基座行（建议 `41-attribution-base.md` 或指向本任务书）。
   - 同源口径：`codebuddy-scratch/handoff/attribution-v1-progress.md` **§2 L55**（"推迟 v2：…、排序反哺"）⇒ 同样加注。
   - 这三处是**纯文档**，半页；可与 ① 合并，也可单开 `docs(proxy)` commit。
+  - ⇒（81 核，2026-09-12）：**§1 与 §9 两条已执行**——`00-master-spec.md:23-25` 有"排序反哺以 §7 `S8=v3` 为准"勘正段；`:138` 的 `40-…` 已写"P0 已完成"，`:140-142` 基座行已补（指向 `attribution-base-design.md` + `attribution-base-checklist.md`，两者均实存；未用提议名 `41-attribution-base.md`——该名不存在）。**"同源口径"一条**：目标 `codebuddy-scratch/handoff/attribution-v1-progress.md` **已不在**（仓库外 scratch 已清理）⇒ **登记为不做（目标消失、无残留矛盾）**，非静默放着。
   - **基座-c 落地后**：在 40 spec §5（L164）/ §10（L290）的交接注释上标注"基座-c 已交付（`attribution-base-design.md` §4.8）"，把"许给基座"变成"已兑现"。
 - **回填**：checklist §4 勾选 + 数字（`npm test` 全量 / `typecheck:baseline` / 冒烟证据路径）。
 - **验收口径不变**（v1 起的惯例）：**单测 + 真实冒烟 + 缺省 off 回滚**。

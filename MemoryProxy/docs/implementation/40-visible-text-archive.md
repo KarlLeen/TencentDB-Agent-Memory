@@ -6,7 +6,7 @@
 > 正文即草稿 v2，不再另等一轮命名确认。因本稿占用 40 号，master spec §9 中原 40 号 S4 文档
 > **顺延为 `45-bridge-telemetry-sink.md`**（编号更新已在 00-master-spec §9 同步）。
 > 依据：立项 spec `attribution-v2-boundary-scope.md` §1 P0 行、§5 锚点表、§7 DR-2/DR-10、§4 红线；
-> 量级采样 `v2-init/p0sample-sampling.md`。仓库基线 `feature/attribution-event-capture` @ `764aa35`（采样已还原，零残留）。
+> 量级采样 `v2-init/p0sample-sampling.md`（仓库外 scratch，可能已清理）。仓库基线 `feature/attribution-event-capture` @ `764aa35`（采样已还原，零残留）。
 
 ## 0. R1 评审修订对照
 
