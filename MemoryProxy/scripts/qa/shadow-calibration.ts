@@ -42,7 +42,20 @@ const n3 = (x: number | "unknown" | null): number | null =>
   typeof x === "number" && Number.isFinite(x) ? Math.round(x * 1000) / 1000 : null;
 const fmt3 = (x: number | null): string => (x === null ? "—" : x.toFixed(3));
 
+/** 109 · C0：自建副本（含真库内容）⇒ 任何退出路径都必须清理。
+ *  三件套：主库 + `-wal`/`-shm`（WAL 辅助文件同样含库页；进程退出无 clean close 时会留存）。 */
+let cleanupWorkDb: string | null = null;
+function cleanup(): void {
+  if (cleanupWorkDb) {
+    for (const p of [cleanupWorkDb, `${cleanupWorkDb}-wal`, `${cleanupWorkDb}-shm`]) {
+      fs.rmSync(p, { force: true });
+    }
+    cleanupWorkDb = null;
+  }
+}
+
 function fail(msg: string): never {
+  cleanup(); // process.exit 会跳过 finally —— 这里显式清理
   console.error(`✗ ${msg}`);
   process.exit(1);
 }
@@ -60,7 +73,8 @@ async function main(): Promise<void> {
   if (!dbArg) {
     workDb = path.join(os.tmpdir(), `shadow-calibration-${process.pid}.db`);
     execFileSync("sqlite3", [srcDb, `.backup ${workDb}`]);
-    console.log(`[db] 真库已 .backup 到副本：${workDb}（真库全程只读，绝不写入）`);
+    cleanupWorkDb = workDb; // 109 · C0：退出即清理（副本含真库内容）
+    console.log(`[db] 真库已 .backup 到副本：${workDb}（真库全程只读；退出即清理副本 —— 109 C0）`);
   }
   process.env.PROXY_DB_PATH = workDb;
 
@@ -392,6 +406,141 @@ async function main(): Promise<void> {
   console.log("");
   console.log("如实标注：hard negatives / 构造正例均为**合成**（取材真库块文本 + 合成消息）；构造正例 ≠ 真实引用。");
 
+  // ── ⑨ 109 · D6 证伪实验：A 判据（逐字连续重合 ≥ L_q）的 FP / FN / HN3 代价 ──
+  const d6Path = fileURLToPath(
+    new URL("../../src/attribution/citation/__tests__/fixtures/d6-falsification-cases.json", import.meta.url),
+  );
+  const d6Raw = fs.readFileSync(d6Path, "utf8");
+  const d6 = JSON.parse(d6Raw) as {
+    classes: {
+      R1: { messages: string[] };
+      R2: { messages: string[] };
+      R3: { messages: string[] };
+      R4: { rows: Array<{ msgId: number; sessionKey: string; contentHash: string; chars: number }> };
+    };
+    lqValues: number[];
+    expected: unknown;
+  };
+  // 卫生：D6 夹具同样不得含真库正文（R-4 只存元数据）
+  for (const body of bodies) {
+    for (let i = 0; i + 64 <= body.length; i += 1) {
+      if (d6Raw.includes(body.slice(i, i + 64))) {
+        fail(`D6 夹具卫生检查红：出现真库正文 ≥64 连续字符窗口：${JSON.stringify(body.slice(i, i + 24))}…`);
+      }
+    }
+  }
+  const runOfContent = (content: string, source: string, assetLine: string = TARGET): number =>
+    shadowGradeCandidates({
+      sessionKey: "d6",
+      turnSeq: 1,
+      candidates: [candOf("skl-target")],
+      source: {
+        sessionWindow: () => ({
+          epoch: null,
+          pieces: [
+            {
+              epoch: null,
+              turnSeq: 1,
+              tier: "message" as const,
+              seq: 0,
+              source,
+              contentHash: "h0",
+              content,
+              truncated: false,
+              chars: 0,
+              role: null,
+              blockIdx: null,
+            },
+          ],
+        }),
+        sessionAssetTexts: () => new Map([["skl-target", [assetLine]]]),
+        rarityTable: () => buildRarityTable([assetLine, ...OFFLINE]),
+        excludedCategories: () => [],
+      },
+    })[0]!.shadowBestContiguousRunChars;
+  const runOfText = (msg: string, assetLine: string = TARGET): number =>
+    runOfContent(JSON.stringify(msg), "d6-synth", assetLine);
+  const r4rows = d6.classes.R4.rows.map((r) => {
+    const row = db.prepare("SELECT content_json FROM attribution_message_snap WHERE msg_id = ?").get(r.msgId) as
+      | { content_json: string }
+      | undefined;
+    if (!row) fail(`R-4 行缺失：msg_id=${r.msgId}（真库已变；夹具需刷新）`);
+    return { ...r, contentJson: row.content_json };
+  });
+  const classRuns = {
+    R1: d6.classes.R1.messages.map((m) => runOfText(m)),
+    R2: d6.classes.R2.messages.map((m) => runOfText(m)),
+    R3: d6.classes.R3.messages.map((m) => runOfText(m)),
+    R4: r4rows.map((r) => runOfContent(r.contentJson, "d6-r4")),
+  };
+  // FN 口径：正例消息 vs **它引用的那一行**（item0/1/2 各自的资产）
+  const posFullRuns = fixture.positives.map((p) => runOfText(materialize(p.shapes[0]!.generator), items[p.itemIndex]!));
+  const posHalfRuns = fixture.positives.map((p) => runOfText(materialize(p.shapes[1]!.generator), items[p.itemIndex]!));
+  const hn3Runs = fixture.hardNegatives.find((h) => h.id === "HN3")!.generators!.map((g) => runOfText(materialize(g)));
+  // 109 · 语料冻结校验：R1+R2+R3 messages 的指纹（构造时冻结、此后不得变）
+  const corpusSha256_32 = createHash("sha256")
+    .update(JSON.stringify({ R1: d6.classes.R1.messages, R2: d6.classes.R2.messages, R3: d6.classes.R3.messages }))
+    .digest("hex")
+    .slice(0, 32);
+  const tgtSha16 = sha16(TARGET);
+  const tgtRef = fixture.dbSeed.items[0]!;
+  if (tgtSha16 !== tgtRef.sha16) fail(`D6 目标行锚点漂移：${tgtSha16} ≠ ${tgtRef.sha16}`);
+  console.log("");
+  console.log("════ ⑨ 109 · D6 证伪：A 判据（逐字连续重合 ≥ L_q）════");
+  console.log(`  目标行锚点 sha16 = ${tgtSha16}（与两夹具一致）`);
+  console.log(`  R1 模板异内容 run = [${classRuns.R1.join(", ")}]`);
+  console.log(`  R2 同主题独立 run = [${classRuns.R2.join(", ")}]`);
+  console.log(`  R3 通用句式   run = [${classRuns.R3.join(", ")}]`);
+  console.log(`  R4 真实未读(${classRuns.R4.length} 条) run = [${classRuns.R4.join(", ")}]`);
+  console.log(`  正例整行 run = [${posFullRuns.join(", ")}] | 半行 run = [${posHalfRuns.join(", ")}] | HN3 run = [${hn3Runs.join(", ")}]`);
+  const sameTemplateRows = items.map((l, i) => ({ i, has: l.includes("Background + SOP for ") })).filter((x) => x.has).map((x) => x.i);
+  console.log(`  真库 available_skills 块内『同模板前缀（Background + SOP for ）』行 = ${sameTemplateRows.length}/${items.length}（索引 [${sameTemplateRows.join(", ")}]）`);
+  console.log(`  语料冻结指纹（R1+R2+R3 messages）sha256[:32] = ${corpusSha256_32}`);
+  const lqScan = d6.lqValues.map((lq) => {
+    const hit = (xs: number[]): number => xs.filter((x) => x >= lq).length;
+    return {
+      lq,
+      R1: { hit: hit(classRuns.R1), n: classRuns.R1.length },
+      R2: { hit: hit(classRuns.R2), n: classRuns.R2.length },
+      R3: { hit: hit(classRuns.R3), n: classRuns.R3.length },
+      R4: { hit: hit(classRuns.R4), n: classRuns.R4.length },
+      posFullHit: hit(posFullRuns),
+      posHalfHit: hit(posHalfRuns),
+      hn3Hit: hit(hn3Runs),
+    };
+  });
+  console.log("  L_q | R1 FP | R2 FP | R3 FP | R4 FP | 正例命中(整行/半行) | HN3 命中(已知代价)");
+  for (const s of lqScan) {
+    console.log(
+      `  ${String(s.lq).padStart(3)} | ${s.R1.hit}/${s.R1.n}  ${s.R2.hit}/${s.R2.n}  ${s.R3.hit}/${s.R3.n}  ${s.R4.hit}/${s.R4.n}` +
+        `   | ${s.posFullHit}/${posFullRuns.length} + ${s.posHalfHit}/${posHalfRuns.length} | ${s.hn3Hit}/${hn3Runs.length}`,
+    );
+  }
+  const fpZeroRows = lqScan.filter((s) => s.R1.hit + s.R2.hit + s.R3.hit + s.R4.hit === 0);
+  const usableRows = fpZeroRows.filter((s) => s.posFullHit + s.posHalfHit > 0);
+  const verdict: string =
+    usableRows.length > 0 ? "A-可用区间" : fpZeroRows.length > 0 ? "A-无可用档（FP0 档全漏正例）" : "A-挡不住噪声";
+  if (verdict === "A-可用区间") {
+    console.log(`  ⇒ 存在 FP 全 0 且仍接住正例的档：L_q ∈ {${usableRows.map((s) => s.lq).join(", ")}}（供拍 A；只报数）`);
+  } else if (verdict === "A-无可用档（FP0 档全漏正例）") {
+    console.log(
+      `  ⇒ FP 全 0 的档 L_q ∈ {${fpZeroRows.map((s) => s.lq).join(", ")}} **全部漏掉正例** ⇒ 无可用档（供拍 C；只报数）`,
+    );
+  } else {
+    const hits = lqScan.map((s) => `L_q=${s.lq}: R1=${s.R1.hit} R3=${s.R3.hit} R4=${s.R4.hit}`).join("; ");
+    console.log(`  ⇒ **A 在当前真实分布上挡不住该类噪声**（每档 L_q 均有类内命中 —— ${hits}）（供拍 C）`);
+  }
+  const d6Actual = {
+    targetSha16: tgtSha16,
+    corpusSha256_32,
+    sameTemplateRows,
+    runs: classRuns,
+    positives: { full: posFullRuns, half: posHalfRuns },
+    hn3Runs,
+    lqScan,
+    verdict,
+  };
+
   // ── 组装 actual / 记录或对照 ──
   const actual = {
     coverageAxis: { trueNegatives, hardNegatives, positives, lMinScan, hnJoinMax: n3(hnJoinMax), posJoinMin: n3(posJoinMin) },
@@ -403,8 +552,10 @@ async function main(): Promise<void> {
   if (record) {
     const next = { ...fixture, expected: actual };
     fs.writeFileSync(FIXTURE_PATH, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+    const d6Next = { ...d6, expected: d6Actual };
+    fs.writeFileSync(d6Path, `${JSON.stringify(d6Next, null, 2)}\n`, "utf8");
     console.log("");
-    console.log(`[record] expected 已写回夹具：${FIXTURE_PATH}（请先 git diff 人工复核再提交）`);
+    console.log(`[record] expected 已写回夹具：${FIXTURE_PATH} + ${d6Path}（请先 git diff 人工复核再提交）`);
     return;
   }
 
@@ -419,15 +570,30 @@ async function main(): Promise<void> {
   cmp("contiguousAxis", actual.contiguousAxis, exp.contiguousAxis);
   cmp("markers", actual.markers, exp.markers);
   cmp("nMinIdfScan", actual.nMinIdfScan, exp.nMinIdfScan);
+  // 109：D6 夹具对照
+  const d6Exp = d6.expected as typeof d6Actual | null;
+  if (!d6Exp) fail("D6 夹具 expected 为空——先跑一次 --record 回填基线");
+  cmp("d6.targetSha16", d6Actual.targetSha16, d6Exp.targetSha16);
+  cmp("d6.corpusSha256_32", d6Actual.corpusSha256_32, d6Exp.corpusSha256_32);
+  cmp("d6.sameTemplateRows", d6Actual.sameTemplateRows, d6Exp.sameTemplateRows);
+  cmp("d6.runs", d6Actual.runs, d6Exp.runs);
+  cmp("d6.positives", d6Actual.positives, d6Exp.positives);
+  cmp("d6.hn3Runs", d6Actual.hn3Runs, d6Exp.hn3Runs);
+  cmp("d6.lqScan", d6Actual.lqScan, d6Exp.lqScan);
+  cmp("d6.verdict", d6Actual.verdict, d6Exp.verdict);
   console.log("");
   if (diffs.length > 0) {
     for (const d of diffs) console.error(`  DIFF ${d}`);
     fail(`与夹具不一致：${diffs.length} 处（数字已漂移——查真库/实现变更；确认无误后再 --record）`);
   }
-  console.log(`[verify] 全部数字与夹具 expected 一致（含 107 三组分布）✔`);
+  console.log(`[verify] 全部数字与夹具 expected 一致（含 107 三组分布 + 109 D6）✔`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exitCode = 1; // 不直接 exit（exit 会跳过 finally 清理）
+  })
+  .finally(() => {
+    cleanup(); // 109 · C0：正常/异常路径统一清理自建副本
+  });

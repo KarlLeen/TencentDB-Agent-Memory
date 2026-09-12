@@ -1,0 +1,572 @@
+{
+  "note": "109 · D6 证伪实验夹具：测 A 判据（绝对逐字重合门槛 L_q）在『风格接近但从未读过』反例上的 FP 率。R-1/R-2/R-3 为**构造**反例（构造纪律与污染自述见 construction）；R-4 为**真库真实未读过消息**（只存元数据引用：msgId/sessionKey/contentHash/chars，**正文不落盘**，由脚本从副本实时读取）。",
+  "construction": {
+    "generatedAt": "2026-09-12T17:24+08:00",
+    "order": "① 规则与 R-1/R-2/R-3 语料先写盘并冻结（本文件 sha256 见报告）；② 脚本（此后运行）才读取完整目标资产正文并计算逐字重合长度 ⇒ 『生成时刻早于（完整）正文读取』可审计。",
+    "blindnessCaveats": "**如实自述**：构造者（AI）在本线早前会话中已接触目标资产正文的**片段**（107 曾打印前 60 字符；108 夹具含该行 sha16；107 的 HN3 关键词取自该行）。因此本单无法声称『从未见过正文』——『盲』仅指：规则与语料先冻结、之后才由脚本读完整正文算重合；逐条重合长度全部由脚本产出，构造时未据其调整。",
+    "r1Rule": "采用目标资产所属**模板/前缀形态**（`Background + SOP for `，即 SOP 类技能描述的句式），内容取自**另一主题**（日志轮转 / 备份 / 镜像构建 / 告警路由 / 依赖升级 / 密钥轮转）——测『模板化前缀』造成的假重合。",
+    "r2Rule": "只给**主题标签**（取自资产 id 名 `asset-import`，不含描述正文），独立撰写同主题说明——测『同主题自然用词』。",
+    "r3Rule": "公开**通用文档句式**（README 常见表述），其中部分可能与目标资产撞车——测公共短语。",
+    "r4Rule": "真库 `attribution_message_snap` 中 `session_key ∉ SEEN(含目标行的块 id)` 的消息（判定写死在脚本：`TARGET_BLOCK_IDS = {content_id | 块文本含目标行}`；`SEEN = DISTINCT session_key FROM attribution_block_seen WHERE content_id ∈ TARGET_BLOCK_IDS`）——**非构造、零污染**。",
+    "falsificationScoring": "FP 分子 = 该消息与目标资产行的最长逐字连续重合 ≥ L_q（A 判据命中）；**凡『照着资产改写』而来者不得计入 FP**（那是 107 的 HN3，单独作『已知代价』列）；本单四类反例均非改写稿。"
+  },
+  "classes": {
+    "R1": {
+      "kind": "同模板异内容",
+      "synthetic": true,
+      "messages": [
+        "Background + SOP for log rotation: locating the logrotate config, archiving old files, and why rotation is decoupled from the app process.",
+        "Background + SOP for database backups: locating the dump scripts, restoring snapshots, and why backup is decoupled from the migration pipeline.",
+        "Background + SOP for image builds: finding the Dockerfile, the tagging strategy, and why the build is decoupled from the deploy job.",
+        "Background + SOP for alert routing: locating the alert rules, the silencing policy, and why routing is decoupled from the monitoring stack.",
+        "Background + SOP for dependency upgrades: locating the lockfiles, the update cadence, and why upgrading is decoupled from the release train.",
+        "Background + SOP for secret rotation: locating the vault policies, the rotation window, and why rotation is decoupled from the app rollout."
+      ]
+    },
+    "R2": {
+      "kind": "同主题独立撰写",
+      "synthetic": true,
+      "messages": [
+        "资产导入工具通常要先扫描包目录，再按清单逐项写入记忆库，失败时要能整体回滚。",
+        "打包与导入应当分成两个阶段：先做完整性校验，再选择目标环境落库。",
+        "导入流程需要幂等：重复执行同一份资产包不应产生重复条目。",
+        "工具应记录导入来源与时间，便于后续追溯某个条目的出处。",
+        "跨团队的资产复用需要统一的命名与版本约定，避免同名冲突。",
+        "导入器要支持 dry-run：先展示将写入的内容，再真正落库。"
+      ]
+    },
+    "R3": {
+      "kind": "通用先验文本",
+      "synthetic": true,
+      "messages": [
+        "This document explains how to install the tool, configure it, and verify that everything works as expected.",
+        "See the following sections for details: Background, Usage, Configuration, and Troubleshooting.",
+        "For example, run the command below and check the output for errors.",
+        "Background + SOP: a common documentation pattern used across many projects.",
+        "This package is decoupled from the host application so that either side can be upgraded independently.",
+        "Claude Code users can import skills and session history from local directories."
+      ],
+      "suspectNotes": {
+        "index5": "**疑似记忆污染（单列）**：含 `session history` / `import`（公开功能描述，非照抄；但其措辞可能与目标行撞车 —— 逐条重合长度由脚本产出，报告单列）"
+      }
+    },
+    "R4": {
+      "kind": "真实未读过消息（非构造）",
+      "synthetic": false,
+      "rows": [
+        {
+          "msgId": 1,
+          "sessionKey": "p0-sess-1789063624701",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "7e9a72d8b002ce1b7dd910fe291a2ece68fa5fe595be625ad8e806d64648f160",
+          "chars": 11,
+          "truncated": 0
+        },
+        {
+          "msgId": 2,
+          "sessionKey": "p0-sess-1789063624701",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 3,
+          "sessionKey": "p0-sess-1789063624701",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 4,
+          "sessionKey": "p0-sess-1789063624701",
+          "epoch": 0,
+          "turnSeq": 2,
+          "role": "user",
+          "contentHash": "6f9236dcc5578e6f402e0f0fb82011c465882a541af456b87ba8202f477727bc",
+          "chars": 12,
+          "truncated": 0
+        },
+        {
+          "msgId": 5,
+          "sessionKey": "p0-sess-1789063624701",
+          "epoch": 0,
+          "turnSeq": 2,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 6,
+          "sessionKey": "p0-sess-1789063624701",
+          "epoch": 0,
+          "turnSeq": 3,
+          "role": "user",
+          "contentHash": "fe6e6184ea22240480500bbe7d5ebe83762a59af47749f1b1172498c46fcb9ba",
+          "chars": 12,
+          "truncated": 0
+        },
+        {
+          "msgId": 7,
+          "sessionKey": "p0-sess-1789063624701",
+          "epoch": 0,
+          "turnSeq": 3,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 8,
+          "sessionKey": "p0-sess-1789065239892",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "7e9a72d8b002ce1b7dd910fe291a2ece68fa5fe595be625ad8e806d64648f160",
+          "chars": 11,
+          "truncated": 0
+        },
+        {
+          "msgId": 9,
+          "sessionKey": "p0-sess-1789065239892",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 10,
+          "sessionKey": "p0-sess-1789065239892",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 11,
+          "sessionKey": "p0-sess-1789065239892",
+          "epoch": 0,
+          "turnSeq": 2,
+          "role": "user",
+          "contentHash": "6f9236dcc5578e6f402e0f0fb82011c465882a541af456b87ba8202f477727bc",
+          "chars": 12,
+          "truncated": 0
+        },
+        {
+          "msgId": 12,
+          "sessionKey": "p0-sess-1789065239892",
+          "epoch": 0,
+          "turnSeq": 2,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 13,
+          "sessionKey": "p0-sess-1789065239892",
+          "epoch": 0,
+          "turnSeq": 3,
+          "role": "user",
+          "contentHash": "fe6e6184ea22240480500bbe7d5ebe83762a59af47749f1b1172498c46fcb9ba",
+          "chars": 12,
+          "truncated": 0
+        },
+        {
+          "msgId": 14,
+          "sessionKey": "p0-sess-1789065239892",
+          "epoch": 0,
+          "turnSeq": 3,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 15,
+          "sessionKey": "p0a-sess-1789144453816",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "7e9a72d8b002ce1b7dd910fe291a2ece68fa5fe595be625ad8e806d64648f160",
+          "chars": 11,
+          "truncated": 0
+        },
+        {
+          "msgId": 16,
+          "sessionKey": "p0a-sess-1789144453816",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 17,
+          "sessionKey": "p0a-sess-1789144453816",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 18,
+          "sessionKey": "p0a-sess-1789144453816",
+          "epoch": 0,
+          "turnSeq": 2,
+          "role": "user",
+          "contentHash": "6f9236dcc5578e6f402e0f0fb82011c465882a541af456b87ba8202f477727bc",
+          "chars": 12,
+          "truncated": 0
+        },
+        {
+          "msgId": 19,
+          "sessionKey": "p0a-sess-1789144453816",
+          "epoch": 0,
+          "turnSeq": 2,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 20,
+          "sessionKey": "p0a-sess-1789144453816",
+          "epoch": 0,
+          "turnSeq": 3,
+          "role": "user",
+          "contentHash": "fe6e6184ea22240480500bbe7d5ebe83762a59af47749f1b1172498c46fcb9ba",
+          "chars": 12,
+          "truncated": 0
+        },
+        {
+          "msgId": 21,
+          "sessionKey": "p0a-sess-1789144453816",
+          "epoch": 0,
+          "turnSeq": 3,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 22,
+          "sessionKey": "p0a-sess-1789146278356",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "7e9a72d8b002ce1b7dd910fe291a2ece68fa5fe595be625ad8e806d64648f160",
+          "chars": 11,
+          "truncated": 0
+        },
+        {
+          "msgId": 23,
+          "sessionKey": "p0a-sess-1789146278356",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 24,
+          "sessionKey": "p0a-sess-1789146278356",
+          "epoch": 0,
+          "turnSeq": 1,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 25,
+          "sessionKey": "p0a-sess-1789146278356",
+          "epoch": 0,
+          "turnSeq": 2,
+          "role": "user",
+          "contentHash": "6f9236dcc5578e6f402e0f0fb82011c465882a541af456b87ba8202f477727bc",
+          "chars": 12,
+          "truncated": 0
+        },
+        {
+          "msgId": 26,
+          "sessionKey": "p0a-sess-1789146278356",
+          "epoch": 0,
+          "turnSeq": 2,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        },
+        {
+          "msgId": 27,
+          "sessionKey": "p0a-sess-1789146278356",
+          "epoch": 0,
+          "turnSeq": 3,
+          "role": "user",
+          "contentHash": "fe6e6184ea22240480500bbe7d5ebe83762a59af47749f1b1172498c46fcb9ba",
+          "chars": 12,
+          "truncated": 0
+        },
+        {
+          "msgId": 28,
+          "sessionKey": "p0a-sess-1789146278356",
+          "epoch": 0,
+          "turnSeq": 3,
+          "role": "user",
+          "contentHash": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df",
+          "chars": 2,
+          "truncated": 0
+        }
+      ],
+      "selectionSql": "TARGET_BLOCK_IDS = SELECT content_id FROM attribution_block_text WHERE content_utf8 LIKE '%<目标行>%'; SEEN = SELECT DISTINCT session_key FROM attribution_block_seen WHERE content_id IN TARGET_BLOCK_IDS; rows = SELECT * FROM attribution_message_snap WHERE session_key NOT IN SEEN ORDER BY msg_id"
+    }
+  },
+  "lqValues": [
+    8,
+    12,
+    16,
+    24,
+    32,
+    48
+  ],
+  "negativesForTarget": {
+    "targetItemRef": {
+      "blockContentId": 10,
+      "index": 0,
+      "sha16": "73f4f4c6b4b7088d"
+    },
+    "hn3KnownCost": "HN3（去引用改写）三样本的逐字连续重合 = 231 / 102 / 31（108 已测）——命中即证明 A 的语义收窄把『改写』算作引用；**已知代价，单列不计 FP**。"
+  },
+  "expected": {
+    "targetSha16": "73f4f4c6b4b7088d",
+    "corpusSha256_32": "5b0f9d37a1c6c51719498b03d62aeb3a",
+    "sameTemplateRows": [
+      0
+    ],
+    "runs": {
+      "R1": [
+        23,
+        23,
+        23,
+        23,
+        23,
+        23
+      ],
+      "R2": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        3
+      ],
+      "R3": [
+        8,
+        12,
+        5,
+        16,
+        23,
+        16
+      ],
+      "R4": [
+        3,
+        2,
+        2,
+        3,
+        2,
+        3,
+        2,
+        3,
+        2,
+        2,
+        3,
+        2,
+        3,
+        2,
+        3,
+        2,
+        2,
+        3,
+        2,
+        3,
+        2,
+        3,
+        2,
+        2,
+        3,
+        2,
+        3,
+        2
+      ]
+    },
+    "positives": {
+      "full": [
+        292,
+        136,
+        270
+      ],
+      "half": [
+        175,
+        81,
+        162
+      ]
+    },
+    "hn3Runs": [
+      231,
+      102,
+      31
+    ],
+    "lqScan": [
+      {
+        "lq": 8,
+        "R1": {
+          "hit": 6,
+          "n": 6
+        },
+        "R2": {
+          "hit": 0,
+          "n": 6
+        },
+        "R3": {
+          "hit": 5,
+          "n": 6
+        },
+        "R4": {
+          "hit": 0,
+          "n": 28
+        },
+        "posFullHit": 3,
+        "posHalfHit": 3,
+        "hn3Hit": 3
+      },
+      {
+        "lq": 12,
+        "R1": {
+          "hit": 6,
+          "n": 6
+        },
+        "R2": {
+          "hit": 0,
+          "n": 6
+        },
+        "R3": {
+          "hit": 4,
+          "n": 6
+        },
+        "R4": {
+          "hit": 0,
+          "n": 28
+        },
+        "posFullHit": 3,
+        "posHalfHit": 3,
+        "hn3Hit": 3
+      },
+      {
+        "lq": 16,
+        "R1": {
+          "hit": 6,
+          "n": 6
+        },
+        "R2": {
+          "hit": 0,
+          "n": 6
+        },
+        "R3": {
+          "hit": 3,
+          "n": 6
+        },
+        "R4": {
+          "hit": 0,
+          "n": 28
+        },
+        "posFullHit": 3,
+        "posHalfHit": 3,
+        "hn3Hit": 3
+      },
+      {
+        "lq": 24,
+        "R1": {
+          "hit": 0,
+          "n": 6
+        },
+        "R2": {
+          "hit": 0,
+          "n": 6
+        },
+        "R3": {
+          "hit": 0,
+          "n": 6
+        },
+        "R4": {
+          "hit": 0,
+          "n": 28
+        },
+        "posFullHit": 3,
+        "posHalfHit": 3,
+        "hn3Hit": 3
+      },
+      {
+        "lq": 32,
+        "R1": {
+          "hit": 0,
+          "n": 6
+        },
+        "R2": {
+          "hit": 0,
+          "n": 6
+        },
+        "R3": {
+          "hit": 0,
+          "n": 6
+        },
+        "R4": {
+          "hit": 0,
+          "n": 28
+        },
+        "posFullHit": 3,
+        "posHalfHit": 3,
+        "hn3Hit": 2
+      },
+      {
+        "lq": 48,
+        "R1": {
+          "hit": 0,
+          "n": 6
+        },
+        "R2": {
+          "hit": 0,
+          "n": 6
+        },
+        "R3": {
+          "hit": 0,
+          "n": 6
+        },
+        "R4": {
+          "hit": 0,
+          "n": 28
+        },
+        "posFullHit": 3,
+        "posHalfHit": 3,
+        "hn3Hit": 2
+      }
+    ],
+    "verdict": "A-可用区间"
+  }
+}
