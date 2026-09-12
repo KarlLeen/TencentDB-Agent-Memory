@@ -188,6 +188,23 @@ describe("T20 反例（R8）：像包装但不是包装 ⇒ 一律原样保留",
     expect(res.text).not.toContain("1. [episodic]");
   });
 
+  it("105 · R8-b 块外不剥：`- name: desc` 形状在 available_skills 块外 ⇒ 原样保留", () => {
+    const text = "普通正文\n- alpha-skl: 独占描述\n继续";
+    const res = stripRenderWrappers(text);
+    expect(res.removed).toEqual([]);
+    expect(res.text).toBe(text);
+  });
+
+  it("105 · R8-b 块内剥（反向）：同一形状在 available_skills 块上下文内 ⇒ 剥（上下文判、非形状判）", () => {
+    const text = "<available_skills>\n- alpha-skl: 独占描述\n</available_skills>";
+    const res = stripRenderWrappers(text);
+    expect(res.removed.some((s) => s.templateId === "list-prefix:available-skill-item")).toBe(true);
+    // 前缀 `- <name>: ` 整段被剥（与 L1 条目 `1. [episodic] … ` 同语义）⇒ 正文保留、前缀净除。
+    expect(res.text).toContain("独占描述");
+    expect(res.text).not.toContain("- alpha-skl: ");
+    expect(res.text).not.toContain("alpha-skl: ");
+  });
+
   it("R8-c 缝胶只认文本边界：文档中间的 \\n\\n 不剥（无法证明是 handler 加的）", () => {
     const text = "<knowledge_tools>a</knowledge_tools>\n\n<memory-tools-guide>b</memory-tools-guide>";
     const res = stripRenderWrappers(text);
