@@ -909,3 +909,10 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   main 守卫不吞副作用），单测四格随 proxy 门跑（`src/qa/__tests__/tsc-baseline-check.test.ts`）。
   **R 证据（门没被放宽）**：R1 删 warn ⇒ 回 FAIL；R2 真 tsc 注入新错（非清单文件）⇒ 仍 FAIL 且点名；
   R3 `--update` ⇒ warn 在、`src/config.ts` 不进 allow（连续跑幂等）；R4 删 warn 判据 ⇒ 单测第②格红。
+- **S8-a 聚合层（97 append；2026-09-12，append-only）**：信用分聚合层落地（`MemoryProxy/src/attribution/credit-score.ts`）——
+  D0=(a) 纠正率 + 贝叶斯：`credit = ((used−corrected) + k·baseline) / (used+k)`（k 缺省 5）；`used`/`corrected`
+  = 按 `(asset_id, session_key)` **去重会话数**（复用 `rollupByAsset` 的 `session_count`，**零新 SQL**）；
+  baseline = 团队**加权** `(Σused−Σcorrected)/Σused`；**中性返回不许凑数**（Σused=0 ⇒ `credit=null`，
+  禁调用方自取 0.5）；`corrected > used` ⇒ 夹取 + 计数、不抛。**语义收窄（"被采纳后有没有被推翻"≠"历史可靠度"）
+  与幸存者偏差、以及 (b)/(c)/提升度/S8-d 的触发式登记**见 `80-credit-score-and-ranking.md`。
+  **零接线、无开关、零 DDL**（`schema.ts` 零改动）；七格单测 + 排序辅助格（`credit-score.test.ts`）。
