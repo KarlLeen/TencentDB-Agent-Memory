@@ -108,6 +108,8 @@ export const DEFAULT_CONFIG: ProxyConfig = {
         leaseTtlMs: 600_000,
         maxAttempts: 3,
         backoffMs: 1000,
+        // 62 · top-N 成本闸门（30 spec 口径）
+        topNPerCycle: 30,
       },
     },
   },
@@ -531,6 +533,11 @@ export function buildConfig(overrides: CliOverrides = {}): ProxyConfig {
           backoffMs: positiveIntOrDefault(
             yaml.attribution?.judge?.worker?.backoffMs,
             DEFAULT_CONFIG.attribution!.judge.worker.backoffMs,
+          ),
+          // 62 · top-N 成本闸门（缺省 30；非法/缺失/非正数 ⇒ 回缺省，同全仓守卫口径）
+          topNPerCycle: positiveIntOrDefault(
+            yaml.attribution?.judge?.worker?.topNPerCycle,
+            DEFAULT_CONFIG.attribution!.judge.worker.topNPerCycle,
           ),
         },
       },

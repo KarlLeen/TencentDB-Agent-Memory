@@ -69,6 +69,12 @@ export interface AttributionWorkerDeps {
   pollIntervalMs: number;
   /** 消费失败后的真实退避 ms（F18：退避要真做，不是留空）。 */
   backoffMs: number;
+  /**
+   * 62 · top-N 成本闸门：每 cycle 送 judge 的单元数上限（50 spec §17 C2；缺省
+   * `DEFAULT_TOP_N_PER_CYCLE`=30）。tombstone 不送 judge ⇒ 不占额度；溢出单元
+   * **保持 pending、下轮 FIFO 优先**（不丢弃）。
+   */
+  topNPerCycle?: number;
   /** 测试用：注入时钟 / sleep。 */
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -95,6 +101,10 @@ export interface AttributionWorkerCycleResult {
   idempotent: number;
   /** 60 · 幻觉护栏触发次数（assetId ∉ candidates ⇒ 强制 unconfirmed；C4）。 */
   guarded: number;
+  /** 62 · tombstone 分支命中次数（resultMissing ⇒ 不调 judge、直接 unconfirmed；C1）。 */
+  tombstoned: number;
+  /** 62 · 本 cycle 结束时的待定（pending）总数 —— 闸门溢出的可观测面（C3/C4）。 */
+  overflowed: number;
   /** 判定异常：同 (unit_id, round) 已被**另一个 asset** 占用。与 errored 分开计。 */
   anomaly: number;
   /** 消费抛错（judge 抛错，或落库返回 failed / 抛错）。 */
@@ -111,6 +121,8 @@ function emptyCycleResult(): AttributionWorkerCycleResult {
     completed: 0,
     idempotent: 0,
     guarded: 0,
+    tombstoned: 0,
+    overflowed: 0,
     anomaly: 0,
     errored: 0,
     deadLettered: 0,
@@ -143,6 +155,24 @@ function safeParsePayload(payloadJson: string): { kind: string; payload: unknown
 export function extractJudgeCandidates(unitPayload: unknown): JudgeCandidate[] {
   if (!unitPayload || typeof unitPayload !== "object") return [];
   return extractVisibleAssetCandidates((unitPayload as { visibleAssets?: unknown }).visibleAssets);
+}
+
+/** 62 · top-N 成本闸门缺省值（30 spec 口径："top-N（如 30）是送裁判的每轮上限"）。 */
+export const DEFAULT_TOP_N_PER_CYCLE = 30;
+
+/** 62 · tombstone 判定的 rationaleRef 标记（审计可辨）。 */
+export const TOMBSTONE_RATIONALE_REF = "tombstone:result_missing";
+
+/**
+ * 62 · C1 tombstone 判据（**只读 payload 两字段**，不碰数据库、不做文本启发式）：
+ * `key_tool_call` + `resultStatus === "unknown"` + `resultMissing === true`。
+ * 对照格：`unknown` 但无 `resultMissing`（结果到达但空文本）⇒ 正常判定路径。
+ */
+export function isTombstoneUnit(kind: string, unitPayload: unknown): boolean {
+  if (kind !== "key_tool_call") return false;
+  if (!unitPayload || typeof unitPayload !== "object") return false;
+  const p = unitPayload as { resultStatus?: unknown; resultMissing?: unknown };
+  return p.resultStatus === "unknown" && p.resultMissing === true;
 }
 
 /**
@@ -220,6 +250,8 @@ async function consumeRow(
   row: JudgeQueueRow,
   deps: AttributionWorkerDeps,
   result: AttributionWorkerCycleResult,
+  /** 62 · C2 闸门记账：只有真正送 judge 的单元 +1（tombstone 不占额度）。 */
+  gate: { judged: number },
 ): Promise<void> {
   const now = deps.now ?? Date.now;
   const emit = deps.emitLog ?? writeAttributionJudgeLog;
@@ -283,7 +315,13 @@ async function consumeRow(
   };
 
   try {
-    const rawVerdict = await deps.judge.judge(input);
+    // 62 · C1：tombstone（结果整体缺失）⇒ **不调 judge**（"不可知"无需 LLM）、直接 unconfirmed。
+    const tombstone = isTombstoneUnit(kind, payload);
+    if (tombstone) result.tombstoned += 1;
+    if (!tombstone) gate.judged += 1; // 62 · C2：只有送 judge 的单元占闸门额度
+    const rawVerdict = tombstone
+      ? { assetId: null, verdict: "unconfirmed" as const, rationaleRef: TOMBSTONE_RATIONALE_REF }
+      : await deps.judge.judge(input);
     // 60 · C4：护栏后的 verdict 才进落库/状态/计数（对一切 provider 生效）。
     const guard = applyHallucinationGuard(rawVerdict, input.candidates);
     if (guard.tripped) result.guarded += 1;
@@ -393,14 +431,29 @@ export async function runWorker(
   // 常驻模式不用它：重试要留给下一轮 + backoffMs 退避。
   const alreadyAttempted = opts.drain ? new Set<number>() : undefined;
 
+  // 62 · C2/C4：top-N 成本闸门（每 cycle 送 judge 单元数上限）。
+  const topN = Math.max(1, Math.trunc(deps.topNPerCycle ?? DEFAULT_TOP_N_PER_CYCLE));
+  const gate = { judged: 0 };
+
   while (true) {
     if (opts.shouldStop?.()) break;
     rounds += 1;
     if (opts.drain && rounds > maxRounds) break;
 
+    const remaining = topN - gate.judged;
+    if (remaining <= 0) {
+      // 额度耗尽：溢出者**从未被 claim**（保持 pending、attempts 不变）⇒ 下轮 FIFO 优先。
+      result.overflowed = deps.queueRepo.countByStatus().pending ?? 0;
+      if (opts.drain) break; // drain：本轮结束（溢出留待下一次运行）
+      // 常驻：节流一拍、重置额度（不冷停——队列不会被"一次性配额"饿死）。
+      await (deps.sleep ?? defaultSleep)(deps.pollIntervalMs);
+      gate.judged = 0;
+      continue;
+    }
+
     const rows = deps.queueRepo.claimBatch({
       owner: deps.owner,
-      batchSize: deps.batchSize,
+      batchSize: Math.max(1, Math.min(deps.batchSize, remaining)),
       leaseTtlMs: deps.leaseTtlMs,
       now: (deps.now ?? Date.now)(),
       excludeQueueIds: alreadyAttempted,
@@ -416,7 +469,7 @@ export async function runWorker(
     result.claimed += rows.length;
     for (const row of rows) {
       alreadyAttempted?.add(row.queue_id);
-      await consumeRow(row, deps, result);
+      await consumeRow(row, deps, result, gate);
     }
     opts.onRound?.(result);
   }
@@ -481,6 +534,8 @@ export function buildWorkerDeps(
     maxAttempts: workerCfg?.maxAttempts ?? 3,
     pollIntervalMs: workerCfg?.pollIntervalMs ?? 200,
     backoffMs: workerCfg?.backoffMs ?? 1000,
+    // 62 · C2：top-N 成本闸门（config 三处同改的第三处；缺省 30）
+    topNPerCycle: workerCfg?.topNPerCycle ?? DEFAULT_TOP_N_PER_CYCLE,
   };
 }
 
@@ -567,10 +622,17 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
   process.stderr.write(
     `[attribution-judge] worker exit claimed=${result.claimed} completed=${result.completed} ` +
-      `idempotent=${result.idempotent} guarded=${result.guarded} anomaly=${result.anomaly} ` +
-      `errored=${result.errored} deadLettered=${result.deadLettered} requeued=${result.requeued} ` +
-      `leaseLost=${result.leaseLost}\n`,
+      `idempotent=${result.idempotent} guarded=${result.guarded} tombstoned=${result.tombstoned} ` +
+      `anomaly=${result.anomaly} errored=${result.errored} deadLettered=${result.deadLettered} ` +
+      `requeued=${result.requeued} leaseLost=${result.leaseLost} overflowed=${result.overflowed}\n`,
   );
+  if (result.overflowed > 0) {
+    // 62 · C3：溢出记账（落点定死 = cycle 摘要；文案 = 30 spec 原文口径）。
+    process.stderr.write(
+      `[attribution-judge] overflow: 另有 ${result.overflowed} 个次要决策未逐一归因` +
+        `（top-N 闸门；保持 pending，下轮 FIFO 优先）\n`,
+    );
+  }
 
   await shutdownAttributionJudgeLogger();
   return EXIT_OK;

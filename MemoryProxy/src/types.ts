@@ -620,6 +620,11 @@ export interface AttributionJudgeConfig {
 export interface AttributionJudgeWorkerConfig {
   /** 常驻模式空转轮询间隔。 */
   pollIntervalMs: number;
+  /**
+   * 62 · top-N 成本闸门（50 spec §17 C2）：每 cycle 送 judge 的单元数上限，**缺省 30**
+   * （30 spec 口径）。超限单元保持 pending、下轮 FIFO 优先（不丢弃）；tombstone 不占额度。
+   */
+  topNPerCycle: number;
   /** 单轮认领上限（不是并发数：better-sqlite3 同步串行消费）。 */
   batchSize: number;
   /** 认领租约时长；过期后可被再认领（等价 v1 pipeline-worker 的 lockTtlMs）。 */
@@ -965,6 +970,8 @@ export interface RawYamlConfig {
         leaseTtlMs?: number;
         maxAttempts?: number;
         backoffMs?: number;
+        /** 62 · top-N 成本闸门（缺省 30；见 50 spec §17 C2）。 */
+        topNPerCycle?: number;
       };
     };
   };

@@ -165,7 +165,14 @@ function baseConfig(upstreamUrl: string, kernelUrl: string, injectors: string[],
   const judge = cfg.attribution?.judge ?? {
     enqueue: false,
     provider: "mock",
-    worker: { pollIntervalMs: 1000, batchSize: 10, leaseTtlMs: 30_000, maxAttempts: 3, backoffMs: 1000 },
+    worker: {
+      pollIntervalMs: 1000,
+      batchSize: 10,
+      leaseTtlMs: 30_000,
+      maxAttempts: 3,
+      backoffMs: 1000,
+      topNPerCycle: 30,
+    },
   };
   cfg.attribution = { judge: { ...judge, enqueue } };
   return cfg;

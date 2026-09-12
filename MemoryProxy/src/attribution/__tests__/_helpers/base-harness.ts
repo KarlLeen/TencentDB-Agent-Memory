@@ -71,6 +71,8 @@ export function workerDeps(
     maxAttempts: 3,
     pollIntervalMs: 1,
     backoffMs: 0,
+    // 62 · top-N 成本闸门缺省（30 spec 口径；与生产 DEFAULT_CONFIG 一致）
+    topNPerCycle: 30,
     sleep: async () => {},
     emitLog: () => {},
     ...overrides,

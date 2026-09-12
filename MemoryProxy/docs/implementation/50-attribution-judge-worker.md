@@ -715,3 +715,65 @@ candidates: input.candidates})`。`promptRef` 原样落表（链路不变）；`
 
 - 重判入口回显 `unit=<id> round=<n> enqueued=<bool>`（每轮入队结果分轮计数）；
 - 重判**零"改写"计数**：不产生任何行的 update/delete（旧行逐字节不变，T1 断言快照）。
+
+## 17 判定侧边界与成本闸门（§9.5 第一半 / A8①+B4；62 落地）
+
+> 本节是 §9 第 5 项的前半：给判定链补两个**边界语义**——"不可知"的 tombstone 单元不许被当
+> "未执行"漏判、也不许被当"克制成功"伪报（A8①）；"判不完"的单元走**成本闸门**而不是数据闸门
+> （B4：超限不丢弃、溢出要记账）。`attribution_audit` 池 + `asset_validated`/`asset_corrected`
+> 写口属 63；metadata key 统一（A8③）不属 S5。
+> 前置事实（复核到 `95c281f`）：① tombstone 语义已在 `decision-units/types.ts:74-83` 定死
+> （`resultStatus` 恒 `"unknown"` 且无 `resultSnippet`；`resultMissing` = 结果**整体缺失**，
+> 与"结果到达但为空文本（同样 unknown）"区分）；② worker 已在读 `resultStatus`（只喂 status 的
+> `outcome`）但无专门分支；③ top-N 仓内零配置面；30 spec §2 明令**捕获侧不截断**，
+> "top-N（如 30）是**送裁判**的每轮上限"、溢出文案"另有 N 个次要决策未逐一归因"。
+
+### 17.1 C1 · tombstone 专门分支（写死）
+
+- **判据（只读 payload 两字段，不碰数据库、不做文本启发式）**：
+  `kind === "key_tool_call"` **且** `payload.resultStatus === "unknown"` **且**
+  `payload.resultMissing === true`。**对照格**：`unknown` 但**无** `resultMissing`（结果到达但空文本）
+  ⇒ 走**正常判定路径**（判据不误伤）。
+- **处置**：**不调用 judge**（"不可知"无需 LLM，也不该花这个钱）⇒ 直接
+  `{ assetId: null, verdict: "unconfirmed", rationaleRef: "tombstone:result_missing" }`；
+  **不写 `asset_used`**（59 触发真值表：unconfirmed ⇒ 零 status 行）；**judgement 行照落**
+  （unconfirmed，审计需要）；`result.tombstoned` 分项计数。
+- **不许**：当"未执行"（漏判）、当"克制成功"（伪报）、改选其它候选。
+
+### 17.2 C2 · top-N 成本闸门（写死）
+
+- **计量单位 = 每 cycle 的「送 judge 单元数」**（三选一，理由：闸门的目的是**单次运行的成本上限**，
+  运维可控"一次 `--once` 最多花 N 次 LLM 调用"；tombstone 不送 judge ⇒ **不占额度**；batchSize 是
+  单批并发面，与本闸门正交）。
+- **cycle 边界（写死）**：drain（`--once`）= 每进程（额度耗尽 ⇒ 结束本轮、退出）；常驻 =
+  **每节流拍**（额度耗尽 ⇒ sleep `pollIntervalMs`、重置额度 ⇒ **节流而非冷停**，队列不会
+  被"一次性配额"饿死）。
+- **config 键名 = `attribution.judge.worker.topNPerCycle`**；**缺省 30**（30 spec 口径）。
+  **行为变更登记**：此前单轮无上限 ⇒ 自 62 起 `--once`/每轮最多送 30 个新判定（超限**不丢弃**，
+  见 C3；见 62 报告语义变更声明与实测）。
+- **超出上限的排序/优先级口径**：**FIFO（既有 `queue_id ASC` 认领序）**，无加权、无跳过——
+  上轮溢出者即队头，**下轮最先**被处理。
+- 实现口径：claim 的 `batchSize` 钳制为 `min(batchSize, 剩余额度)`；额度耗尽 ⇒ 结束本轮
+  （**不去 claim** 溢出者——比"认领前排除"更强：无活锁、attempts 零污染；`excludeQueueIds`
+  仍只服务既有 drain 内失败重排面，不新造排除集）。
+
+### 17.3 C3 · "不丢弃"的落实
+
+- 溢出单元**保持 pending**（未 claim ⇒ `attempts` 不变、状态不变）；
+- **溢出记账**（落点二选一，选定 **cycle 摘要**）：`result.overflowed`（本轮结束时 pending 总数）
+  + stderr 摘要行 `另有 N 个次要决策未逐一归因`（30 spec 原文文案；N = 实际待定数）。
+
+### 17.4 C4 · 饿死问题（B4 自列攻击点）——正面回答（机制，非安抚）
+
+**机制（三条，全部可断言）：**
+1. **FIFO 队头优先**：`claimBatch` 的 `ORDER BY queue_id ASC` ⇒ 每轮从**最老的** pending 开始；
+   上轮溢出者位于队头 ⇒ **下一轮最先**被处理（顺序前进，无永久滞留）。
+2. **闸门是 cycle 级、每轮重置**：额度不是"每单元一次性配额"；`excludeQueueIds`
+   （`alreadyAttempted`）只活在**单个 cycle 内** ⇒ **不存在跨轮永久排除**。
+3. **无丢弃**：溢出者未被 claim（状态/attempts 零改动）⇒ 其"被处理的机会"仅被**延后**，不被消灭。
+
+**剩余风险（如实登记，不藏）**：**持续涌入率 > N/轮**时，积压（pending 数）单调增长、
+**延迟无界**——这是**吞吐不匹配**，不是饿死（无永久排除；FIFO 保证每个单元按序前进）。
+**观测方式**：`result.overflowed` + `queueRepo.countByStatus().pending`（运维看积压曲线）；
+**边界**：到达率 ≤ N/轮 时积压单调下降至 0。R3 反证：把溢出改为"永久排除"（例如把溢出行
+标记为不可再选/持久化进排除集）⇒ T4 必红。
