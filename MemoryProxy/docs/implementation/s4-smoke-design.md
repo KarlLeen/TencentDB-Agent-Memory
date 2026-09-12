@@ -865,3 +865,25 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   **秒精度**）；**全库最大实为** `attribution_events.created_at = 1789146283084`（**INTEGER epoch ms**）
   = **2026-09-11T17:04:43.084Z**（晚 1.084 s）。⇒ **取证口径："全库时间戳最大值"必须取所有时间列的
   最大**，并标明精度来源（TEXT 秒 vs INTEGER ms）——差 1 秒即可能改判"最后一次写入时刻"。
+- **反向控制可达性口径（82 append；2026-09-12，append-only）**：工单里的每个 R 格必须附**一句话**说明
+  "该破坏经由哪条代码路径、触发哪条断言"；凡预期"必红"的控制，**须先证明该破坏确实会走到被断言的
+  机制上**——否则"必红"是**空断言**。（两次真实返工提炼：**69 §6 的 `baseline 逐字同`**——与同单 C3
+  "config 三处同改（+13 行）"互斥、**数学上不可达**；**80 的 `R2'`**——删 `restoreIsolatedDbPath()`
+  **不红**，因残留的是**沙箱路径**（属 F5 合法自设值），而 78 的机制语义**只抓"落到默认真库"**：
+  正确破坏形态由 `R2'-c`（restore → 裸 `delete`）演示。）
+- **append-only 判据口径（82 append 2；2026-09-12，append-only）**：判"纯 append"**以 `git show --numstat`
+  的**删除列**为准**；`git show … | grep -c '^-[^-]'` **仅作辅助，且已知会漏计**——以 `-` 或 `--` 开头的
+  删除行（markdown 列表项/分隔线的删除会渲染成 `-- …` / `---…`）**不被计入**。实证：`81` 单笔
+  （numstat 删 **2** = `00-master-spec.md` 1 + `40-visible-text-archive.md` 1 **vs** grep 报 **1**）；
+  分支级 `906b582..e6a2eac`（**冻结范围，写明端点 sha，勿写 HEAD**）：**numstat 删 309 vs grep 报 293
+  ⇒ 漏 16 行**。（历史各单均**两法并列**且 numstat 一直为 0 ⇒ 既有结论未受影响。）
+- **上游 1 行修已开 PR（82 append 3；2026-09-12，append-only）**：本档"上游 1 行修已独立开出（70 append）"
+  一条里 **"不发 PR"** 的表述**已作废**——该修现已作为**独立 PR** 提交上游：
+  **`TencentCloud/TencentDB-Agent-Memory` #1357**（`pull/1357`；base **`feat/server_team`** ← head
+  `KarlLeen:fix/raw-yaml-skip-asset-confirm`；**单文件 `MemoryProxy/src/types.ts` +6 −0**；commit
+  **`dfb676e`**，**未 amend**、与 70 append 所记 sha 一致）；已核 **MERGEABLE + CLEAN**、**无 CI checks**
+  ——因 `.github/workflows/pr-ci.yml` 的 `on.pull_request.branches = [main]`，而 **`main` 不含 `MemoryProxy/`**
+  ⇒ base 只能取 `feat/server_team`（CONTRIBUTING 所写 `develop_server_team` / `master` **两分支均不存在**，
+  属其文档滞后）。**判据分叉不变**：主系列 = 同一 UNALLOWED + total 60 **仍 FAIL**；该分支 = **59 + PASS**
+  （复核方以独立 worktree 实测：base `906b582` = **60**、修复分支 = **59**）。**本系列不 cherry-pick、不 rebase**；
+  若该 PR 被合并 ⇒ 主系列下次 rebase 后基线翻转，届时另行登记。
