@@ -30,6 +30,8 @@ export function registerAttributionPoolRoutes(
       '/v3/admin/attribution/audit-pool',
       {
         category: asQueryValue(body.category),
+        // 77 · S7-d：`review_status=` 服务端过滤（客户端分页后过滤会漏项）——原样透传。
+        review_status: asQueryValue(body.review_status),
         space_id: asQueryValue(body.space_id),
         limit: asQueryValue(body.limit),
         offset: asQueryValue(body.offset),

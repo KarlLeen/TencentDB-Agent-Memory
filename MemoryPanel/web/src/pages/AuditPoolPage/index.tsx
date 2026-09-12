@@ -4,11 +4,12 @@
  * 数据：BFF `/api/v1/attribution/{pool,review}` → proxy `/v3/admin/attribution/audit-pool|audit-reviews`。
  * 视图模型：`./utils/view-model`（迁移表 / 七类顺序；自迁移禁）。
  *
- * ⚠️ 两个诚实标注：
+ * ⚠️ 两个真标注：
  *   1. **actor 服务端注入**：前端**不传** actor（BFF 从 x-tdai-user-key 取）；无 user key
  *      （且非 IdP cookie 会话身份可用）时禁用提交并提示——**不匿名**；
- *   2. 池 DTO 无 review 状态读口（S7-b 既有字段不动）⇒ "当前状态" = **本会话内的提交
- *      记录**（缺省 unreviewed），页面明示该口径——服务端仍以迁移表 + prev_status 兜底。
+ *   2. 77 · S7-d：**服务端 latest-join 是唯一真相**（池 DTO append `review_status`
+ *      /`review_actor`/`review_at`）；本地记录仅作**提交瞬间的乐观反馈**，成功后以服务端
+ *      返回值 reconcile 并重取，"刷新后显示 unreviewed"的旧缺口已闭。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -18,9 +19,29 @@ import { attributionApi, type PoolDto } from '@/lib/api/attribution';
 import { getPanelSession } from '@/lib/panelSession';
 import {
   allowedTransitions,
+  currentStatusOf,
+  reconcileStatusFromServer,
   toPoolView,
+  type PoolItemView,
   type PoolView,
 } from './utils/view-model';
+
+/** 从 BFF 400 的信封 `data.current_status` 取"当前状态"（77：原因必须可解释）。 */
+function staleCurrentStatus(err: unknown): string | null {
+  if (!(err instanceof ApiError)) return null;
+  try {
+    const j = JSON.parse(err.body) as { data?: { current_status?: string } };
+    return j.data?.current_status ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function rawOf(err: unknown): string {
+  return err instanceof ApiError
+    ? (err.rawMessage ?? 'ATTRIBUTION_UNKNOWN_ERROR')
+    : 'ATTRIBUTION_UNKNOWN_ERROR';
+}
 
 export function AuditPoolPage() {
   const { t } = useTranslation();
@@ -33,13 +54,18 @@ export function AuditPoolPage() {
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState('');
+  /** 77 · S7-d：状态筛选走**服务端**（`review_status=`；客户端分页后过滤会漏项）。 */
+  const [reviewStatusFilter, setReviewStatusFilter] = useState('');
 
   const hasUserKey = Boolean(getPanelSession()?.userKey);
 
   const load = useCallback(async () => {
     setErrorCode('');
     try {
-      const dto = await attributionApi.pool(category ? { category, limit: 200 } : { limit: 200 });
+      const query: { category?: string; review_status?: string; limit: number } = { limit: 200 };
+      if (category) query.category = category;
+      if (reviewStatusFilter) query.review_status = reviewStatusFilter;
+      const dto = await attributionApi.pool(query);
       setPool(dto);
       setEmptyReason(dto.items.length === 0 ? 'no_data' : 'none');
     } catch (err) {
@@ -55,20 +81,25 @@ export function AuditPoolPage() {
       );
       setPool(null);
     }
-  }, [category]);
+  }, [category, reviewStatusFilter]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const view: PoolView | null = useMemo(() => (pool ? toPoolView(pool) : null), [pool]);
-  const currentOf = (auditKey: string): string => localStatus[auditKey] ?? 'unreviewed';
+  // 77 · S7-d：当前状态 = **服务端值**（唯一真相）；`localStatus` 仅存提交瞬间的乐观值，
+  // 每次 refetch 后服务端值优先。
+  const currentOf = (item: PoolItemView): string =>
+    localStatus[item.audit_key] ?? currentStatusOf(item);
 
   const submit = useCallback(
     async (auditKey: string) => {
       const target = targets[auditKey];
       if (!target || !hasUserKey) return;
-      const prev = currentOf(auditKey);
+      // prev = 本端已知的最新（乐观链优先；否则服务端值；都无 ⇒ unreviewed）。
+      const itemRow = view?.items.find((i) => i.audit_key === auditKey);
+      const prev = localStatus[auditKey] ?? itemRow?.reviewStatus ?? 'unreviewed';
       try {
         const res = await attributionApi.review({
           audit_key: auditKey,
@@ -76,15 +107,19 @@ export function AuditPoolPage() {
           status: target,
           note: notes[auditKey]?.trim() || undefined,
         });
-        setLocalStatus((m) => ({ ...m, [auditKey]: res.status }));
+        // 乐观仅作即时反馈；立即用**服务端返回值** reconcile（T6），再重取（权威）。
+        setLocalStatus((m) => ({ ...m, [auditKey]: reconcileStatusFromServer(res.status) }));
         setFeedback(t('attribution.pool.submitOk', { kind: res.kind }));
+        void load();
       } catch (err) {
-        const raw = err instanceof ApiError ? (err.rawMessage ?? 'ATTRIBUTION_UNKNOWN_ERROR') : 'ATTRIBUTION_UNKNOWN_ERROR';
-        setFeedback(`✗ ${raw}`);
+        // 400 必须能解释原因（C4）：优先显示 data.current_status（"已被更新为 X，请刷新"）。
+        const stale = staleCurrentStatus(err);
+        setFeedback(stale !== null ? `✗ ${t('attribution.pool.stale', { current: stale })}` : `✗ ${rawOf(err)}`);
+        void load(); // 失败同样 reconcile：让用户看到真相
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hasUserKey, targets, notes, localStatus, t],
+    [hasUserKey, targets, notes, localStatus, view, t],
   );
 
   return (
@@ -104,6 +139,20 @@ export function AuditPoolPage() {
               ...(view?.categoryOrder ?? []).map((c) => ({ value: c, text: c })),
             ]}
             style={{ minWidth: 260 }}
+          />
+          {/* 77 · S7-d：状态筛选 = **服务端过滤**（`review_status=`；分页后前端过滤会漏项） */}
+          <Select
+            value={reviewStatusFilter}
+            onChange={(v) => setReviewStatusFilter(String(v))}
+            options={[
+              { value: '', text: t('attribution.pool.allStatuses') },
+              { value: 'unreviewed', text: 'unreviewed' },
+              { value: 'confirmed', text: 'confirmed' },
+              { value: 'dismissed', text: 'dismissed' },
+              { value: 'needs_fix', text: 'needs_fix' },
+            ]}
+            placeholder={t('attribution.pool.reviewFilter')}
+            style={{ minWidth: 160 }}
           />
           <Button onClick={() => void load()}>{t('attribution.refresh')}</Button>
         </div>
@@ -128,7 +177,7 @@ export function AuditPoolPage() {
             </thead>
             <tbody>
               {view.items.map((item) => {
-                const current = currentOf(item.audit_key);
+                const current = currentOf(item);
                 const options = allowedTransitions(current);
                 return (
                   <tr key={item.audit_key} style={{ borderBottom: '1px solid #f5f5f5' }}>

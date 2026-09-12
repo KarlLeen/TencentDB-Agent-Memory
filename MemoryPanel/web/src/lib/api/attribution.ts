@@ -109,6 +109,10 @@ export interface PoolItem {
   rationale_ref: string | null;
   session_key: string;
   created_at: number;
+  /** 77 · S7-d：服务端 latest（无行 ⇒ `"unreviewed"`）——**唯一真相**。 */
+  review_status: string;
+  review_actor: string | null;
+  review_at: number | null;
 }
 
 export interface PoolDto {
@@ -145,9 +149,17 @@ export const attributionApi = {
   /** 回执 DTO（主对象 = 决策单元）。 */
   receipt: (body: { session_key: string; limit?: number; offset?: number }) =>
     attributionPost<ReceiptDto>('/receipt', body),
-  /** 抽查/分歧池（查询层）。 */
-  pool: (body: { category?: string; space_id?: string; limit?: number; offset?: number }) =>
-    attributionPost<PoolDto>('/pool', body),
+  /**
+   * 抽查/分歧池（查询层）。`review_status` ⇒ **服务端过滤**（append；缺省不传 = 不过滤）——
+   * "只看未审"必须走服务端，客户端在分页后过滤会漏项。`counts_by_category` 仍为过滤前全类。
+   */
+  pool: (body: {
+    category?: string;
+    review_status?: string;
+    space_id?: string;
+    limit?: number;
+    offset?: number;
+  }) => attributionPost<PoolDto>('/pool', body),
   /**
    * 状态写口。⚠️ `actor` **不由前端传**：BFF 从 `x-tdai-user-key` 服务端注入
    * （body 里即使有 actor 也会被忽略——审计身份不可伪造）。

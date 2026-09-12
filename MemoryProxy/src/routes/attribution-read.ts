@@ -54,8 +54,15 @@ function ok(c: Context, data: Record<string, unknown>): Response {
   return c.json({ code: 0, message: "ok", data });
 }
 
-function error(c: Context, status: 400 | 404 | 503, message: string): Response {
-  return c.json({ code: status, message }, status);
+function error(
+  c: Context,
+  status: 400 | 404 | 503,
+  message: string,
+  data?: Record<string, unknown>,
+): Response {
+  // 77 · S7-d：可选 `data`（如 400 的 current_status）——让"原因"可被前端结构化消费，
+  // 而不是把解释藏在自由文本里（"不许只回 400"）。
+  return c.json(data === undefined ? { code: status, message } : { code: status, message, data }, status);
 }
 
 function safeParse(json: string): Record<string, unknown> {
@@ -412,8 +419,21 @@ function handleAuditPool(c: Context, config: ProxyConfig): Response {
   }
   const spaceId = (c.req.query("space_id") ?? "").trim() || "_default"; // C3 同 §1
 
+  // 77 · S7-d（C2）：`review_status=` 服务端过滤（客户端在分页后过滤会漏项）。
+  const reviewStatusRaw = c.req.query("review_status");
+  if (reviewStatusRaw !== undefined && !(AUDIT_PREV_STATUSES as readonly string[]).includes(reviewStatusRaw)) {
+    return error(
+      c,
+      400,
+      `invalid review_status: "${reviewStatusRaw}" (expected ${AUDIT_PREV_STATUSES.join("|")})`,
+    );
+  }
+
   const { items, countsByCategory } = buildAuditPool({ spaceId });
-  const filtered = categoryRaw ? items.filter((i) => i.category === categoryRaw) : items;
+  // 顺序写死：counts = **过滤前**全类（口径守卫；R4 钉）⇒ 先取全量计数，再做两类过滤。
+  const filtered = items
+    .filter((i) => (categoryRaw ? i.category === categoryRaw : true))
+    .filter((i) => (reviewStatusRaw !== undefined ? i.review_status === reviewStatusRaw : true));
   filtered.sort((a, b) => {
     if (a.created_at !== b.created_at) return b.created_at - a.created_at;
     return a.audit_key < b.audit_key ? -1 : a.audit_key > b.audit_key ? 1 : 0;
@@ -474,7 +494,14 @@ async function handleAuditReviews(c: Context, config: ProxyConfig): Promise<Resp
   const latest = repo.latestByAuditKey(auditKey);
   const current = latest?.status ?? "unreviewed";
   if (current !== prevStatus) {
-    return error(c, 400, `prev_status mismatch: current="${current}"`);
+    // 77 · S7-d（C4 最后一条）：**必须能解释原因**——文案带 current + 行动指引，
+    // 且用结构化 `data.current_status` 供前端组"当前状态已被更新为 X，请刷新"。
+    return error(
+      c,
+      400,
+      `prev_status mismatch: current="${current}"（当前状态已被更新为 "${current}"，请刷新后重试）`,
+      { current_status: current },
+    );
   }
   const res = repo.insertIdempotent({ auditKey, status, prevStatus, actor, note: note ?? null });
   if (res.kind === "failed") {

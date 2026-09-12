@@ -445,3 +445,184 @@ describe("74 · T5–T10 状态机写口 / 只读零写 / 不驱动判定", () =
     }
   });
 });
+
+// ── 77 · S7-d：池 review 读侧（latest-join 三字段 + review_status= 服务端过滤） ──
+
+interface PoolItem77 extends PoolItem {
+  review_status: string;
+  review_actor: string | null;
+  review_at: number | null;
+}
+
+async function poolItems77(
+  app: Hono,
+  qs = "",
+): Promise<{ items: PoolItem77[]; counts: Record<string, number>; truncated: boolean }> {
+  const res = await app.request(`/v3/admin/attribution/audit-pool${qs}`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as {
+    data: { items: PoolItem77[]; counts_by_category: Record<string, number>; truncated: boolean };
+  };
+  return { items: body.data.items, counts: body.data.counts_by_category, truncated: body.data.truncated };
+}
+
+async function writeReview(
+  app: Hono,
+  auditKey: string,
+  prevStatus: string,
+  status: string,
+  actor = "u-42",
+): Promise<void> {
+  const res = await app.request("/v3/admin/attribution/audit-reviews", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ audit_key: auditKey, prev_status: prevStatus, status, actor }),
+  });
+  expect(res.status).toBe(200);
+}
+
+/** 造一个 unconfirmed+截断的 suspect:truncated 单元（返回其 audit_key）。 */
+function seedTruncatedUnit(sessionKey: string, unitId: string, msgSeq: number): string {
+  seedUnitEvent(sessionKey, unitId, msgSeq);
+  seedDetail(sessionKey, unitId, {
+    verdict: "unconfirmed",
+    detail: { rationaleRef: "r-77", shortlist: mkShortlist(2), citationMetrics: mkMetrics(0.9) },
+  });
+  return deriveAuditKey(unitId, 0, "suspect:truncated");
+}
+
+describe("77 · T1–T4 池 review latest-join + review_status= 过滤", () => {
+  it("T1：无行 ⇒ unreviewed/null/null；有行 ⇒ latest 值", async () => {
+    withTempDb();
+    try {
+      const S = "sess-77-t1";
+      const app = makeApp();
+      const akA = seedTruncatedUnit(S, "u-77-a", 16);
+      const akB = seedTruncatedUnit(S, "u-77-b", 32);
+      expect(akA).not.toBe(akB);
+      await writeReview(app, akB, "unreviewed", "confirmed");
+      const pool = await poolItems77(app);
+      const a = pool.items.find((i) => i.unit_id === "u-77-a")!;
+      const b = pool.items.find((i) => i.unit_id === "u-77-b")!;
+      console.log(
+        `77-T1 → 无行=${JSON.stringify({ s: a.review_status, ac: a.review_actor, at: a.review_at })}；` +
+          `有行=${JSON.stringify({ s: b.review_status, ac: b.review_actor, at: b.review_at })}`,
+      );
+      expect([a.review_status, a.review_actor, a.review_at]).toEqual(["unreviewed", null, null]);
+      expect([b.review_status, b.review_actor]).toEqual(["confirmed", "u-42"]);
+      expect(typeof b.review_at).toBe("number");
+    } finally {
+      teardownTempDb();
+      __resetAttributionAuditReviewsRepoForTests();
+    }
+  });
+
+  it("T2：同 created_at 两行 ⇒ 取 review_id 较大者（确定性；重复调用同值）", async () => {
+    withTempDb();
+    try {
+      const S = "sess-77-t2";
+      const app = makeApp();
+      const ak = seedTruncatedUnit(S, "u-77-t2", 16);
+      // 直插两行**同 created_at**（绕开 repo 的严格单调）；插序 = ar_aaa 先、ar_zzz 后。
+      const db = getDb()!;
+      const ins = db.prepare(
+        "INSERT INTO attribution_audit_reviews (review_id, audit_key, status, prev_status, actor, note, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)",
+      );
+      ins.run("ar_aaa", ak, "dismissed", "unreviewed", "u-old", 1000);
+      ins.run("ar_zzz", ak, "confirmed", "unreviewed", "u-new", 1000);
+      const pool1 = await poolItems77(app);
+      const pool2 = await poolItems77(app);
+      const row = pool1.items.find((i) => i.audit_key === ak)!;
+      console.log(
+        `77-T2 → latest=${JSON.stringify({ s: row.review_status, ac: row.review_actor, at: row.review_at })}；` +
+          `重复调用同值=${JSON.stringify(pool2.items.find((i) => i.audit_key === ak)!.review_actor === row.review_actor)}`,
+      );
+      expect(row.review_status).toBe("confirmed"); // review_id DESC ⇒ ar_zzz
+      expect(row.review_actor).toBe("u-new");
+      expect(row.review_at).toBe(1000);
+      expect(pool2.items.find((i) => i.audit_key === ak)!.review_status).toBe("confirmed");
+    } finally {
+      teardownTempDb();
+      __resetAttributionAuditReviewsRepoForTests();
+    }
+  });
+
+  it("T3：多次迁移后取最后一次（unreviewed→confirmed→needs_fix ⇒ needs_fix）", async () => {
+    withTempDb();
+    try {
+      const S = "sess-77-t3";
+      const app = makeApp();
+      const ak = seedTruncatedUnit(S, "u-77-t3", 16);
+      await writeReview(app, ak, "unreviewed", "confirmed", "u-1");
+      await writeReview(app, ak, "confirmed", "needs_fix", "u-2");
+      const pool = await poolItems77(app);
+      const row = pool.items.find((i) => i.audit_key === ak)!;
+      console.log(`77-T3 → ${JSON.stringify({ s: row.review_status, ac: row.review_actor })}`);
+      expect(row.review_status).toBe("needs_fix");
+      expect(row.review_actor).toBe("u-2");
+    } finally {
+      teardownTempDb();
+      __resetAttributionAuditReviewsRepoForTests();
+    }
+  });
+
+  it("T4：review_status= 只返回该状态；counts 仍为过滤前全类；非法值 ⇒ 400", async () => {
+    withTempDb();
+    try {
+      const S = "sess-77-t4";
+      const app = makeApp();
+      const akA = seedTruncatedUnit(S, "u-77-a", 16);
+      seedTruncatedUnit(S, "u-77-b", 32);
+      const akC = seedTruncatedUnit(S, "u-77-c", 48);
+      await writeReview(app, akC, "unreviewed", "confirmed");
+      const all = await poolItems77(app);
+      const onlyUn = await poolItems77(app, "?review_status=unreviewed");
+      const onlyCf = await poolItems77(app, "?review_status=confirmed");
+      console.log(
+        `77-T4 → 全量=${all.items.length}(counts=${all.counts["suspect:truncated"]})；` +
+          `unreviewed=${onlyUn.items.length}(counts=${onlyUn.counts["suspect:truncated"]})；` +
+          `confirmed=${onlyCf.items.length}(counts=${onlyCf.counts["suspect:truncated"]})`,
+      );
+      expect(all.items.length).toBe(3);
+      expect(onlyUn.items.length).toBe(2);
+      expect(onlyCf.items.length).toBe(1);
+      expect(onlyCf.items[0]!.audit_key).toBe(akC);
+      expect(onlyUn.items.every((i) => i.review_status === "unreviewed")).toBe(true);
+      // 口径守卫：counts 不随 review_status 过滤 —— 三格都等于过滤前全类 3。
+      expect([all.counts["suspect:truncated"], onlyUn.counts["suspect:truncated"], onlyCf.counts["suspect:truncated"]]).toEqual([3, 3, 3]);
+      expect(akA).not.toBe(akC);
+      const bad = await app.request("/v3/admin/attribution/audit-pool?review_status=nope");
+      const badBody = (await bad.json()) as { message: string };
+      console.log(`77-T4b → 非法值 status=${bad.status} message=${badBody.message}`);
+      expect(bad.status).toBe(400);
+    } finally {
+      teardownTempDb();
+      __resetAttributionAuditReviewsRepoForTests();
+    }
+  });
+
+  it("T4b+：写侧 400 解释原因——message 带 current + data.current_status（不许只回 400）", async () => {
+    withTempDb();
+    try {
+      const S = "sess-77-t4b";
+      const app = makeApp();
+      const ak = seedTruncatedUnit(S, "u-77-stale", 16);
+      await writeReview(app, ak, "unreviewed", "confirmed");
+      // 陈旧 prev：UI 以为 unreviewed，实际 latest=confirmed。
+      const res = await app.request("/v3/admin/attribution/audit-reviews", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ audit_key: ak, prev_status: "unreviewed", status: "dismissed", actor: "u-9" }),
+      });
+      const body = (await res.json()) as { code: number; message: string; data?: { current_status?: string } };
+      console.log(`77-T4b → status=${res.status} message=${body.message} data=${JSON.stringify(body.data)}`);
+      expect(res.status).toBe(400);
+      expect(body.message).toContain('current="confirmed"');
+      expect(body.message).toContain("请刷新");
+      expect(body.data?.current_status).toBe("confirmed");
+    } finally {
+      teardownTempDb();
+      __resetAttributionAuditReviewsRepoForTests();
+    }
+  });
+});

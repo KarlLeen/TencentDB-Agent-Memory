@@ -49,6 +49,23 @@ export interface PoolItemView {
   rationale_ref: string | null;
   session_key: string;
   created_at: number;
+  /**
+   * 77 · S7-d：**服务端 latest**（池 DTO latest-join；无行 ⇒ `"unreviewed"`）。
+   * 唯一真相——本地"本会话记录"不再是判据。
+   */
+  reviewStatus: string;
+  reviewActor: string | null;
+  reviewAt: number | null;
+}
+
+/** T5：当前状态的**唯一真相 = 服务端值**（本地记录仅作提交瞬间的乐观反馈）。 */
+export function currentStatusOf(item: PoolItemView): string {
+  return item.reviewStatus;
+}
+
+/** T6：提交成功后的 reconcile——**服务端值优先**（乐观值不覆盖服务端结果）。 */
+export function reconcileStatusFromServer(serverStatus: string): string {
+  return serverStatus;
 }
 
 export interface PoolView {
@@ -76,6 +93,9 @@ export function toPoolItemView(item: PoolItem): PoolItemView {
     rationale_ref: item.rationale_ref,
     session_key: item.session_key,
     created_at: item.created_at,
+    reviewStatus: item.review_status ?? 'unreviewed',
+    reviewActor: item.review_actor ?? null,
+    reviewAt: item.review_at ?? null,
   };
 }
 

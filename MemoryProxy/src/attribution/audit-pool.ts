@@ -9,6 +9,10 @@
 import { createHash } from "node:crypto";
 
 import { getAttributionEventRepo } from "../db/attributionEventRepo.js";
+import {
+  getAttributionAuditReviewsRepo,
+  type AuditReviewLatestRow,
+} from "./audit-reviews-repo.js";
 import { getAttributionJudgeQueueRepo } from "./judge-queue-repo.js";
 import { getAttributionJudgementDetailsRepo, type JudgementDetailRow } from "./judgement-details-repo.js";
 import { getAttributionStatusEventsRepo, type StatusEventRow } from "./status-events-repo.js";
@@ -50,6 +54,16 @@ export interface AuditPoolItem {
   rationale_ref: string | null;
   session_key: string;
   created_at: number;
+  /**
+   * 77 · S7-d（池 DTO append，**只读 join**）：
+   * `attribution_audit_reviews` 中该 `audit_key` 的 latest 状态——
+   * 定序 `created_at DESC, review_id DESC`；**无行 ⇒ `"unreviewed"`**（物理不落行，同 S7-b）。
+   */
+  review_status: string;
+  /** latest 行的 `actor`；无行 ⇒ `null`。 */
+  review_actor: string | null;
+  /** latest 行的 `created_at`；无行 ⇒ `null`。 */
+  review_at: number | null;
 }
 
 export interface AuditPoolResult {
@@ -114,6 +128,12 @@ export function buildAuditPool(opts: { spaceId?: string } = {}): AuditPoolResult
   const status = getAttributionStatusEventsRepo();
   const details = getAttributionJudgementDetailsRepo();
   const queue = getAttributionJudgeQueueRepo();
+  // 77 · S7-d：latest 全量映射（一次查；`pushItem` 逐项取）。
+  const reviewLatest = new Map<string, AuditReviewLatestRow>(
+    getAttributionAuditReviewsRepo()
+      .latestAll()
+      .map((r) => [r.audit_key, r]),
+  );
 
   const sessions = [
     ...new Set([...events.distinctSessionKeys(0), ...status.distinctSessionKeys(0)]),
@@ -134,8 +154,10 @@ export function buildAuditPool(opts: { spaceId?: string } = {}): AuditPoolResult
   ): void => {
     const sorted = [...categories].sort();
     for (const category of sorted) {
+      const auditKey = deriveAuditKey(unitId, round, category);
+      const rev = reviewLatest.get(auditKey);
       items.push({
-        audit_key: deriveAuditKey(unitId, round, category),
+        audit_key: auditKey,
         unit_id: unitId,
         round,
         category,
@@ -145,6 +167,9 @@ export function buildAuditPool(opts: { spaceId?: string } = {}): AuditPoolResult
         rationale_ref: meta.rationaleRef,
         session_key: meta.sessionKey,
         created_at: meta.createdAt,
+        review_status: rev?.status ?? "unreviewed",
+        review_actor: rev?.actor ?? null,
+        review_at: rev?.created_at ?? null,
       });
     }
   };

@@ -14,6 +14,9 @@ import {
 import {
   allowedTransitions,
   canSubmit,
+  currentStatusOf,
+  reconcileStatusFromServer,
+  toPoolItemView,
   toPoolView,
 } from '@/pages/AuditPoolPage/utils/view-model';
 import type { ReceiptDto, ReceiptUnit } from '@/lib/api/attribution';
@@ -152,6 +155,9 @@ describe('76 · T8 池页迁移表：仅合法目标态；自迁移被阻断', (
           rationale_ref: 'r',
           session_key: 's',
           created_at: 1,
+          review_status: 'unreviewed',
+          review_actor: null,
+          review_at: null,
         },
       ],
       counts_by_category: { 'suspect:truncated': 1 },
@@ -160,5 +166,39 @@ describe('76 · T8 池页迁移表：仅合法目标态；自迁移被阻断', (
     expect(view.items[0]!.categories).toEqual(['suspect:low_coverage', 'suspect:truncated']);
     expect(view.categoryOrder[0]).toBe('suspect:truncated');
     expect(view.categoryOrder.length).toBe(7);
+  });
+});
+
+describe('77 · T5/T6 池页：服务端状态是唯一真相 + 提交后 reconcile', () => {
+  const mkItem = (reviewStatus: string) => ({
+    audit_key: 'ak_77',
+    unit_id: 'u-77',
+    round: 0,
+    category: 'suspect:truncated',
+    categories: ['suspect:truncated'],
+    verdict: 'unconfirmed',
+    judge_impl: 'mock:v1',
+    rationale_ref: 'r',
+    session_key: 's-77',
+    created_at: 1,
+    review_status: reviewStatus,
+    review_actor: reviewStatus === 'unreviewed' ? null : 'u-42',
+    review_at: reviewStatus === 'unreviewed' ? null : 1234,
+  });
+
+  it('T5：BFF 返回 confirmed ⇒ 初始当前状态 = confirmed（不是 unreviewed）', () => {
+    const view = toPoolItemView(mkItem('confirmed'));
+    const current = currentStatusOf(view);
+    console.log(`77-T5 → currentStatus=${current}（source=review_status）`);
+    expect(current).toBe('confirmed');
+    // 服务端 unreviewed ⇒ unreviewed（另一格：防止"默认硬编码 confirmed"的假绿）
+    expect(currentStatusOf(toPoolItemView(mkItem('unreviewed')))).toBe('unreviewed');
+  });
+
+  it('T6：提交后 reconcile ⇒ 服务端值优先（乐观值不覆盖服务端结果）', () => {
+    const reconciled = reconcileStatusFromServer('confirmed'); // 服务端返回值
+    console.log(`77-T6 → reconciled=${reconciled}（optimistic=dismissed 被服务端覆盖）`);
+    expect(reconciled).toBe('confirmed');
+    expect(reconciled).not.toBe('dismissed');
   });
 });

@@ -36,6 +36,14 @@ export interface AuditReviewRow {
   created_at: number;
 }
 
+/** 77 · S7-d：latest 投影（池 DTO 只读 join 用；不含 note——`review_note` 本单不做）。 */
+export interface AuditReviewLatestRow {
+  audit_key: string;
+  status: string;
+  actor: string;
+  created_at: number;
+}
+
 export interface NewAuditReview {
   auditKey: string;
   status: string;
@@ -77,6 +85,12 @@ export interface AttributionAuditReviewsRepo {
   getById(reviewId: string): AuditReviewRow | null;
   /** 读侧 latest（按 created_at, review_id 定序）。 */
   latestByAuditKey(auditKey: string): AuditReviewRow | null;
+  /**
+   * 77 · S7-d：**latest 全量映射**（每 `audit_key` 一行；定序与 `latestByAuditKey` 逐字同：
+   * `created_at DESC, review_id DESC`）。池 DTO 的只读 join 用——**批量一次查**，
+   * 避免 per-item N 次查询（C6 性能口径）。
+   */
+  latestAll(): AuditReviewLatestRow[];
   count(): number;
 }
 
@@ -93,6 +107,7 @@ class SqliteAttributionAuditReviewsRepo implements AttributionAuditReviewsRepo {
   private readonly insertStmt: Database.Statement;
   private readonly getStmt: Database.Statement;
   private readonly latestStmt: Database.Statement;
+  private readonly latestAllStmt: Database.Statement;
   private readonly countStmt: Database.Statement;
 
   constructor(db: Database.Database) {
@@ -110,6 +125,14 @@ RETURNING created_at
     this.latestStmt = db.prepare(
       `SELECT ${SELECT_COLUMNS} FROM attribution_audit_reviews WHERE audit_key = ? ORDER BY created_at DESC, review_id DESC LIMIT 1`,
     );
+    // 77 · S7-d：latest 全量（窗口函数与 `ORDER BY created_at DESC, review_id DESC LIMIT 1` 等价）。
+    this.latestAllStmt = db.prepare(`
+SELECT audit_key, status, actor, created_at FROM (
+  SELECT audit_key, status, actor, created_at,
+         ROW_NUMBER() OVER (PARTITION BY audit_key ORDER BY created_at DESC, review_id DESC) AS rn
+  FROM attribution_audit_reviews
+) WHERE rn = 1
+`);
     this.countStmt = db.prepare("SELECT COUNT(*) AS n FROM attribution_audit_reviews");
   }
 
@@ -158,6 +181,14 @@ RETURNING created_at
     }
   }
 
+  latestAll(): AuditReviewLatestRow[] {
+    try {
+      return (this.latestAllStmt.all() ?? []) as AuditReviewLatestRow[];
+    } catch {
+      return [];
+    }
+  }
+
   count(): number {
     try {
       const row = this.countStmt.get() as { n: number } | undefined;
@@ -181,6 +212,9 @@ class NullAttributionAuditReviewsRepo implements AttributionAuditReviewsRepo {
   }
   latestByAuditKey(): AuditReviewRow | null {
     return null;
+  }
+  latestAll(): AuditReviewLatestRow[] {
+    return [];
   }
   count(): number {
     return 0;

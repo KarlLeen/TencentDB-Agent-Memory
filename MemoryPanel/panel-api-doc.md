@@ -1258,6 +1258,14 @@ KS → Panel 的 S2S 状态回调（ingest/sync 完成或进度更新）。**无
 
 **错误码**（面板稳定枚举，见 §4.3）；**错误文案不泄漏 key、不回显 proxy 原始 message/栈**。
 
+### 3.13.5 S7-d 增量（池 review 读侧；append-only）
+
+- `POST /attribution/pool` 请求体新增**可选** `review_status`（`unreviewed|confirmed|dismissed|needs_fix`）⇒ **服务端过滤**（分页前；客户端分页后过滤会漏项）；缺省不过滤；
+- 响应 `items[]` 新增三**只读**字段：`review_status`（无行 ⇒ `"unreviewed"`）/ `review_actor` / `review_at`（latest-join；定序 `created_at DESC, review_id DESC`）；
+- `counts_by_category` **仍为过滤前全类**（口径不变）；
+- 写口 400 的**原因可解释**：`message` 带 `current="X"` + 指引，`data.current_status` 结构化可用（面板 i18n `attribution.pool.stale` 组"当前状态已被更新为 X，请刷新"）；
+- 页面：状态**唯一真相 = 服务端值**；乐观仅即时反馈，成功后以服务端结果 reconcile 并重取。
+
 ---
 
 ## 4. 附录

@@ -96,13 +96,18 @@ export class FetchAttributionProxyAdapter implements AttributionProxyPort {
       if (env.code === 0) {
         return { code: 0, message: 'ok', data: (env.data ?? null) as T | null };
       }
-      // 业务错误：原始 message **只进日志**，响应给稳定码。
+      // 业务错误：原始 message **只进日志**，响应给稳定码；**结构化 data 透传**
+      // （77 · S7-d：如 400 的 `current_status`——"原因"必须是可机读字段，不是藏在文本里）。
       this.logger?.warn('attribution proxy business error', {
         path,
         code: env.code,
         proxyMessage: typeof env.message === 'string' ? env.message : '',
       });
-      return fail<T>(mapBusinessCode(env.code), mapBusinessError(env.code));
+      return {
+        code: mapBusinessCode(env.code),
+        message: mapBusinessError(env.code),
+        data: (env.data ?? null) as T | null,
+      };
     } catch (err) {
       // 网络错 / 超时 / abort：明确"上游不可达"（空态三因之一，不与"无数据"混同）。
       this.logger?.warn('attribution proxy unreachable', {

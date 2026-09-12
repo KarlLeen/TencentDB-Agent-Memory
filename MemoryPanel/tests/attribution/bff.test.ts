@@ -57,6 +57,15 @@ describe('76 · T1 BFF 四端点：请求/响应形状逐字段（fake 适配器
       query: { category: 'suspect:truncated', limit: 20 },
     });
 
+    // 77 · S7-d：`review_status` 原样透传（服务端过滤）
+    fake.queue.push({ code: 0, message: 'ok', data: { items: [], counts_by_category: {}, truncated: false } });
+    await postJson(app, '/attribution/pool', { review_status: 'unreviewed', limit: 20 });
+    expect(fake.calls[3]).toMatchObject({
+      method: 'GET',
+      path: '/v3/admin/attribution/audit-pool',
+      query: { review_status: 'unreviewed', limit: 20 },
+    });
+
     fake.queue.push({ code: 0, message: 'ok', data: { review_id: 'ar_x', status: 'confirmed', prev_status: 'unreviewed', kind: 'inserted' } });
     const r4 = await postJson(app, '/attribution/review', {
       audit_key: 'ak_1',
@@ -65,9 +74,9 @@ describe('76 · T1 BFF 四端点：请求/响应形状逐字段（fake 适配器
       note: 'n',
     });
     const e4 = (await r4.json()) as Envelope;
-    expect(fake.calls[3]!.method).toBe('POST');
-    expect(fake.calls[3]!.path).toBe('/v3/admin/attribution/audit-reviews');
-    expect(fake.calls[3]!.body).toMatchObject({ audit_key: 'ak_1', prev_status: 'unreviewed', status: 'confirmed' });
+    expect(fake.calls[4]!.method).toBe('POST');
+    expect(fake.calls[4]!.path).toBe('/v3/admin/attribution/audit-reviews');
+    expect(fake.calls[4]!.body).toMatchObject({ audit_key: 'ak_1', prev_status: 'unreviewed', status: 'confirmed' });
     expect(e4.code).toBe(0);
   });
 });

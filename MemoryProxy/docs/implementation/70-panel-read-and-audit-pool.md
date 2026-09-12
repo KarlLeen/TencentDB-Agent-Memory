@@ -191,3 +191,41 @@ L1 异常必须被捕获：`failed` 计数 + stderr 一行 warn；**不改 cycle
 ### 3.7 C7 只读/写入边界
 
 L1 只**追加** `asset_corrected` 行；used/judgement 行零改写；会话枚举读口（两 repo 的 `distinctSessionKeys`）**只读**、DB 降级 ⇒ 空数组；不碰 proxy 写入路径；不做定时器（周期化 = 运维 cron）。
+
+---
+
+## 4 池 review 读侧（S7-d；实现 = `audit-reviews-repo.latestAll` + `attribution-read.handleAuditPool`）
+
+> **本单授权说明（77 · 2026-09-12）**：对 S7-b 契约做 **append（只加不改）**——76 C9 的"不改 S7-b 既有字段"之限制**自本单起正式解除**（仅限本 append 范围；写侧机制仍未动）。
+> **根因**：S7-b 只写全了**写侧**（幂等锚含 `prev_status`、迁移表、乐观校验）、**从未规定读侧** ⇒ 刷新后已审项显示 `unreviewed`，用户照 UI 发起迁移 ⇒ 服务端**正确 400**，但"**错误可见、原因被藏**"。修法裁定 = **方式①**（池 DTO 直接 append，保持"池列表 = 一次请求"）。
+
+### 4.1 C1 池 DTO append（`items[]` 三只读字段；latest-join）
+
+| 字段 | 类型 | 语义 |
+|---|---|---|
+| `review_status` | `"unreviewed" \| "confirmed" \| "dismissed" \| "needs_fix"` | 该 `audit_key` 的 latest 状态；**无行 ⇒ `"unreviewed"`**（物理不落行，同 S7-b） |
+| `review_actor` | `string \| null` | latest 行 `actor`；无行 ⇒ `null` |
+| `review_at` | `number \| null` | latest 行 `created_at`；无行 ⇒ `null` |
+
+- latest 定序**写死**：`ORDER BY created_at DESC, review_id DESC LIMIT 1`（同毫秒按 `review_id` ⇒ 确定性；与 S7-b 读侧口径一致）；
+- 实现 = **只读 join**（`latestAll()` **批量一次查**；窗口函数 `ROW_NUMBER() … ORDER BY created_at DESC, review_id DESC` 与之等价——避免 per-item N 次查询）；**零写、不改表**；
+- 既有字段语义/命名零改动。
+
+### 4.2 C2 `review_status=` 过滤（append）
+
+- 取值 ∈ 四态；**非法 ⇒ 400**（不静默忽略）；缺省 = 不过滤；
+- **必须服务端过滤**：客户端在**分页后**过滤会漏项（"只看未审"必须一次拿对）；
+- **口径守卫**：`counts_by_category` **仍 = 过滤前全类**（顺序写死：先取全量计数、再过滤）。
+
+### 4.3 C4 状态语义（页面侧）
+
+**review 状态 = append-only 行的 latest**；页面以**服务端值为唯一真相**——本地记录仅作提交瞬间的乐观反馈，成功后以**服务端返回值 reconcile** 并重取（覆盖"别人审过 / 上次会话审过"）。
+
+### 4.4 写侧 400：原因可解释（文案升级；机制零改动）
+
+`prev_status mismatch` 仍是 400，但 `message` 带 `current="X"` + 行动指引（"请刷新后重试"），且响应 **`data.current_status`**（结构化，供前端组"当前状态已被更新为 X，请刷新"）——**迁移表 / 幂等锚 / actor 注入 / 端点路径一律未动**。
+
+### 4.5 C6 物化口径重测（77 实测）
+
+带 join 后、**10k units + 1k reviews** 合成夹具、真 handler 路径（含 request 解析），`limit=50`，N=20：
+**P50 = 52.2ms / P95 = 65.3ms / max = 75.2ms**（阈值 500ms **未超** ⇒ **不立物化单**）；`counts_by_category` 随 `review_status=` 过滤**不变**（= 10000，口径实证）。
