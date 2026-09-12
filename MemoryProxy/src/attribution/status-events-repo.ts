@@ -22,6 +22,17 @@ export const STATUS_EVENT_TYPE_ASSET_USED = "asset_used";
 /** S6 · 三路修正规则产的事件型（60 spec §5；写口见 corrected-rules）。 */
 export const STATUS_EVENT_TYPE_ASSET_CORRECTED = "asset_corrected";
 
+/**
+ * 67 · **route-bearing 事件型集合**（60 spec 勘正 4 治理）：集合内事件型写入时 `route` **必填**
+ * ——缺失 ⇒ fail-closed（`failed` + 计数 + warn、零落行；**不猜、不伪造**）。
+ * 理由：漏传 route 会走 `deriveStatusId` 的四元组兜底 ⇒ 与同 `(unit,asset,round,event_type)`
+ * 的另一条不同 route 的 corrected **撞主键（se_ 派生）** ⇒ 后到者被判 duplicate **静默丢弃**。
+ * **集外**事件型继续走四元组兜底（§5 明文：留给未来非 route-bearing 新事件型）。
+ * 未来加型 = 本集常量 + 60 spec §5 同行（**加型必须同时给出 route 语义**）——与
+ * §16.3 的"进生产点列才可生产"同款治理。
+ */
+export const ROUTE_BEARING_EVENT_TYPES: readonly string[] = [STATUS_EVENT_TYPE_ASSET_CORRECTED];
+
 export interface NewStatusEvent {
   unitId: string;
   sessionKey: string;
@@ -227,6 +238,22 @@ RETURNING created_at
       counters.failures += 1;
       console.warn(
         `[attribution-status] unknown event_type "${eventType}" rejected (unit=${event.unitId})`,
+      );
+      return {
+        statusId: deriveStatusId(event.unitId, event.assetId, round, eventType, event.route),
+        kind: "failed",
+      };
+    }
+    // 67 · route-bearing 集内 `route` 必填（fail-closed）：缺失 ⇒ 不写、不猜、不伪造。
+    // （防"漏传 route 走四元组兜底 ⇒ 与另一条不同 route 的 corrected 撞锚被判 duplicate 静默丢弃"。）
+    if (
+      ROUTE_BEARING_EVENT_TYPES.includes(eventType) &&
+      (event.route === undefined || event.route.length === 0)
+    ) {
+      counters.failures += 1;
+      console.warn(
+        `[attribution-status] route-bearing event_type "${eventType}" requires non-empty route ` +
+          `(unit=${event.unitId}) — rejected (fail-closed)`,
       );
       return {
         statusId: deriveStatusId(event.unitId, event.assetId, round, eventType, event.route),

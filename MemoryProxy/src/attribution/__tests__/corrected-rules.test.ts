@@ -90,6 +90,74 @@ describe("66 · item 0 存量兼容（重放格：断的是对的性质）", () 
     }
   });
 
+  it("67 · route-bearing fail-closed 四格：缺 route ⇒ failed+0 行；带 route ⇒ inserted；used 带/不带 route 行为不变", () => {
+    withTempDb();
+    try {
+      const repo = getAttributionStatusEventsRepo();
+      // ① asset_corrected **缺 route** ⇒ failed + 计数 + 零落行（不猜、不伪造）
+      const r1 = repo.insertIdempotent({
+        unitId: "u-rb-1",
+        sessionKey: "sess-rb",
+        assetId: "asset-a",
+        assetType: "skill",
+        round: 0,
+        eventType: "asset_corrected",
+        outcome: null,
+        payload: {},
+      });
+      // ② 对照：带 route ⇒ 正常 inserted
+      const r2 = repo.insertIdempotent({
+        unitId: "u-rb-2",
+        sessionKey: "sess-rb",
+        assetId: "asset-a",
+        assetType: "skill",
+        round: 0,
+        eventType: "asset_corrected",
+        route: "version_drift",
+        outcome: null,
+        payload: {},
+      });
+      console.log(
+        `67 四格 → ①缺route=${JSON.stringify(r1)}；②带route=${JSON.stringify(r2)}；行数=${statusRows("sess-rb").length}`,
+      );
+      expect(r1.kind, "① 缺 route ⇒ failed").toBe("failed");
+      expect(r2.kind, "② 带 route ⇒ inserted").toBe("inserted");
+      expect(statusRows("sess-rb").length, "① 零落行 + ② 恰 1 行").toBe(1);
+
+      // ③ asset_used 带/不带 route ⇒ 行为完全不变（legacy 三元组；route 被忽略）
+      const r3a = repo.insertIdempotent({
+        unitId: "u-rb-legacy",
+        sessionKey: "sess-rb",
+        assetId: "asset-a",
+        assetType: "skill",
+        round: 0,
+        outcome: null,
+        payload: {},
+      });
+      const r3b = repo.insertIdempotent({
+        unitId: "u-rb-legacy",
+        sessionKey: "sess-rb",
+        assetId: "asset-a",
+        assetType: "skill",
+        round: 0,
+        route: "some_route", // used 带 route：应被忽略、派生式不变 ⇒ 重放命中同 id
+        outcome: null,
+        payload: {},
+      });
+      const legacyId = `se_${createHash("sha1").update("u-rb-legacy|asset-a|0", "utf8").digest("hex").slice(0, 12)}`;
+      console.log(
+        `67 四格 used → 无route=${JSON.stringify({ kind: r3a.kind, id: r3a.statusId })}；带route=${JSON.stringify({ kind: r3b.kind, id: r3b.statusId })}；legacyId=${legacyId}`,
+      );
+      expect(r3a.kind).toBe("inserted");
+      expect(r3a.statusId, "used 沿用 legacy 三元组").toBe(legacyId);
+      expect(r3b.kind, "used 带 route ⇒ 重放命中（route 不参与 used 派生）").toBe("duplicate");
+      expect(r3b.statusId).toBe(r3a.statusId);
+      expect(statusRows("sess-rb").length, "③ 未新增行").toBe(2);
+    } finally {
+      teardownTempDb();
+    }
+  });
+
   it("白名单：未知事件型 fail-closed（不写 + failed 计数，不伪造）", () => {
     withTempDb();
     try {
