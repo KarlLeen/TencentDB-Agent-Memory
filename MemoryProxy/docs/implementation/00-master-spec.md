@@ -95,6 +95,8 @@ unknown tombstone、vocab 命中矩阵 corpus、开启 checklist / 组合矩阵 
 落点 = 30-*.md §4.4/§4.7/§4.10/§5.6/§6 用例 19–22/§11 与 10-event-table.md §10。
 验收口径不变（单测 + 真实会话冒烟 + 回滚口径），各片 spec 自查其开启 checklist。
 
+**v2 起的通用验收口径**（真库隔离与凭证 / 证书精度 / 行号位移 / 两级 tsc 清单 / 哨兵）**以 `s4-smoke-design.md` 54 节为准**——此处不复述。
+
 ## 7. 溯源矩阵（保持"没有遗漏"的机制）
 
 设计文档每一节核心主张 → 切片 → 落点 → 验收。v1 部分详列，v2 先占位。
@@ -108,9 +110,9 @@ unknown tombstone、vocab 命中矩阵 corpus、开启 checklist / 组合矩阵 
 | 合并规则：同文件+同 message / tool_result 跨请求配对 | S3 | 纯函数内部 | 单测（重点） |
 | 克制型单元 + risky 词表触发（§3.2.1①-3） | S3 | 纯函数内部 | 单测 |
 | v2：bridge 遥测 SQLite sink（落地③） | S4 | **叠加式** sink 链（`memory/bridge-telemetry.ts` `(row, ctx)` 通道）+ 提取器 `attribution/bridge-fetch-assets.ts` + 落点 `attribution/bridge-fetch-events.ts`；CH 通路保留（勘正 2：不是"换 sink"） | 单测 42（含 9 类 reject / 真 pin 逐字段对照 / row+CH 列键集合）+ 真实冒烟 |
-| v2：attribution judge worker（落地④） | S5 | 新进程 + prompt 版本管理 | — |
-| v2：corrected 三路机器规则 + 版本链快照（§3.2.2） | S6 | 规则层 + 事件消费 | — |
-| v2：回执 + 抽查池两页（落地⑤） | S7 | MemoryPanel（契约 = `70-panel-read-and-audit-pool.md`；docs 编号顺延 60→70） | — |
+| v2：attribution judge worker（落地④） | S5 | 新进程 + prompt 版本管理 | **已完成**：`50-*.md`；proxy 门 50 files / 580 passed（judge/worker 单测群 + 六跳 e2e `s5-s7-e2e-smoke.test.ts`） |
+| v2：corrected 三路机器规则 + 版本链快照（§3.2.2） | S6 | 规则层 + 事件消费 | **已完成**：`60-*.md`；`corrected-rules.test.ts` 5 tests + 六跳冒烟跳⑤（真 L1 规则） |
+| v2：回执 + 抽查池两页（落地⑤） | S7 | MemoryPanel（契约 = `70-panel-read-and-audit-pool.md`；docs 编号顺延 60→70） | **已完成**：`70-*.md`；proxy 门 50 files / 580 passed + panel 门 8 files / 31 passed |
 | v3：信用分→排序 / 索引行（§3.4/3.5） | S8 | 排序侧 | — |
 | v1.1（二轮评审 R1/R4）：最小观测 + 分级日志 + 水位上限 | S3/S1 | 30 spec §4.10/§5.6；10 spec §5.2/§10 | §6 单测 21 |
 | v1.1（二轮评审 R2）：撕裂窗口 risky 动作 unknown tombstone | S3 | 30 spec §4.4/§4.7 | §6 单测 19/20 |
@@ -142,4 +144,7 @@ unknown tombstone、vocab 命中矩阵 corpus、开启 checklist / 组合矩阵 
   n-gram 稀有度 / 排他性检查输入源）。design 是任务书，checklist 是开启 checklist + 组合矩阵 + DB 清理
 - `45-bridge-telemetry-sink.md` — **v2 S4 已完成**（bridge 遥测**叠加式** SQLite sink：`(row, ctx)` 双通道 +
   纯函数提取器 + 缺省关闭；产出 `event_type='asset_fetched'` 硬档行。CH 通路保留，零 DDL）
-- （v2 起）`50-attribution-judge-worker.md` / `60-corrected-rules.md` / `70-panel-read-and-audit-pool.md`
+- `50-attribution-judge-worker.md` — **v2 S5 已完成**（判定主链：四态落库判别式 + worker 消费分支 + 候选分档/shortlist/裁决/状态事件 + 真 provider fail-closed + top-N 闸门）
+- `60-corrected-rules.md` — **v2 S6 已完成**（corrected 三路机器规则；L1 版本漂移已落地 = `applyVersionDriftCorrections`）
+- `70-panel-read-and-audit-pool.md` — **v2 S7 已完成**（回执 DTO + 池候选查询 + 状态写口；面板两页的权威契约）
+- `s4-smoke-design.md` — **54 节通用口径链的权威载体**（真库隔离与凭证 / 证书精度 / 行号位移 / 两级 tsc 清单 / 哨兵；v2 起各单在此 append）
