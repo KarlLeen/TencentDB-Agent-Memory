@@ -140,7 +140,7 @@ export interface L2RankingData {
 }
 
 /** 98 · S8-b：只读加载（仅开关开时调用；零新 SQL——信用分复用 97 rollup，标黄按 path 查既有读口）。 */
-function loadL2Ranking(groups: readonly AgentProfileBundle[]): L2RankingData {
+export function loadL2Ranking(groups: readonly AgentProfileBundle[]): L2RankingData {
   const creditByPath = new Map<string, number | null>(
     rollupCreditsByAsset().map((r) => [r.asset_id, r.credit]),
   );

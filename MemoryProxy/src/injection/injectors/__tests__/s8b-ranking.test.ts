@@ -16,6 +16,11 @@ import { describe, expect, it } from "vitest";
 
 import { buildConfig } from "../../../config.js";
 import {
+  getAttributionStatusEventsRepo,
+  STATUS_EVENT_TYPE_ASSET_CORRECTED,
+} from "../../../attribution/status-events-repo.js";
+import {
+  loadL2Ranking,
   renderProfileMemoryBlock,
   type AgentProfileBundle,
   type L2RankingData,
@@ -135,5 +140,49 @@ describe("98 · S8-b 索引行 + 精排", () => {
     expect(opened.content).not.toContain("credit=");
     expect(opened.content).not.toContain("可能已过期");
     // ③ 对照组（本文件的 T1 已覆盖）：键同源（e.path）时才出现列——缺口本质 = 键不同源，不是渲染缺陷。
+  });
+
+  it("T8 端到端（随单条 #6 严格形态）：真实取数路径（临时库 → rollup → loadL2Ranking）；两格并存 = ①no-op 逐字节 ②creditByPath 非空", () => {
+    // 前置：按**真实生产者键**（memoryAssetId）写入事件面数据（asset_used + asset_corrected）。
+    // 临时库由 isolate-db（本文件独享 mkdtemp）提供；corrected 是 route-bearing 事件型 ⇒ route 必填。
+    const repo = getAttributionStatusEventsRepo();
+    const used = repo.insertIdempotent({
+      unitId: "u-e2e",
+      sessionKey: "s-e2e",
+      assetId: CTX.memoryAssetId,
+      assetType: "chat_memory",
+      round: 1,
+      outcome: null,
+      payload: null,
+    });
+    const corrected = repo.insertIdempotent({
+      unitId: "u-e2e-c",
+      sessionKey: "s-e2e",
+      assetId: CTX.memoryAssetId,
+      assetType: "chat_memory",
+      round: 1,
+      eventType: STATUS_EVENT_TYPE_ASSET_CORRECTED,
+      route: "version_drift",
+      outcome: null,
+      payload: null,
+    });
+    expect(used.kind).toBe("inserted");
+    expect(corrected.kind).toBe("inserted");
+
+    // 真实取数路径：loadL2Ranking = repo → rollupCreditsByAsset() → map（**不经手搓 map**）
+    const groups = [bundle([{ path: "p/one", summary: "s1" }, { path: "p/two" }])];
+    const real = loadL2Ranking(groups);
+
+    // ② 数据真的读到了，只是键不命中（与"根本没读到数据"是两回事，必须分开证）：
+    expect(real.creditByPath.size).toBeGreaterThan(0);
+    expect(real.creditByPath.has(CTX.memoryAssetId)).toBe(true);
+    expect(real.creditByPath.has("p/one")).toBe(false);
+
+    // ① 键不同源 ⇒ 开闸 no-op：与关闸逐字节相同 + 不出现列：
+    const opened = renderProfileMemoryBlock(groups, real)!;
+    const closed = renderProfileMemoryBlock(groups)!;
+    expect(opened.content).toBe(closed.content);
+    expect(opened.content).not.toContain("credit=");
+    expect(opened.content).not.toContain("可能已过期");
   });
 });
