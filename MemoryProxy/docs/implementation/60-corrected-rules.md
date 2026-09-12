@@ -197,6 +197,17 @@
   §14 勘正区 append**（不改 §14 原行）。
 - **payload 链接字段**（只回指不复制，照 §14 F6 纪律）：
   `{ used_status_id（被修正行，三路必带）, judgement_id, correction_route: "version_drift"|"binding_revoked"|"unreachable", anchored_version?, latest_version?, source_asset_id?, binding_ref?, severity }`。
+- **payload 新鲜度契约（对 S7 的强制约束；68 append）**：`anchored_version` / `latest_version` =
+  **检测时（首次判定）快照**，**不是当前版本**。成因（引证，不许省略）：幂等锚不含版本
+  （`status-events-repo.ts:113-121`：`base = unitId|assetId|round`；corrected = `base|eventType|route`
+  五元组）+ 冲突时 `ON CONFLICT(status_id) DO UPDATE SET event_type = excluded.event_type`
+  （**不刷 `payload_json`**；`:190-198`）⇒ 重放只 `duplicate`、payload **永久定格**。
+  **对 S7 的三条硬约束（必须 / 不得）**：
+  ① **不得**把 `latest_version` 渲染为"当前版本"；
+  ② 展示该 corrected 信号时**必须成对**给出**检测时间**（= 该行 `created_at`），并按回执设计既有的
+  "时效性"口径标注"可能已过期"；
+  ③ 需要"当前版本"时**必须**从 fetched 行读侧重算（不得依赖本 payload；见 §6 版本链快照的读者面）。
+  **前置阅读声明**：**S7 开工前必须读本条**。
 - **§14 收窄动作清单**（与写口**同批**，实现单执行，逐条点名）：
   1. §14.1 的行注释"validated/corrected 属消费侧，禁写"→"**corrected 自 S6 起由 §60 spec §2
      三路规则写；validated 仍禁写**"；
@@ -265,6 +276,21 @@
 - **9.3 L3 的自动化周期**：本 spec 只定义"离线圈"触发；周期化/事件化留后续（触发条件 = 运维
   提出周期需求时）。
 - **9.4 S7 展示层的 corrected 呈现**：随 `attribution_audit` 池两页（§18.1③ 触发条件）同批判。
+
+**9.5 L2 就绪判据（三条齐 ⇒ 可立单，缺一不可）**
+1. 提取绑定被持久化，且每个绑定有**稳定 `ref`**（内容哈希或显式 id —— 决定 `payload.binding_ref` 形状）；
+2. 存在读口"**给定 `source_asset_id` ⇒ 其派生的绑定 ref 列表**"；
+3. 存在读口"**给定 `binding_ref` ⇒ 由它支撑的既有 `asset_used` 行**"（级联对象）。
+- **三条齐后 L2 的形状**：两个 join + 对每条 used 调 `insertIdempotent(route="binding_revoked")` —— 语义无需再辩。
+- **反例闸门（硬）**：内置种子词表（无 source 资产）⇒ **不适用**，不得凭空撤销（§2.2 已写死，实现单必须带此 golden）。
+- **立单句**：**L2 不属归因链系列**；归因链只保证"写口 + `payload` 字段形状（`source_asset_id` / `binding_ref`）已就绪"。单的 owner = 提取层（`30 spec` v2 持有者）。
+
+**9.6 L3 就绪判据（四条）**
+1. 回查 client 在 —— **已满足**（F6）；
+2. **能区分"确定"与"不确定"**：必须把"明确 404 / ACL 明确拒绝"与"网络错 / 超时 / 5xx / ACL 服务不可用"分开（§2.3 反例是硬约束）⇒ **现状待核**，L3 单的第一件事即"核现有 client 返回形状是否足以区分；不足则先补分类，**不许 `catch` 笼统吞**"；
+3. 触发点 = **离线圈**（§2.3 已定）；
+4. **async 形态**（网络 I/O；不得照搬 L1 的 sync 形状）。
+- **立单句**：当"运维提出周期需求"**且**判据 2 为真时立 L3 单；**周期化本身仍归运营**（代码面只提供离线圈入口）。
 
 ## 勘正记录
 
