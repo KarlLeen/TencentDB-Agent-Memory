@@ -916,3 +916,12 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   禁调用方自取 0.5）；`corrected > used` ⇒ 夹取 + 计数、不抛。**语义收窄（"被采纳后有没有被推翻"≠"历史可靠度"）
   与幸存者偏差、以及 (b)/(c)/提升度/S8-d 的触发式登记**见 `80-credit-score-and-ranking.md`。
   **零接线、无开关、零 DDL**（`schema.ts` 零改动）；七格单测 + 排序辅助格（`credit-score.test.ts`）。
+- **S8-b 索引行 + 截断后精排（98 append；2026-09-12，append-only）**：注入面排序落地——落点 =
+  `MemoryProxy/src/injection/injectors/tdai-profile-memory-injector.ts`（L2 `<l2_scene_index>` 索引行）：
+  ① 索引行**只加列**（信用分来自 `rollupCreditsByAsset`；标黄 = `asset_corrected` 且**成对**给检测时间、
+  不得"当前版本"；`credit=null` 不渲染、不得凑 0）；② **截断之后**按信用分**稳定**精排（只改顺序、
+  候选集不变；复用 S8-a `rankByCredit` 的 null 原位语义）；③ 开关 `attribution.ranking.enabled`
+  **默认 false**——关 ⇒ 渲染走既有路径、**逐字节现状**（`render-golden.test.ts` 字节级对照）+ 零库访问。
+  契约与 C5 触发式登记（拉取预算 / 必须拉全文 / 动态重算 / 池 DTO）见 `80-credit-score-and-ranking.md` §4。
+  **R 证据**：R1 关态改产物 ⇒ golden 字节红；R2 精排混入截断 ⇒ 候选集断言红；R3 标黄渲成"当前版本" ⇒
+  渲染断言红；R4 越界改动 ⇒ name-only 红；R5 null 渲成 0 ⇒ null 列断言红。

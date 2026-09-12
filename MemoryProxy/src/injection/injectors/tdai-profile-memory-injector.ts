@@ -7,6 +7,12 @@ import type { CoreSkillConfig } from "../../types.js";
 import { getMetadataClient } from "../../meta/client.js";
 import { resolveFixedAssetCtxs, type FixedAssetCtx } from "./tdai-fixed-asset.js";
 import { joinLinesWithOffsets, spanOfLines, type InjectedAssetRef } from "./asset-refs.js";
+// 98 · S8-b：消费 S8-a 聚合层（97）——精排键与索引行信用列同源；零新 SQL（复用既有读口）。
+import { rankByCredit, rollupCreditsByAsset } from "../../attribution/credit-score.js";
+import {
+  getAttributionStatusEventsRepo,
+  STATUS_EVENT_TYPE_ASSET_CORRECTED,
+} from "../../attribution/status-events-repo.js";
 
 /**
  * L2/L3 注入（按 openclaw / hermes 官方做法重构）：
@@ -42,6 +48,12 @@ export class TdaiProfileMemoryInjector implements InjectionHook {
   constructor(
     private baseConfig: TdaiMemoryConfig,
     private coreSkillCfg: Pick<CoreSkillConfig, "endpoint" | "serviceToken" | "serviceId" | "timeoutMs"> | null = null,
+    /**
+     * 98 · S8-b：注入面排序开关（`attribution.ranking.enabled`，缺省 false）。
+     * false（缺省）⇒ 渲染走既有路径、**逐字节现状**（render-golden 对照）、零库访问；
+     * true ⇒ 索引行加列 + 截断之后按信用分稳定精排。
+     */
+    private rankingEnabled = false,
   ) {}
 
   async execute(ctx: AgentContext): Promise<ContextBlock[]> {
@@ -81,7 +93,9 @@ export class TdaiProfileMemoryInjector implements InjectionHook {
     const groups = await Promise.all(ctxs.map((c) => loadAgentProfile(client, c)));
 
     // 全部为空 → 仍注入 tools-guide（LLM 可主动 search L1 / 读 L2）
-    const rendered = renderProfileMemoryBlock(groups);
+    // 98 · S8-b：开关开才加载排序数据（关 ⇒ 零库访问、渲染逐字节现状）。
+    const ranking = this.rankingEnabled ? loadL2Ranking(groups) : undefined;
+    const rendered = renderProfileMemoryBlock(groups, ranking);
     if (!rendered) {
       return [{
         type: "text",
@@ -116,11 +130,52 @@ export interface ProfileMemoryRenderResult {
 }
 
 /**
+ * 98 · S8-b：L2 索引行的排序/标黄数据（键 = 行级 asset_id，即 `e.path`）。
+ * - `creditByPath`：来自 S8-a `rollupCreditsByAsset()`——缺席/`null` = 无数据 ⇒ **不渲染该列、不参与精排**（不许凑 0）；
+ * - `correctedAtByPath`：`asset_corrected` 的**检测时间**（= 该行 `created_at`），渲染时**成对**给出（60 spec §5 ②）。
+ */
+export interface L2RankingData {
+  creditByPath: ReadonlyMap<string, number | null>;
+  correctedAtByPath: ReadonlyMap<string, number>;
+}
+
+/** 98 · S8-b：只读加载（仅开关开时调用；零新 SQL——信用分复用 97 rollup，标黄按 path 查既有读口）。 */
+function loadL2Ranking(groups: readonly AgentProfileBundle[]): L2RankingData {
+  const creditByPath = new Map<string, number | null>(
+    rollupCreditsByAsset().map((r) => [r.asset_id, r.credit]),
+  );
+  const correctedAtByPath = new Map<string, number>();
+  const repo = getAttributionStatusEventsRepo();
+  for (const g of groups) {
+    for (const e of g.l2Entries) {
+      if (correctedAtByPath.has(e.path)) continue;
+      const rows = repo.listByAsset(e.path, { eventType: STATUS_EVENT_TYPE_ASSET_CORRECTED });
+      if (rows.length > 0) correctedAtByPath.set(e.path, rows[rows.length - 1]!.created_at);
+    }
+  }
+  return { creditByPath, correctedAtByPath };
+}
+
+/** 98 · S8-b：对已截断的 L2 候选做**稳定**精排（复用 S8-a 的 rankByCredit：非 null 降序、null 原位不动）。 */
+function rankL2Entries<T extends { path: string }>(
+  entries: readonly T[],
+  creditByPath: ReadonlyMap<string, number | null>,
+): T[] {
+  return rankByCredit(entries.map((e) => ({ e, credit: creditByPath.get(e.path) ?? null }))).map(
+    (w) => w.e,
+  );
+}
+
+/**
  * 纯渲染：把已加载的 profile 组拼成块并计算 asset refs。
  * 全部为空返回 null（调用方落 tools-only 块，assets=[]）。
- * content 与重构前的 `lines.join("\n")` 逐字节一致（只加 offset 跟踪，不改文案/换行）。
+ * content 与重构前的 `lines.join("\n")` 逐字节一致（只加 offset 跟踪，不改文案/换行）；
+ * **98 起**：`ranking` 缺省（开关关）⇒ 渲染路径与既有**逐字节一致**；传入才加列 + 精排。
  */
-export function renderProfileMemoryBlock(groups: AgentProfileBundle[]): ProfileMemoryRenderResult | null {
+export function renderProfileMemoryBlock(
+  groups: AgentProfileBundle[],
+  ranking?: L2RankingData,
+): ProfileMemoryRenderResult | null {
   const rendered = groups.filter((g) => g.l3 || g.l2Entries.length > 0);
   if (rendered.length === 0) return null;
 
@@ -148,13 +203,29 @@ export function renderProfileMemoryBlock(groups: AgentProfileBundle[]): ProfileM
     }
     if (g.l2Entries.length > 0) {
       lines.push("<l2_scene_index>");
-      for (const e of g.l2Entries) {
+      // 98 · S8-b：截断之后（候选集 = 内核给定的本轮集合，**不改集合**）按信用分**稳定**降序精排；
+      // 同分 / 无数据（credit=null）保持原序。**无 ranking ⇒ 既有顺序逐字不变**（golden 字节）。
+      const entries = ranking ? rankL2Entries(g.l2Entries, ranking.creditByPath) : g.l2Entries;
+      for (const e of entries) {
         l2TotalCount++;
         // 索引行：路径 + summary（如果有）；正文用 tool 拉
+        // 98 · S8-b 加列（只在开关开且数据非 null 时**追加**；不改既有文本、不重排块结构）：
+        const cols: string[] = [];
+        if (ranking) {
+          const credit = ranking.creditByPath.get(e.path);
+          if (typeof credit === "number") cols.push(`credit=${credit.toFixed(3)}`);
+          const correctedAt = ranking.correctedAtByPath.get(e.path);
+          if (typeof correctedAt === "number") {
+            // 60 spec §5 三条硬约束：② **成对**给检测时间（= created_at）；① 不得渲染为"当前版本"；
+            // ③ 需要"当前版本"时必须从 fetched 行侧重算——本行不显示任何 version，天然不依赖 corrected payload 当当前值。
+            cols.push(`⚠️ 可能已过期（检测时间: ${new Date(correctedAt).toISOString()}）`);
+          }
+        }
+        const suffix = cols.length > 0 ? ` [${cols.join(", ")}]` : "";
         if (e.summary) {
-          lines.push(`- \`${e.path}\` — ${truncate(e.summary, 200)}`);
+          lines.push(`- \`${e.path}\` — ${truncate(e.summary, 200)}${suffix}`);
         } else {
-          lines.push(`- \`${e.path}\``);
+          lines.push(`- \`${e.path}\`${suffix}`);
         }
       }
       lines.push("</l2_scene_index>");

@@ -585,6 +585,20 @@ export interface TraceArchiveConfig {
  */
 export interface AttributionConfig {
   judge: AttributionJudgeConfig;
+  /**
+   * 98 · S8-b：注入面排序开关。**可选**（缺失 = 缺省关；既有手写 AttributionConfig
+   * 字面量的测试零改动——只有 `buildConfig` 会把它填全）。
+   */
+  ranking?: AttributionRankingConfig;
+}
+
+/**
+ * 98 · S8-b：注入面排序（候选索引行加列 + 截断之后稳定精排）。
+ * **缺省 enabled=false** ⇒ 注入产物**逐字节现状**（render-golden 字节对照）；
+ * true ⇒ 候选行加列（asset_id / 信用分 / 标黄）+ 按信用分稳定精排（同分/无数据保持原序）。
+ */
+export interface AttributionRankingConfig {
+  enabled: boolean;
 }
 
 export interface AttributionJudgeConfig {
@@ -987,6 +1001,10 @@ export interface RawYamlConfig {
           minIdleMs?: number;
         };
       };
+    };
+    /** 98 · S8-b：注入面排序开关（缺省 false；只有显式 true 生效）。 */
+    ranking?: {
+      enabled?: boolean;
     };
   };
   costGuard?: {

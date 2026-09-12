@@ -351,7 +351,14 @@ function buildPipelineBundle(config: ProxyConfig): PipelineBundle {
     // fixed-asset-agents（self + 借入≤2）通过内核 MetadataClient 获取；
     // 内核不可达时 injector 自动降级为"只查当前 agent 的记忆"。
     if (config.tdai.memory.injectL2L3) {
-      registry.register(new TdaiProfileMemoryInjector(tdaiBaseConfig, config.coreSkill));
+      // 98 · S8-b：注入面排序开关（attribution.ranking.enabled，缺省 false ⇒ 逐字节现状）。
+      registry.register(
+        new TdaiProfileMemoryInjector(
+          tdaiBaseConfig,
+          config.coreSkill,
+          config.attribution?.ranking?.enabled === true,
+        ),
+      );
     }
     // 注意：L0/L1 不再每轮自动召回注入到 user prompt（会破坏 KV/prompt cache）。
     // 改为只在 system prompt 暴露只读工具（见 TdaiToolsInjector），借助 system

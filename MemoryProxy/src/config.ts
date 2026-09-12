@@ -114,6 +114,8 @@ export const DEFAULT_CONFIG: ProxyConfig = {
         correctL1: { enabled: false, minIdleMs: 30_000 },
       },
     },
+    // 98 · S8-b：注入面排序（缺省关 ⇒ 注入产物逐字节现状）。
+    ranking: { enabled: false },
   },
   // Extraction (write-side) defaults to fully permissive so that a config
   // without the `extraction:` block behaves identically to the pre-gate
@@ -553,6 +555,10 @@ export function buildConfig(overrides: CliOverrides = {}): ProxyConfig {
             ),
           },
         },
+      },
+      // 98 · S8-b：注入面排序开关（缺省 false；只有显式布尔 true 生效，同 enqueue 口径）。
+      ranking: {
+        enabled: yaml.attribution?.ranking?.enabled === true,
       },
     },
   sessionInit: {
