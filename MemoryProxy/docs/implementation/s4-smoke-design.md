@@ -789,3 +789,8 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
 - **本系列口径（51/52/53 三轮同一）**：同一条 UNALLOWED + allow-list（`scripts/qa/tsc-baseline.json`）**零新增** + 该门在 base 与每轮落档后同为 FAIL；`config.ts` / `types.ts` / `tsc-baseline.json` 在三轮的 diff 中**均未出现**（`git show --stat` / `git log --name-only` 分母式核对）。
 - **处置**：**保持现状**。建议单开 upstream-facing 1 行修（`RawYamlConfig.sessionInit` 补 `skipAssetConfirm?: boolean`，注释照 `types.ts:284`）或上游提 issue —— **不在本系列做**（PR 主题污染 / 上游或自行修 → 冲突）。**不 re-baseline**：allow-list 是给"有意保留"的历史错误，此处是漏写的类型缺口，入清单 = 把上游缺口洗成有意。
 - **回归窗口**：S4 期间该门为 **`PASS — 55 errors, all within allow-list`**（本文 §12 多处记录）⇒ 现在的 `FAIL（60 errors / 1 UNALLOWED）` 是**后续上游提交 `220af622` 那一行**带入，**不是 S0–S4 的遗产**。
+- **行号位移口径（69 复核跟进 append；2026-09-12，append-only）**：本条的行号随 `config.ts` 增长而位移
+  （527@3b8f783 → 553@67 → 566@69）；**判据 = 同一 UNALLOWED 条目（`config.ts|TS2339`，
+  `skipAssetConfirm`）+ total 60 不变，不是行号**。（69 工单 §6 曾写"`typecheck:baseline` 逐字同"
+  ——与同单 C3"config 三处同改（+13 行）"互斥、数学上不可达，**该措辞作废**，以本条为准；
+  处置仍按上条"保持现状 / 不 re-baseline"——工具判据本就是 `file|code` 级，不涉行号。）
