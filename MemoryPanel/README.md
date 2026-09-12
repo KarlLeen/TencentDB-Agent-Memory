@@ -94,7 +94,7 @@ npm run dev
 |------|------|
 | `pnpm dev` | 启动后端开发服务器 |
 | `pnpm build` | 编译后端到 `dist/` |
-| `pnpm typecheck` | 执行 TypeScript 类型检查 |
+| `pnpm typecheck` | 执行 TypeScript 类型检查（**不含 `tests/**` / `web/tests/**`**：`tsconfig.include` 仅 `src/**/*.ts` ⇒ 全部测试文件不在类型门内；是否纳入见后续独立决定） |
 | `pnpm test` | 运行单元测试 |
 | `pnpm generate:meta-openapi` | 生成 Meta OpenAPI 文档 |
 | `pnpm test:panel:e2e` | 运行 Panel Meta E2E |
