@@ -172,6 +172,16 @@ docker run -d --name memory-hub \
 | --- | --- | --- |
 | `KNOWLEDGE_LLM_BINDING_SYNC` | `1` | Panel 启动时是否为实例同步 KS llm_binding。`LLM_MODE=proxy` 时强制为 `1`；`custom` 模式下设 `0` 让 KS 走全局配置 |
 
+### 归因面板（Attribution）
+
+Panel 的「归因回执 / 抽查池」两页需要 proxy 的 admin 面凭证。**`ATTRIBUTION_PROXY_ADMIN_KEY` 不设 ⇒ 两页 fail-closed：返回 `503 ATTRIBUTION_PROXY_NOT_CONFIGURED`（不是空列表、不是空白页）**——需要这两个页面时必须设置。
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `ATTRIBUTION_PROXY_ADMIN_KEY` | 空 | **必设**（启用归因两页时）：Panel 访问 proxy admin 面的密钥。缺省为空 ⇒ 归因两页 `503 ATTRIBUTION_PROXY_NOT_CONFIGURED`（fail-closed） |
+| `ATTRIBUTION_PROXY_BASE_URL` | `http://127.0.0.1:8096` | proxy 服务地址。**容器内通常需显式设**为 proxy 服务的可达地址（默认值仅适合同容器 / 宿主网络场景） |
+| `ATTRIBUTION_TIMEOUT_MS` | `15000` | 可选：Panel 调 proxy admin 面的请求超时（毫秒） |
+
 ---
 
 ## 访问地址
