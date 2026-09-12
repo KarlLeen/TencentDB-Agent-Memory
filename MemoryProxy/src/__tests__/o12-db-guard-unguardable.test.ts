@@ -28,25 +28,33 @@ import {
 const DEFAULT_DB_PATH = path.join(os.homedir(), ".tdai-memory-proxy", "proxy.db");
 
 describe("78 · T1 守卫不可被吞（决定性）", () => {
-  it("try { getDb() } catch {} 吞掉 throw 后，账本仍记 1 条（含路径）", () => {
-    closeDb();
-    __resetRealDbGuardViolations();
-    // 临时把 env 指向默认真库——**不真开**（守卫会先拦下）。
-    process.env.PROXY_DB_PATH = DEFAULT_DB_PATH;
+  it("try { getDb() } catch {} 吞掉 throw 后，账本仍记 1 条（含路径；80 起为临时 HOME 沙箱）", () => {
+    // 80 · C1（认领 G2）：把"默认真库"整体搬进**临时 HOME 沙箱**——守卫若被回归删除，
+    // 该用例真打开的也只是沙箱库（不再可能碰到用户真库）；守卫判据/位置零改动。
+    const prevHome = process.env.HOME;
+    const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), "o12-home-"));
+    process.env.HOME = sandboxHome;
+    process.env.PROXY_DB_PATH = path.join(sandboxHome, ".tdai-memory-proxy", "proxy.db");
     try {
+      closeDb();
+      __resetRealDbGuardViolations();
       try {
         getDb();
       } catch {
         /* 故意吞掉 throw——模拟被外层 catch 吃掉的路径（73 C5 格 1 的形态） */
       }
       const v = __realDbGuardViolations();
-      console.log(`78-T1 → 吞掉 throw 后账本=${JSON.stringify(v)}`);
+      console.log(`78-T1 → 吞掉 throw 后账本=${JSON.stringify(v)}；sandbox=${sandboxHome}`);
       expect(v.length).toBe(1);
       expect(v[0]).toContain("proxy.db");
       expect(v[0]).toContain(".tdai-memory-proxy");
+      // 80 · C1 新断言：路径必须落在**沙箱 HOME** 内（钉住"沙箱化确实生效"）。
+      expect(v[0]).toContain(sandboxHome);
     } finally {
-      restoreIsolatedDbPath(); // 恢复隔离（afterAll 的"隔离未拆开"检查依赖它）
-      __resetRealDbGuardViolations(); // 归还账本（本格故意触发守卫，避免 afterAll 误报）
+      process.env.HOME = prevHome; // ← 还原 HOME（必须；否则污染同 worker 后续用例）
+      restoreIsolatedDbPath(); // ← 恢复隔离（afterAll 的"隔离未拆开"检查依赖它）
+      __resetRealDbGuardViolations(); // ← 归还账本（本格故意触发守卫）
+      fs.rmSync(sandboxHome, { recursive: true, force: true });
     }
   });
 });

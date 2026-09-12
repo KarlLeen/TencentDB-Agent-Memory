@@ -860,3 +860,8 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   用户真库**（并执行 `journal_mode=WAL` + `runSchema`）。**下次动 `isolate-db.ts` / 该测试 / `db/index.ts`
   任一单时顺手改为临时 `HOME` 沙箱**（`os.homedir()` 跟随 `HOME` ⇒ 判据里的"默认真库"落在沙箱内；
   守卫照常触发、账本照常记、**断言与判据不变**）。
+- **"全库时间戳最大值"取数精度（79 复核 append 2；2026-09-12，append-only）**：上一轮"由来"里写的
+  `2026-09-11 17:04:42Z` 取自 **TEXT 列**（`attribution_block_seen` / `attribution_message_snap`，
+  **秒精度**）；**全库最大实为** `attribution_events.created_at = 1789146283084`（**INTEGER epoch ms**）
+  = **2026-09-11T17:04:43.084Z**（晚 1.084 s）。⇒ **取证口径："全库时间戳最大值"必须取所有时间列的
+  最大**，并标明精度来源（TEXT 秒 vs INTEGER ms）——差 1 秒即可能改判"最后一次写入时刻"。
