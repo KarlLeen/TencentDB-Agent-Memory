@@ -21,6 +21,7 @@ import { getVisibleTextRepo, windowVisibleText } from "../../db/visibleTextRepo.
 import { messageTextFingerprint } from "../../decision-units/message-increment-archive.js";
 import type { CitationCorpusRepo } from "./corpus-repo.js";
 import { getCitationCorpusRepo } from "./corpus-repo.js";
+import { sliceAvailableSkillsItems } from "./asset-slices.js";
 import type { RarityTable } from "./ngram.js";
 import { buildRarityTable } from "./ngram.js";
 
@@ -119,7 +120,11 @@ export function archiveCitationSource(
       for (const row of rows) {
         const assetIds = assetIdsOf(row.asset_ids);
         if (assetIds.length === 0) continue;
-        for (const assetId of assetIds) {
+        // 105 · 资产级切片（计算层；D3 锁死）：多资产块 ⇒ 按 listing 条目切、与首见序**索引对齐**；
+        // 单资产 / 非 listing 形态 / 条目数与资产数不齐 ⇒ 回退块级（C6；绝不猜切）。
+        const slices = assetIds.length > 1 ? sliceAvailableSkillsItems(row.content_utf8) : null;
+        const aligned = slices && slices.length === assetIds.length ? slices : null;
+        for (const [assetIdx, assetId] of assetIds.entries()) {
           let contents = seenContent.get(assetId);
           if (!contents) {
             contents = new Set<number>();
@@ -129,7 +134,7 @@ export function archiveCitationSource(
           if (contents.has(row.content_id)) continue;
           contents.add(row.content_id);
           const list = out.get(assetId) ?? [];
-          list.push(row.content_utf8);
+          list.push(aligned ? aligned[assetIdx]! : row.content_utf8);
           out.set(assetId, list);
         }
       }

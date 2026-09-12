@@ -957,3 +957,8 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   贡献的是"伪装成信号的噪声"。真库语料复现：39 实例 `exact/block/1` ⇒ `exact/message/0`（不再 `coverage 1`）。
   **不承诺 `confirmed` 出现**（可达性 = `103` F8 / (d)）；`58 T1`(18 格)/`57 T6`/`58 T5`/`59 T6`/`65 O10`
   的期望已如实更新（`65` 豁免 = 1，理由见测试内注释）。
+- **资产侧文本改资产级切片（随单条；2026-09-12，append-only）**：`105` 起 `sessionAssetTexts` 对多资产块
+  按 listing 条目切分（**计算层**；D3 锁死：零 DDL/零写侧）。真库语料复现：13 候选分布由 104 的
+  `exact/message/0 ×13` ⇒ **`exact/message/0 ×3 + none ×10`**（distinct 341/284/3292 vs 全同态；排除数 12⇒2）。
+  **仍不承诺 `confirmed`**（可达性 = `103` F8 / (d)）；切片唯一真相 = `wrapper-registry`（`available_skills`
+  块标签 + 条目模板，与 c-2 剥离同源、共用 `AVAILABLE_SKILL_ITEM_SOURCE`）。

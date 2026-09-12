@@ -120,6 +120,14 @@ const BLOCK_TAG_SPECS: readonly TagSpec[] = [
     closeSource: "</skill_tools>",
     describe: "skill 列表块标签（s4 smoke B1/B2 实测）",
   },
+  {
+    name: "available_skills",
+    openSource: "<available_skills>",
+    closeSource: "</available_skills>",
+    describe:
+      "skill listing 块标签（core /v3/skill/listing **预渲染**；105 起同时用作资产级切片的条目上下文 —— " +
+      "真库 content_id=10 实测）",
+  },
 ];
 
 /** 自闭合资产标记（`<knowledge … />`）。**要求含 `type=` 与 `id=`**，否则不认（R8-d）。 */
@@ -151,6 +159,16 @@ const L1_ITEM_CONTEXT_BLOCK = "tdai_recalled_l1_memories";
 
 /** skill listing 段首标题（render-golden skill case 首行实测：`## Skills (mandatory)\n`）。 */
 const SKILLS_HEADING_SOURCE = "^## Skills \\(mandatory\\)\\n";
+
+/**
+ * 105 · skill listing **条目前缀**（`- <name>: <description>`，每行一条；core 预渲染）。
+ *
+ * 来源 = **真库实测**（`content_id=10`，skill-injector 注释逐字："listing 正文由 core 预渲染、
+ * proxy 无 entry↔skill 字节契约"）—— 同 c-2 纪律"首稿只收录实测形态"。**导出**：资产级切片
+ * （`asset-slices.ts`）与模板 `claims` **共用同一个源**（单一真相，防两套漂移）。
+ * 只在 `<available_skills>` 块内生效（见 strip 的 R8-b 同款上下文要求）。
+ */
+export const AVAILABLE_SKILL_ITEM_SOURCE = "^- [^\\n:]{1,200}: ";
 
 // ── 构造 registry ──────────────────────────────────────────────────────────────
 
@@ -199,6 +217,15 @@ templates.push({
     "skill listing 段首标题 `## Skills (mandatory)\\n`（render-golden skill case 首行实测；" +
     "**只认文首或块标签上下文内** —— R8-b）",
   claims: (raw) => compileNoFlags(SKILLS_HEADING_SOURCE).test(raw),
+});
+
+templates.push({
+  templateId: "list-prefix:available-skill-item",
+  kind: "list-prefix",
+  describe:
+    "skill listing 条目前缀 `- <name>: `（core 预渲染；**只在 `<available_skills>` 块内** —— R8-b；" +
+    "105 真库 content_id=10 实测形态；与 asset-slices 共用 AVAILABLE_SKILL_ITEM_SOURCE）",
+  claims: (raw) => compileNoFlags(AVAILABLE_SKILL_ITEM_SOURCE).test(raw),
 });
 
 templates.push({
@@ -368,6 +395,25 @@ export function stripRenderWrappers(text: string, registry: WrapperRegistry = DE
     const atStart = hm.index === 0;
     if (!(atStart || inContext(hm.index))) continue;
     spans.push({ rawStart: hm.index, rawEnd: hm.index + hm[0].length, templateId: "list-prefix:skills-heading" });
+  }
+
+  // 105 · skill listing 条目前缀（core 预渲染 `- <name>: `）——只在 `<available_skills>` 块内剥（R8-b 同款）。
+  const skillItemRe = new RegExp(AVAILABLE_SKILL_ITEM_SOURCE, "gm");
+  let si: RegExpExecArray | null;
+  while ((si = skillItemRe.exec(text)) !== null) {
+    if (si[0].length === 0) {
+      skillItemRe.lastIndex += 1;
+      continue;
+    }
+    const inSkills = pairs.some(
+      (p) => p.name === "available_skills" && si!.index > p.openEnd && si!.index < p.closeStart,
+    );
+    if (!inSkills) continue;
+    spans.push({
+      rawStart: si.index,
+      rawEnd: si.index + si[0].length,
+      templateId: "list-prefix:available-skill-item",
+    });
   }
 
   // 4) 接缝胶水（**只认第一个/最后一个最外层标签处的那一处**，见 R8-c）
