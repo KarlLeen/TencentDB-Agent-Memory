@@ -899,3 +899,13 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   "前缀不一致" ⇒ **"前 N 行逐字未变"里的 N 必须现取**，不得沿用旧值。
   （本条与"**反向控制可达性口径**"〔82 append〕**同位**：都在治"看起来成立、实际没被验证"的**假绿**——
   与"哨兵没触发≠没问题""golden 快照绕过真实调用路径"同属一族。）
+- **tsc 基线两级化 + 口径变更（94 append；2026-09-12，append-only）**：上一条"判据分叉不变：主系列 = 同一
+  UNALLOWED + total 60 **仍 FAIL**"**自本日起作废**——`src/config.ts|TS2339`（上游 RawYamlConfig 缺字段；
+  修在 PR #1357 / fork 分支 `dfb676e`；不 cherry-pick）已**降级为警告信号**：`MemoryProxy/scripts/qa/tsc-baseline.json`
+  新增 `warn` 段（+ `warnNotes` 点名出处），命中逐行以 `WARN  ` 前缀可见但**不判红**；`--update` 保留 warn 段、
+  且不把 warn 键收编进 `allow`（C3）。**口径变更：此后报告一律写 `0 UNALLOWED`（总数含 1 warned）**——
+  `npm run typecheck:baseline` ⇒ `PASS — 60 errors (59 allowed + 1 warned), 0 outside allow-list`；旧表述
+  "同一 UNALLOWED + total 60（FAIL）"仅作历史。分类逻辑抽成纯函数（`classify`/`buildAllow`/`countLines`，
+  main 守卫不吞副作用），单测四格随 proxy 门跑（`src/qa/__tests__/tsc-baseline-check.test.ts`）。
+  **R 证据（门没被放宽）**：R1 删 warn ⇒ 回 FAIL；R2 真 tsc 注入新错（非清单文件）⇒ 仍 FAIL 且点名；
+  R3 `--update` ⇒ warn 在、`src/config.ts` 不进 allow（连续跑幂等）；R4 删 warn 判据 ⇒ 单测第②格红。

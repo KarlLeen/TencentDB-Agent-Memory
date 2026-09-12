@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "command": "tsc --noEmit",
-  "note": "允许错清单（BP2）。只允许历史基线文件既有的错误码；新增文件/错误码立即 fail。修复后用 `npm run typecheck:baseline:update` 收紧。",
-  "generatedAt": "2026-09-09",
+  "note": "允许错清单（BP2，两级）。allow = 历史基线文件既有错误码（新增即 fail）；warn = 已裁定降级为警告的条目（保留可见、不阻塞，出处见 warnNotes）。修复后用 `npm run typecheck:baseline:update` 收紧（warn 段保留）。",
+  "generatedAt": "2026-09-12",
   "allow": {
     "src/anthropicHandler.ts": [
       "TS2322",
@@ -31,5 +31,13 @@
       "TS2339",
       "TS2352"
     ]
+  },
+  "warn": {
+    "src/config.ts": [
+      "TS2339"
+    ]
+  },
+  "warnNotes": {
+    "src/config.ts|TS2339": "上游 RawYamlConfig 缺 skipAssetConfirm 字段（本地 config.ts:566 / 上游 :425 同码位移）；修复在 PR #1357（fork 分支 dfb676e）；主系列不 cherry-pick ⇒ 本项目自 94 起将该条降级为警告信号（保留可见、不再阻塞）。"
   }
 }
