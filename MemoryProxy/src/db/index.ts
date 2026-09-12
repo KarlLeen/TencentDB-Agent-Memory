@@ -27,6 +27,26 @@ const _require = createRequire(import.meta.url);
 let _db: Database.Database | null = null;
 let _dbInitFailed = false;
 
+/**
+ * 78 · O12：真库守卫**违规账本**（模块级；**先记录、后 throw**）。
+ *
+ * 动机（防御纵深）：守卫的 `throw` 可能被调用链上任意 `try/catch` 吞掉
+ * （73 C5 格 1 实测到过这种形态）⇒ 把"证据"与"控制流"解耦：即使 throw 被吞，
+ * 账本里仍有记录，由 `isolate-db.ts` 的 `afterAll` 断言"账本为空"使该文件必红。
+ * **结构信号优先于人的自觉**——不让防线强度取决于"没人手滑把它包进 try/catch"。
+ */
+let _realDbGuardViolations: string[] = [];
+
+/** 78 · O12：仅供测试——违规账本只读快照（不改状态）。 */
+export function __realDbGuardViolations(): readonly string[] {
+  return [..._realDbGuardViolations];
+}
+
+/** 78 · O12：仅供测试——**显式**清账（`__resetDbForTests()` 不隐式清，保持职责单一）。 */
+export function __resetRealDbGuardViolations(): void {
+  _realDbGuardViolations = [];
+}
+
 /** Resolve the DB file path. Caller must ensure parent dir exists. */
 export function resolveDbPath(): string {
   const fromEnv = process.env.PROXY_DB_PATH;
@@ -83,6 +103,8 @@ export function getDb(): Database.Database | null {
     process.env.VITEST === "true" &&
     dbPath === path.join(os.homedir(), ".tdai-memory-proxy", "proxy.db")
   ) {
+    // 78 · O12：**先记录，后 throw**（顺序写死——即使外层 catch 把 throw 吞掉，证据仍在）。
+    _realDbGuardViolations.push(`[${new Date().toISOString()}] ${dbPath}`);
     throw new Error(
       `[test-db-guard] 测试正在打开真实用户库（${dbPath}）。\n` +
         `请勿删除 PROXY_DB_PATH —— 它由 setupFiles 指向临时库；\n` +

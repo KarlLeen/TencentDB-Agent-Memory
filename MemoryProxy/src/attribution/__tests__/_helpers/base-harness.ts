@@ -11,6 +11,7 @@ import path from "node:path";
 
 import { __resetAttributionEventRepoForTests } from "../../../db/attributionEventRepo.js";
 import { __resetDbForTests } from "../../../db/index.js";
+import { restoreIsolatedDbPath } from "../../../__tests__/setup/isolate-db.js";
 import {
   __resetAttributionJudgeQueueRepoForTests,
   getAttributionJudgeQueueRepo,
@@ -50,7 +51,10 @@ export function teardownTempDb(): void {
   __resetAttributionAuditReviewsRepoForTests();
   __resetAttributionJudgeLoggerForTests();
   __resetDbForTests();
-  delete process.env.PROXY_DB_PATH;
+  // 78 · O12：**恢复 setup 的隔离值**（替代裸 `delete`）——裸 delete 会让 setup 的
+  // 收尾断言（"隔离未被拆开"）看到 `PROXY_DB_PATH` 落到默认真库（与"测试里删了 env
+  // 的裸跑窗口"在事后不可区分）；恢复语义与 73 C3 的 `restoreIsolatedDbPath()` 同向。
+  restoreIsolatedDbPath();
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
   dir = null;
 }

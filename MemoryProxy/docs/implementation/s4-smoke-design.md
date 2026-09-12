@@ -824,6 +824,16 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   + 10 文件 `delete → restoreIsolatedDbPath()`（C3）；**C4 实测**：跑全量前后 `.backup` sha256 /
   **主文件 sha256+mtime** / 三计数**逐字不变**（三套对照：跑前 / 全量后 / 反向控制后）。
   **取证清单升级为四件**：`.backup` sha256 + **主文件 sha256/mtime** + 三计数 + 无持有者。
+- **真库守卫不可被吞（78 · O12；2026-09-12，append-only）**：73 的守卫靠 `throw`——**调用链上任意
+  `try/catch` 都能把它降级成 warn**（73 C5 格 1 实测到过这种形态）。78 起改为**先记录、后 throw**：
+  守卫触发时先写入模块级**违规账本**（路径 + 时间戳；`db/index.ts` 的 `_realDbGuardViolations`），
+  再由 `isolate-db.ts` 的 `afterAll`（**在还原 env 之前**）断言两件：① **账本为空**；②
+  `resolveDbPath() !== 默认真库`（抓"测试里 delete/覆盖过 env"的裸跑窗口）。
+  **判据刻意不写严**：只要求"不是默认真库"——**不是**"等于 setup 的隔离路径"（13 个文件自设临时
+  路径是合法做法）。决定性测试 = **故意 `catch {}` 吞掉 throw 后账本仍为 1** ⇒ "漏设必红"在该路径上
+  **不再依赖调用链的 catch 行为**。**为什么需要它**：结构信号优先于人的自觉——不让防线强度取决于
+  "没人手滑把它包进 try/catch"。同批残漏补齐：`teardownTempDb()` 的裸 `delete` 改为
+  `restoreIsolatedDbPath()`（与 73 C3 同向）。
 - **契约随代码入库口径（74 append 4；2026-09-12，append-only）**：任何**新增/改变行为或接口**的单，
   **验收证据里必须同批出现契约文件的 diff**（本系列契约 = `docs/implementation/*.md` 的对应段落；
   接口类 = 端点 + 字段级形状；口径类 = 对应 spec 的 append 段）。**只写在报告里不算**（报告不是
