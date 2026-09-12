@@ -15,6 +15,9 @@
 
 import { getAttributionJudgeQueueRepo, TRIGGER_DECISION_UNIT } from "./judge-queue-repo.js";
 
+// 66 · trigger 常量 re-export（runner 动态 import 本模块时一并取用，避免字面量漂移）。
+export { TRIGGER_TASK_BOUNDARY } from "./judge-queue-repo.js";
+
 /** 只依赖到最小结构：runner 传的就是整个 ProxyConfig，结构兼容即可。 */
 export interface EnqueueGuardedConfig {
   attribution?: { judge?: { enqueue?: boolean } } | undefined;

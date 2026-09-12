@@ -180,7 +180,9 @@ export function runDecisionUnitExtraction(params: RunDecisionUnitExtractionParam
     });
     repo.appendMany(events);
     // 共享基座（v2 前置骨架）：落库后 fire-and-forget 入 judge 队列。
-    maybeEnqueueJudgeQueue(params, units, events);
+    // 66 · task_boundary：本次抽取观测到 compaction（= epoch 切换/任务段边界，见下方
+    // `compacted` 的既有水位归零语义）⇒ 该批入队带 trigger="task_boundary"（60 spec §4）。
+    maybeEnqueueJudgeQueue(params, units, events, compacted);
   }
 
   watermarks.set(params.sessionKey, messageCount);
@@ -200,6 +202,8 @@ function maybeEnqueueJudgeQueue(
   params: RunDecisionUnitExtractionParams,
   units: SealedDecisionUnit[],
   events: NewAttributionEvent[],
+  /** 66 · 本次抽取是否观测到 compaction（结构边界信号 ⇒ trigger="task_boundary"）。 */
+  compacted: boolean,
 ): void {
   if (params.config?.attribution?.judge?.enqueue !== true) return;
   try {
@@ -224,6 +228,9 @@ function maybeEnqueueJudgeQueue(
           units: queueUnits,
           sessionKey: params.sessionKey,
           spaceId: params.spaceId,
+          // 66 · 边界信号（compaction/epoch 切换）⇒ 该批触发源 = task_boundary；
+          // 无信号 ⇒ 缺省 decision_unit（行为不变）。
+          trigger: compacted ? mod.TRIGGER_TASK_BOUNDARY : undefined,
         });
       })
       .catch((err: unknown) => {
