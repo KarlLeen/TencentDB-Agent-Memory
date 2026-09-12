@@ -115,4 +115,25 @@ describe("98 · S8-b 索引行 + 精排", () => {
     const order = l2Lines(r.content).map((l) => l.match(/`([^`]+)`/)![1]);
     expect(order).toEqual(["a", "b", "c"]);
   });
+
+  it("T7 键口径 no-op 明证（随单条 #6 首次应用）：按**真实生产者键**（memoryAssetId）喂 ⇒ 与关闸逐字节相同", () => {
+    // 从**生产者侧**出发（不得直接挑一个恰好同源的键）：renderProfileMemoryBlock 实际挂 ref 的键 =
+    // `g.ctx.memoryAssetId`（块级 chat_memory 资产；span 覆盖整段 <agent>）——见 80 spec §4.1 诚实声明；
+    // 而 S8-b 的查/渲键 = 行级 scene `e.path` ⇒ 两个键空间**不同源 ⇒ 永不命中**。
+    // 本格钉住的事实：**即使事件面按真实键口径有数据，开闸也是 no-op（与关闸逐字节相同）。**
+    const groups = [bundle([{ path: "p/one", summary: "s1" }, { path: "p/two" }])];
+    const realKeyRanking = ranking(
+      { "chat_memory-t1-ag1": 0.9 }, // 真实 ref 键（memoryAssetId）— 有数据
+      { "chat_memory-t1-ag1": 1_700_000_000_000 },
+    );
+    const opened = renderProfileMemoryBlock(groups, realKeyRanking)!;
+    const closed = renderProfileMemoryBlock(groups)!;
+
+    // ① no-op 明证：逐字节相同
+    expect(opened.content).toBe(closed.content);
+    // ② "有数据也不出现列"（键不同源 ⇒ miss；不是"没查到 0"，是"根本没查这个键"）
+    expect(opened.content).not.toContain("credit=");
+    expect(opened.content).not.toContain("可能已过期");
+    // ③ 对照组（本文件的 T1 已覆盖）：键同源（e.path）时才出现列——缺口本质 = 键不同源，不是渲染缺陷。
+  });
 });
