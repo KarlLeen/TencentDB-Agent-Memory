@@ -800,3 +800,10 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   （由来：69 P-0b 期间真库 mtime 两次跳动、写入者未定位而**行级内容可证未变**——首次冻结指纹
   `sha256=2858c0fb…`｜`size=339968`｜`events=192 / status=0 / judge_queue=1`，供今后前后比对。
   本条为**通用口径**，后续工单验收节直接引用即可。）
+- **证书精度（复核二轮补强 append 3；2026-09-12，append-only）**：`proxy.db` 本体的 `sha256`
+  **仅在 `-wal` 为空/不存在时**才是完整内容证书（WAL 未 checkpoint 的写入不在主文件里）；
+  三计数为逻辑读（SQLite 自动合并 WAL）⇒ **逻辑级始终稳**。⇒ **取证姿势定死**：**字节级凭证 =
+  `.backup` 快照的 `sha256`**（backup 产物自洽、不含未合并 WAL；且是本系列一直在用的取证手段，
+  非新步骤）；**`.db` 本体 `sha256` 仅作参考**。（样例：本轮 `.backup` 的
+  `sha256=e5865666fa878ddf26b12bf1634adecbccda44dc2ca284c9c38932b413361aed`，与复核方上一轮
+  独立快照**逐字相同**；`wal_checkpoint(PASSIVE)=0|0|0` 时主文件证书与 backup 等价。）
