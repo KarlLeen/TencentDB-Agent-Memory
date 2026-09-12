@@ -794,3 +794,9 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   `skipAssetConfirm`）+ total 60 不变，不是行号**。（69 工单 §6 曾写"`typecheck:baseline` 逐字同"
   ——与同单 C3"config 三处同改（+13 行）"互斥、数学上不可达，**该措辞作废**，以本条为准；
   处置仍按上条"保持现状 / 不 re-baseline"——工具判据本就是 `file|code` 级，不涉行号。）
+- **真库级断言附证据口径（69 复核跟进 append 2；2026-09-12，append-only）**：任何"真库未碰 /
+  未增行"的声明，须附 **`shasum -a 256` + `.backup` 前后快照 + 三计数**（`attribution_events` /
+  `attribution_status_events` / `attribution_judge_queue`）**前后各一份**；**只给文字断言不算证据**。
+  （由来：69 P-0b 期间真库 mtime 两次跳动、写入者未定位而**行级内容可证未变**——首次冻结指纹
+  `sha256=2858c0fb…`｜`size=339968`｜`events=192 / status=0 / judge_queue=1`，供今后前后比对。
+  本条为**通用口径**，后续工单验收节直接引用即可。）
