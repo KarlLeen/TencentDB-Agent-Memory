@@ -391,6 +391,9 @@ visibleAssets 按原数组序）；双源合并不新增位置。
 （`<available_skills>` 内 `- <name>: ` 行，core 预渲染形态）切分、与首见序**索引对齐**；单资产 /
 非 listing 形态 / 条目数与资产数不齐 ⇒ **回退块级**（绝不猜切）。切片"唯一真相" = `wrapper-registry`
 （与 c-2 剥离同源）。**注意**：切片**不**恢复 `confirmed` 可达性（那是 `103` (d) 的领域）。
+**106 起影子度量旁路记录（(d)-1；判定未启用）**：与本节口径**并列**并行计算"(d2) 资产行级片段 ⊆ 会话消息 /
+(d1) 消息行级片段 ⊆ 资产正文"，只落 `detail_json.citationMetricsShadow` 的数字 + 片段指纹（sha256[:16]），
+**绝不落正文**、**判定层零读取**（阈值/真值表/`asset_used` 不变）。切换判定 = (d)-2（须重标定，单独成单）。
 
 1. **引文归一化命中**：对每个 piece，按 `exact → whitespace → punctuation` 逐级
    `normalizeForMatch(piece文本, level) ⊆ normalizeForMatch(资产文本, level)` 判定；

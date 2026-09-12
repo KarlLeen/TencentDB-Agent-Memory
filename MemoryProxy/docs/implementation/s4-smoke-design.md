@@ -962,3 +962,8 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   `exact/message/0 ×13` ⇒ **`exact/message/0 ×3 + none ×10`**（distinct 341/284/3292 vs 全同态；排除数 12⇒2）。
   **仍不承诺 `confirmed`**（可达性 = `103` F8 / (d)）；切片唯一真相 = `wrapper-registry`（`available_skills`
   块标签 + 条目模板，与 c-2 剥离同源、共用 `AVAILABLE_SKILL_ITEM_SOURCE`）。
+- **影子度量旁路记录（随单条；2026-09-12，append-only）**：`106` 起 `detail_json.citationMetricsShadow`
+  落 (d2)/(d1) 两向影子度量（**只数字 + 片段指纹 sha256[:16]，绝不落正文**；判定层零读取）。标定台读数：
+  真库负例 `shadowBestSegCoverage = 0.000`（covMax）；构造正例（真库块文本取材）整行 = 1、行一部分 ≈ 0.61、
+  轻微改写 ≈ 1 ⇒ **分离区间 (0, 0.61]**（只报数，不定案）；`L_MIN` 16/8/32 下负例恒 0、正例恒 1。
+  切换判定 = **(d)-2**（须重标定，单独成单）。

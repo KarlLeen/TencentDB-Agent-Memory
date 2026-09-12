@@ -27,6 +27,7 @@ import {
   type EvidenceSupplyProvider,
 } from "./evidence-supply.js";
 import { gradeCandidates, shortlistCandidates, type CandidateCitationMetrics } from "./citation/grading.js";
+import { shadowGradeCandidates } from "./citation/shadow-grading.js";
 import { getCitationSourceProvider, type CitationSourceProvider } from "./citation/source.js";
 import { createJudge, JudgeConfigError, validateJudgeConfig, type CreateJudgeDeps } from "./judge/create-judge.js";
 import {
@@ -287,6 +288,16 @@ async function consumeRow(
         source: deps.citationSource,
       })
     : undefined;
+  // 106 · (d)-1 影子度量（旁路：只算不判；与 citationMetrics 同面/同次取数）。
+  // 红线：判定层零读取（不进 JudgeInput）、只落数字+指纹（不落正文）、缺省不出现。
+  const citationMetricsShadow = deps.citationSource
+    ? shadowGradeCandidates({
+        sessionKey: row.session_key,
+        turnSeq,
+        candidates: shortlist.candidates,
+        source: deps.citationSource,
+      })
+    : undefined;
 
   const input: JudgeInput = {
     unitId: row.unit_id,
@@ -368,6 +379,8 @@ async function consumeRow(
           overflowAssetIds: shortlist.overflowAssetIds,
         },
         ...(citationMetrics ? { citationMetrics } : {}),
+        // 106 · (d)-1 影子度量（**兄弟键**；不改 citationMetrics 条目内键集 —— C2/C5）
+        ...(citationMetricsShadow ? { citationMetricsShadow } : {}),
         // 59 · C5 消费点：excluded 类别声明随判定落库（对账材料；无 citationSource ⇒ 不落该键）
         ...(deps.citationSource
           ? { excludedCategories: deps.citationSource.excludedCategories() }

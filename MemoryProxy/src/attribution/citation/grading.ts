@@ -66,8 +66,9 @@ interface PieceText {
   text: string;
 }
 
-/** 档① occurrence 片段 → "资产自身正文"（c2 剥离后按首见序拼接；剥离产物只用于比较，不入库）。 */
-function assetOwnText(texts: readonly string[]): string {
+/** 档① occurrence 片段 → "资产自身正文"（c2 剥离后按首见序拼接；剥离产物只用于比较，不入库）。
+ *  **106**：导出供影子度量（`shadow-grading.ts`）复用同一口径（C2/C5 的"同面"要求）。 */
+export function assetOwnText(texts: readonly string[]): string {
   return texts.map((t) => stripRenderWrappers(t).text).join("\n");
 }
 
