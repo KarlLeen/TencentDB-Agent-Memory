@@ -17,8 +17,10 @@ import { createHash } from "node:crypto";
 
 import { getDb } from "../db/index.js";
 
-/** 本单唯一事件型（validated / corrected 属消费侧，禁写）。 */
+/** 缺省事件型（S6 起与 corrected 并存；validated 仍禁写）。 */
 export const STATUS_EVENT_TYPE_ASSET_USED = "asset_used";
+/** S6 · 三路修正规则产的事件型（60 spec §5；写口见 corrected-rules）。 */
+export const STATUS_EVENT_TYPE_ASSET_CORRECTED = "asset_corrected";
 
 export interface NewStatusEvent {
   unitId: string;
@@ -28,6 +30,10 @@ export interface NewStatusEvent {
   assetId: string;
   assetType: string | null;
   round: number;
+  /** 事件型；缺省 `"asset_used"`。白名单 = used/corrected（未知型 fail-closed，见 insertIdempotent）。 */
+  eventType?: string;
+  /** corrected 的路由（派生式五元组用；used 不传）。 */
+  route?: string;
   /** 单元自带 resultStatus 时落；否则 null（不猜）。 */
   outcome: string | null;
   /** 链接字段（只回指不复制判定内容）：{ judgement_id, verdict, match_level, coverage, prompt_sha256, judge_impl, unit_id }。 */
@@ -81,9 +87,28 @@ export function getAttributionStatusEventsCounters(): AttributionStatusEventsCou
   return { ...counters };
 }
 
-/** 确定性主键派生。空 assetId 用 "" 占位（与 judgement repo 同姿势，见 R2 说明）。 */
-export function deriveStatusId(unitId: string, assetId: string | null, round: number): string {
-  const digest = createHash("sha1").update(`${unitId}|${assetId ?? ""}|${round}`, "utf8").digest("hex");
+/**
+ * 确定性主键派生（**分公式**，60 spec 勘正 2/勘正 3 定稿）。空 assetId 用 "" 占位。
+ *   - `asset_used` ⇒ **三元组** `sha1(unit|asset|round)`（缺省；历史值与重放行为不变）；
+ *   - 其余事件型 ⇒ 把 `event_type` 编进锚（新类型无历史包袱）；
+ *   - corrected（带 route）⇒ **五元组** `sha1(unit|asset|round|event_type|route)`
+ *     （同 (unit,asset,round) 的两条不同 route 的 corrected 不得撞主键）。
+ */
+export function deriveStatusId(
+  unitId: string,
+  assetId: string | null,
+  round: number,
+  eventType: string = STATUS_EVENT_TYPE_ASSET_USED,
+  route?: string,
+): string {
+  const base = `${unitId}|${assetId ?? ""}|${round}`;
+  const input =
+    eventType === STATUS_EVENT_TYPE_ASSET_USED
+      ? base
+      : route !== undefined && route.length > 0
+        ? `${base}|${eventType}|${route}`
+        : `${base}|${eventType}`;
+  const digest = createHash("sha1").update(input, "utf8").digest("hex");
   return `se_${digest.slice(0, 12)}`;
 }
 
@@ -119,6 +144,8 @@ export interface AttributionStatusEventsRepo {
   count(): number;
   /** 61 · 取最新轮（50 spec §16 C4；查询层，不物化）：`round DESC` 首行 + 主键 tie-break。 */
   latestByUnit(unitId: string): StatusEventRow | null;
+  /** 66 · 会话维度读口（S6 corrected 规则用；可过滤事件型）。 */
+  listBySession(sessionKey: string, opts?: { limit?: number; eventType?: string }): StatusEventRow[];
 }
 
 /** 进程内**严格单调**的 created_at（同 judgement repo 姿势：消同毫秒重放误判）。 */
@@ -143,6 +170,8 @@ class SqliteAttributionStatusEventsRepo implements AttributionStatusEventsRepo {
   private readonly rollupTypeStmt: Database.Statement;
   private readonly countStmt: Database.Statement;
   private readonly latestByUnitStmt: Database.Statement;
+  private readonly bySessionStmt: Database.Statement;
+  private readonly bySessionTypeStmt: Database.Statement;
 
   constructor(db: Database.Database) {
     // 定向 upsert：冲突目标 = 主键 status_id（锚全等，无 anomaly 面）。
@@ -179,11 +208,32 @@ RETURNING created_at
     this.latestByUnitStmt = db.prepare(
       `SELECT ${SELECT_COLUMNS} FROM attribution_status_events WHERE unit_id = ? ORDER BY round DESC, status_id ASC LIMIT 1`,
     );
+    this.bySessionStmt = db.prepare(
+      `SELECT ${SELECT_COLUMNS} FROM attribution_status_events WHERE session_key = ? ORDER BY created_at ASC, status_id ASC LIMIT ?`,
+    );
+    this.bySessionTypeStmt = db.prepare(
+      `SELECT ${SELECT_COLUMNS} FROM attribution_status_events WHERE session_key = ? AND event_type = ? ORDER BY created_at ASC, status_id ASC LIMIT ?`,
+    );
   }
 
   insertIdempotent(event: NewStatusEvent): StatusEventInsertResult {
     const round = Math.max(0, Math.trunc(event.round));
-    const statusId = deriveStatusId(event.unitId, event.assetId, round);
+    const eventType = event.eventType ?? STATUS_EVENT_TYPE_ASSET_USED;
+    // 白名单（fail-closed）：未知事件型不写（不伪造、不落未知状态）——warn + failures 计数。
+    if (
+      eventType !== STATUS_EVENT_TYPE_ASSET_USED &&
+      eventType !== STATUS_EVENT_TYPE_ASSET_CORRECTED
+    ) {
+      counters.failures += 1;
+      console.warn(
+        `[attribution-status] unknown event_type "${eventType}" rejected (unit=${event.unitId})`,
+      );
+      return {
+        statusId: deriveStatusId(event.unitId, event.assetId, round, eventType, event.route),
+        kind: "failed",
+      };
+    }
+    const statusId = deriveStatusId(event.unitId, event.assetId, round, eventType, event.route);
     const createdAt = nextCreatedAt();
     try {
       const row = this.insertStmt.get({
@@ -194,7 +244,7 @@ RETURNING created_at
         assetId: event.assetId,
         assetType: event.assetType,
         round,
-        eventType: STATUS_EVENT_TYPE_ASSET_USED,
+        eventType,
         outcome: event.outcome,
         payloadJson: JSON.stringify(event.payload ?? {}),
         createdAt,
@@ -276,12 +326,33 @@ RETURNING created_at
       return null;
     }
   }
+
+  listBySession(sessionKey: string, opts?: { limit?: number; eventType?: string }): StatusEventRow[] {
+    try {
+      const limit = Math.max(1, Math.trunc(opts?.limit ?? 1000));
+      const rows = opts?.eventType
+        ? (this.bySessionTypeStmt.all(sessionKey, opts.eventType, limit) ?? [])
+        : (this.bySessionStmt.all(sessionKey, limit) ?? []);
+      return rows as StatusEventRow[];
+    } catch {
+      return [];
+    }
+  }
 }
 
 class NullAttributionStatusEventsRepo implements AttributionStatusEventsRepo {
   insertIdempotent(event: NewStatusEvent): StatusEventInsertResult {
     // 无 DB ⇒ 一行都没落：既不是 inserted（不伪造成功），也不是 duplicate（库里并无该行），归 failed。
-    return { statusId: deriveStatusId(event.unitId, event.assetId, event.round), kind: "failed" };
+    return {
+      statusId: deriveStatusId(
+        event.unitId,
+        event.assetId,
+        event.round,
+        event.eventType ?? STATUS_EVENT_TYPE_ASSET_USED,
+        event.route,
+      ),
+      kind: "failed",
+    };
   }
   getById(): StatusEventRow | null {
     return null;
@@ -300,6 +371,9 @@ class NullAttributionStatusEventsRepo implements AttributionStatusEventsRepo {
   }
   latestByUnit(): StatusEventRow | null {
     return null;
+  }
+  listBySession(): StatusEventRow[] {
+    return [];
   }
 }
 

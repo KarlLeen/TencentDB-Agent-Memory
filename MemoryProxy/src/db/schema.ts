@@ -219,7 +219,7 @@ CREATE TABLE IF NOT EXISTS attribution_status_events (
   asset_id       TEXT    NOT NULL,      -- 本单恒非空（仅 confirmed+非空才写）；派生期 null ⇒ "" 占位（防未来事件型）
   asset_type     TEXT,
   round          INTEGER NOT NULL DEFAULT 0,
-  event_type     TEXT    NOT NULL,      -- 本单唯一值 "asset_used"（validated/corrected 属消费侧，禁写）
+  event_type     TEXT    NOT NULL,      -- "asset_used"（缺省）+ "asset_corrected"（S6 三路规则；60 spec §5）；"validated" 仍禁写
   outcome        TEXT,                  -- 单元自带 resultStatus 时落；否则 NULL（不猜）
   turn_seq       INTEGER,               -- 恒 NULL（F4：不伪造轮次）
   msg_seq        INTEGER,               -- 恒 NULL

@@ -510,7 +510,7 @@ CREATE TABLE IF NOT EXISTS attribution_status_events (
   asset_id       TEXT    NOT NULL,      -- 本单恒非空（仅 confirmed+非空才写）；派生期 null ⇒ "" 占位（防未来事件型）
   asset_type     TEXT,
   round          INTEGER NOT NULL DEFAULT 0,
-  event_type     TEXT    NOT NULL,      -- 本单唯一值 "asset_used"（validated/corrected 属消费侧，禁写）
+  event_type     TEXT    NOT NULL,      -- "asset_used"（缺省）+ "asset_corrected"（S6 三路规则；见 60 spec §5）；"validated" 仍禁写
   outcome        TEXT,                  -- 单元自带 resultStatus 时落；否则 NULL（不猜）
   turn_seq       INTEGER,               -- 恒 NULL（F4：不伪造轮次）
   msg_seq        INTEGER,               -- 恒 NULL
@@ -522,7 +522,7 @@ CREATE INDEX IF NOT EXISTS idx_ase_session ON attribution_status_events(session_
 CREATE INDEX IF NOT EXISTS idx_ase_asset   ON attribution_status_events(asset_id, created_at);  -- 汇总查询（C4）
 ```
 
-命名定稿：表 `attribution_status_events`；主键 `status_id`（前缀 `se_`）；本单唯一 `event_type = "asset_used"`；
+命名定稿：表 `attribution_status_events`；主键 `status_id`（前缀 `se_`）；本单 `event_type = "asset_used"`；S6 起扩展 `"asset_corrected"`（60 spec §5）；
 索引名 `idx_ase_unit` / `idx_ase_session` / `idx_ase_asset`。
 
 ### 14.2 C2 · 触发真值表（`verdict × assetId` 全格子）
@@ -533,6 +533,7 @@ CREATE INDEX IF NOT EXISTS idx_ase_asset   ON attribution_status_events(asset_id
 | `confirmed` | `null` | **不写**（护栏违反，构造上不可能） | `guardViolations` + warn |
 | `refuted` | * | **不写**（状态机无 refuted 态；不计入"使用"） | `skippedRefuted` |
 | `unconfirmed` | * | **不写** | `skippedUnconfirmed` |
+| `asset_corrected`（三路规则，S6） | 非空 | `insertIdempotent`（写 corrected；**锚 = 五元组含 `route`**，见 60 spec 勘正 3/§5） | `inserted` / `duplicate` / `failures` |
 
 写/不写都有可观测计数（F5）⇒ repo counters =
 `{ inserted, duplicate, failures, guardViolations, skippedRefuted, skippedUnconfirmed }`
@@ -698,7 +699,7 @@ candidates: input.candidates})`。`promptRef` 原样落表（链路不变）；`
 |---|---|---|
 | `decision_unit` | 缺省（行为不变） | `enqueueUnitsForJudge`（首判） |
 | `manual` | **本单开始生产** | `--rejudge` 入口 |
-| `task_boundary` | **只登记枚举值**（A7 留给 S6） | **禁产**（T4 + R3 把"不可达"焊成断言） |
+| `task_boundary` | **S6 起生产**（仅由边界信号） | runner 观测 **epoch 切换**（compaction 水位归零，`decision-unit-runner.ts:136-137`）⇒ 该批入队带此 trigger（60 spec §4/勘正 3 裁定 ②） |
 
 穷举以 `TRIGGER_*` 常量导出（名：`TRIGGER_DECISION_UNIT` / `TRIGGER_MANUAL` /
 `TRIGGER_TASK_BOUNDARY`；`JudgeTrigger` 联合类型）；未来新增值 = 常量 + 联合类型 + 本节表格同行
@@ -857,3 +858,15 @@ design `:57` 要求 `attribution_status_events` / `attribution_audit` 两张表"
      （used 沿用三元组 / 新事件型四元组）与 V6 口径改判见 **`60-corrected-rules.md` 勘正 2**；
   4. §14.1 注释"validated/corrected 禁写"→ 放开 corrected（清单见 60 spec §5）；
   5. §18.4 追加一行指向 60 spec §5 的收窄清单（§18.4 原文"收窄落在写口开启那一单"即此单）。
+
+### 收窄执行记录（66 · 2026-09-12；对应 60 spec 勘正 3 ⑥）
+
+以下收窄**已在本单执行**（原行改动 = 授权内的"活定义"更新，非静默回改；裁定录在 60 spec 勘正 3）：
+
+| # | 落点 | 改动 |
+|---|---|---|
+| 1 | §14.1 DDL 注释 + 命名定稿句（本档） | `asset_used` 唯一 → `asset_used`（缺省）+ `asset_corrected`（S6 三路规则）；`validated` 仍禁写 |
+| 2 | §14.2 真值表（本档） | 新增 `asset_corrected` 行（锚 = 五元组含 `route`） |
+| 3 | §16.3 表格（本档） | `task_boundary`：**只登记禁产** → **S6 起生产（仅由边界信号 = runner 的 epoch 切换观测）** |
+| 4 | `src/db/schema.ts:222`（生产注释） | 同 §14.1 |
+| 5 | 60 spec §5（勘正 3 ⑤） | corrected 派生式定稿 = 五元组含 `route`（§5 原四元组表述以勘正为准） |

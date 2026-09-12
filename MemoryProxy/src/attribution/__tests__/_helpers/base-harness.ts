@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { __resetAttributionEventRepoForTests } from "../../../db/attributionEventRepo.js";
 import { __resetDbForTests } from "../../../db/index.js";
 import {
   __resetAttributionJudgeQueueRepoForTests,
@@ -31,6 +32,7 @@ export function withTempDb(): string {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "tdai-attr-base-"));
   process.env.PROXY_DB_PATH = path.join(dir, "proxy.db");
   __resetDbForTests();
+  __resetAttributionEventRepoForTests(); // 66 · v1 事件表单例（漏它会把写入落到上一个已删库的孤儿连接）
   __resetAttributionJudgeQueueRepoForTests();
   __resetAttributionJudgementDetailsRepoForTests();
   __resetAttributionStatusEventsRepoForTests(); // 59 · 状态事件单例 + counters
@@ -39,6 +41,7 @@ export function withTempDb(): string {
 }
 
 export function teardownTempDb(): void {
+  __resetAttributionEventRepoForTests();
   __resetAttributionJudgeQueueRepoForTests();
   __resetAttributionJudgementDetailsRepoForTests();
   __resetAttributionStatusEventsRepoForTests();
