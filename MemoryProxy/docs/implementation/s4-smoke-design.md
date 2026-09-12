@@ -841,3 +841,22 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   由来：S6→S7 交接时**接连两次**出现契约悬空（`69` 的 L1 接线契约、`72` 的 S7-a DTO 契约
   **均只在报告里**；且 `l1-wiring.ts` 曾引用**不存在的** `50 spec §20`）——说明"契约落仓"当时
   只靠当次执行者记得，缺结构性保证。
+- **凭证分层口径（79 append；2026-09-12，append-only）**：本系列"真库未碰"的取证自本条起**分层**——
+  **跨窗口/跨单**凭证 = **逻辑指纹**（`sqlite3 <backup 快照> .dump | shasum -a 256`）+ **全表计数**；
+  **单窗口前后**凭证 = `.backup` 快照 `sha256`（+ 主文件 `sha256`/`mtime`；见 append 3 与 73 的"四件"清单）；
+  **`.db` 本体 `sha256` 与 `mtime` 仅作参考**——WAL 打开/`checkpoint` 会改其字节与时间，
+  **与"是否写入数据"无关**。
+  由来（78 复核实测；**悬案收尾**）：69 P-0b 起挂了两轮的"真库 mtime 两次跳动、写入者未定位"，本轮定位为
+  **WAL 打开-关闭 + checkpoint/truncate 的产物**——`proxy.db` 与 `proxy.db-wal`（**0 B**）**同刻**
+  `mtime=05:45:11`；而全库时间戳最大值 = **2026-09-11 17:04:42Z**（`attribution_block_seen` /
+  `attribution_message_snap` / `attribution_block_text` / `hook_cache` / `attribution_events` **全表一致**）
+  ⇒ **字节与 mtime 会变而逻辑零变**。⇒ **观测姿势定死：只比逻辑指纹与全表计数，不比 `mtime`。**
+  另：**三计数有盲区**——只覆盖全库 **11 张表里的 3 张**；`attribution_block_seen`（60）/
+  `attribution_message_snap`（28）/ `hook_cache`（8）等**写得最多的表恰在盲区** ⇒ **跨窗口一律用全表计数
+  或逻辑指纹**。（78 复核取样：`.dump` sha256=`eee69819…`、`.backup` sha256=`f00ab826…`、本体
+  `sha256=23212979…`；**落库时必须当场重取**，不得照抄本节数值。）
+  **待办（随单条，不单独排期）**：`src/__tests__/o12-db-guard-unguardable.test.ts` 的 **T1** 现把
+  `PROXY_DB_PATH` 指向**真实字面路径**——守卫正常时不打开真库；但**守卫若被回归删除，该用例会真打开
+  用户真库**（并执行 `journal_mode=WAL` + `runSchema`）。**下次动 `isolate-db.ts` / 该测试 / `db/index.ts`
+  任一单时顺手改为临时 `HOME` 沙箱**（`os.homedir()` 跟随 `HOME` ⇒ 判据里的"默认真库"落在沙箱内；
+  守卫照常触发、账本照常记、**断言与判据不变**）。
