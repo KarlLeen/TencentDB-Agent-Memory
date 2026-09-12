@@ -533,3 +533,9 @@ bridge 侧（LLM curl）需要新增传递机制 ⇒ 属新接缝，不在 S4 �
   **锚定策略本体 = `50-attribution-judge-worker.md` §10**（55 交付：契约 C1–C5 + 纯函数 `src/attribution/fetched-anchoring.ts`
   + 读口 `AttributionEventRepo.listBySessionWithRowid` + T1–T7 红绿 + P-0a 真库复测）。
   R1 行的"若 S5 要求精确轮次，需另开捕获点，不在 S4 假造"结论**不受影响**（§10 C2 跨轮边界仍 `unresolved`，禁猜方向）。
+- 2026-09-12 **勘正 13（S6 指针；append-only）**：`corrected` 三路机器规则 + 版本链快照 +
+  `task_boundary` 启发式的设计定稿 = **`60-corrected-rules.md`**（S6 第一刀，零生产代码）。
+  与本档相关的一点：该 spec 的**版本链快照**只依赖 fetched 行 `payload.version`
+  （本档 §3.2 表既有字段，`src/attribution/bridge-fetch-events.ts:75-76`"取不到省略、不写 null 冒充"）
+  + 归档窗口，**不要求本档新增任何字段**（与 15 spec `:342`"不在注入侧堆字段"承诺一致）。
+  本档 §7 R1/R4 的口径**不变**。
