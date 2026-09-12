@@ -35,9 +35,20 @@ export interface CitationSourceProvider {
   sessionAssetTexts(sessionKey: string): Map<string, string[]>;
   /** 懒构建 + 进程内缓存（key = `tableSha256`）。 */
   rarityTable(): RarityTable;
-  /** 40 spec §5 承诺的 excluded 类别（实现面缺口见 design §8.3）—— 缺口期返回 `[]`。 */
+  /** excluded 类别（= EXCLUDED_CATEGORIES，常量；59 落点，见 50 spec §14 C5）。 */
   excludedCategories(): readonly string[];
 }
+
+/**
+ * 59 · excluded 类别常量（40 spec §3a 两类；A5 改判 = 类别常量，不做逐条枚举）。
+ * 语义：这两类字节**不属本代理注入面** ⇒ 归因完整性对账时从"注入面"里排除。
+ */
+export const EXCLUDED_CATEGORY_CLIENT_SYSTEM = "client-system"; // body.system 既有项（客户端自带 system）
+export const EXCLUDED_CATEGORY_USER_ORIGINAL = "user-original"; // 非注入用户文本（用户原语）
+export const EXCLUDED_CATEGORIES: readonly string[] = [
+  EXCLUDED_CATEGORY_CLIENT_SYSTEM,
+  EXCLUDED_CATEGORY_USER_ORIGINAL,
+];
 
 export interface ArchiveCitationSourceOptions {
   /** 语料读口（缺省走 `getCitationCorpusRepo()`）；测试注入 fake 语料。 */
@@ -151,9 +162,8 @@ export function archiveCitationSource(
     },
 
     excludedCategories(): readonly string[] {
-      // TODO(50 spec)：40 spec §5 承诺的 excluded 清单在实现面缺失（缺口登记 design §8.3）。
-      // 基座**不自己设计枚举**（扩范围 = 自造漂移源）⇒ 缺口期返回空数组。
-      return [];
+      // 59 · 50 spec §14 C5 落点：40 spec §3a 两类常量（缺口消除；类别只作对账声明，不进判定）。
+      return EXCLUDED_CATEGORIES;
     },
   };
 }

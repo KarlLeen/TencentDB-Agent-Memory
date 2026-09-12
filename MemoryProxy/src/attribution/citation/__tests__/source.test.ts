@@ -225,9 +225,9 @@ describe("c-4 取数（不判定）：sessionWindow / sessionAssetTexts / rarity
     expect([...table.df.keys()].some((g) => "投影文本内容".includes(g))).toBe(true);
   });
 
-  it("excludedCategories 缺口期返回空数组（实现面缺口登记 §8.3，不自己设计枚举）", () => {
+  it("excludedCategories 返回两类常量（59 缺口消除；40 spec §3a，判据用字面量钉值）", () => {
     const provider = archiveCitationSource(getVisibleTextRepo(), { corpusRepo: fakeCorpus });
-    expect(provider.excludedCategories()).toEqual([]);
+    expect(provider.excludedCategories()).toEqual(["client-system", "user-original"]);
   });
 });
 

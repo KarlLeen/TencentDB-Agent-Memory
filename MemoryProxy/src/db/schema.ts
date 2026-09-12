@@ -208,4 +208,25 @@ CREATE INDEX IF NOT EXISTS idx_ajd_session ON attribution_judgement_details(sess
 --    属已登记的 known limitation（清掉重复行或重建该派生表即可；见 50 spec）。
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ajd_unit_round
   ON attribution_judgement_details(unit_id, round);
+
+-- 59 · 状态事件落点表（50 spec §14；红线 6：判定产物走新表，v1 attribution_events 只读）。
+-- 纯 additive DDL：SCHEMA_VERSION 仍为 1（旧库无此表 ⇒ IF NOT EXISTS 自建，零迁移）。
+CREATE TABLE IF NOT EXISTS attribution_status_events (
+  status_id      TEXT    PRIMARY KEY,   -- "se_" + sha1(unit_id|asset_id|round).slice(0,12)（asset_id null ⇒ "" 占位）
+  unit_id        TEXT    NOT NULL,
+  session_key    TEXT    NOT NULL,
+  space_id       TEXT    NOT NULL DEFAULT '_default',
+  asset_id       TEXT    NOT NULL,      -- 本单恒非空（仅 confirmed+非空才写）；派生期 null ⇒ "" 占位（防未来事件型）
+  asset_type     TEXT,
+  round          INTEGER NOT NULL DEFAULT 0,
+  event_type     TEXT    NOT NULL,      -- 本单唯一值 "asset_used"（validated/corrected 属消费侧，禁写）
+  outcome        TEXT,                  -- 单元自带 resultStatus 时落；否则 NULL（不猜）
+  turn_seq       INTEGER,               -- 恒 NULL（F4：不伪造轮次）
+  msg_seq        INTEGER,               -- 恒 NULL
+  payload_json   TEXT    NOT NULL,      -- 链接字段（只回指不复制判定内容；单一真相在 judgement_details）
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ase_unit    ON attribution_status_events(unit_id);
+CREATE INDEX IF NOT EXISTS idx_ase_session ON attribution_status_events(session_key, created_at);
+CREATE INDEX IF NOT EXISTS idx_ase_asset   ON attribution_status_events(asset_id, created_at);
 `;

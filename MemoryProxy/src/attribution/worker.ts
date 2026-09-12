@@ -26,10 +26,15 @@ import {
   extractVisibleAssetCandidates,
   type EvidenceSupplyProvider,
 } from "./evidence-supply.js";
-import { gradeCandidates, shortlistCandidates } from "./citation/grading.js";
+import { gradeCandidates, shortlistCandidates, type CandidateCitationMetrics } from "./citation/grading.js";
 import { getCitationSourceProvider, type CitationSourceProvider } from "./citation/source.js";
 import { createJudge, type CreateJudgeDeps } from "./judge/create-judge.js";
-import type { Judge, JudgeCandidate, JudgeInput } from "./judge/types.js";
+import type { Judge, JudgeCandidate, JudgeInput, JudgeVerdict } from "./judge/types.js";
+import {
+  getAttributionStatusEventsRepo,
+  noteStatusGuardViolation,
+  noteStatusSkipped,
+} from "./status-events-repo.js";
 import {
   __resetAttributionJudgeLoggerForTests,
   getAttributionJudgeLogFilePath,
@@ -136,6 +141,55 @@ export function extractJudgeCandidates(unitPayload: unknown): JudgeCandidate[] {
   return extractVisibleAssetCandidates((unitPayload as { visibleAssets?: unknown }).visibleAssets);
 }
 
+/**
+ * 59 · 状态事件落点（50 spec §14 C2 触发真值表）：
+ * confirmed + 非空 assetId ⇒ 写 `asset_used`（payload 只回指、不复制判定内容）；
+ * 其余不写但计数（F5）。顺序写、各自幂等；失败不回滚 judgement（repo 内已计数 + warn）。
+ */
+function recordStatusEvent(
+  row: JudgeQueueRow,
+  verdict: JudgeVerdict,
+  input: JudgeInput,
+  judgementId: string,
+  judgeImpl: string,
+  citationMetrics: CandidateCitationMetrics[] | undefined,
+  unitPayload: unknown,
+): void {
+  if (verdict.verdict === "confirmed" && verdict.assetId !== null) {
+    const m = citationMetrics?.find((x) => x.assetId === verdict.assetId);
+    const rawOutcome =
+      unitPayload && typeof unitPayload === "object"
+        ? (unitPayload as { resultStatus?: unknown }).resultStatus
+        : undefined;
+    getAttributionStatusEventsRepo().insertIdempotent({
+      unitId: row.unit_id,
+      sessionKey: row.session_key,
+      spaceId: row.space_id,
+      assetId: verdict.assetId,
+      assetType: input.candidates.find((c) => c.assetId === verdict.assetId)?.assetType ?? null,
+      round: row.round,
+      outcome: typeof rawOutcome === "string" ? rawOutcome : null,
+      payload: {
+        // 链接字段（C4）：只回指、不复制判定内容 —— 单一真相在 judgement_details。
+        judgement_id: judgementId,
+        unit_id: row.unit_id,
+        verdict: verdict.verdict,
+        match_level: m?.matchLevel ?? null,
+        coverage: typeof m?.coverage === "number" ? m.coverage : null,
+        prompt_sha256: input.promptRef.prompt_sha256,
+        judge_impl: judgeImpl,
+      },
+    });
+    return;
+  }
+  if (verdict.verdict === "confirmed") {
+    // 护栏违反：confirmed + null assetId（构造上不可能，出现即 bug）。
+    noteStatusGuardViolation(`unit=${row.unit_id}`);
+    return;
+  }
+  noteStatusSkipped(verdict.verdict);
+}
+
 /** 消费一行：judge → 幂等落库 → complete/fail → 一行引用式日志。 */
 async function consumeRow(
   row: JudgeQueueRow,
@@ -239,6 +293,10 @@ async function consumeRow(
           overflowAssetIds: shortlist.overflowAssetIds,
         },
         ...(citationMetrics ? { citationMetrics } : {}),
+        // 59 · C5 消费点：excluded 类别声明随判定落库（对账材料；无 citationSource ⇒ 不落该键）
+        ...(deps.citationSource
+          ? { excludedCategories: deps.citationSource.excludedCategories() }
+          : {}),
       },
     });
 
@@ -249,6 +307,9 @@ async function consumeRow(
       if (insert.kind === "inserted") result.completed += 1;
       else result.idempotent += 1;
       if (!completed) result.leaseLost += 1;
+
+      // 59 · §14：judgement 落库成功后顺序写状态事件（各自幂等；失败不回滚 judgement）
+      recordStatusEvent(row, verdict, input, insert.judgementId, deps.judge.impl, citationMetrics, payload);
 
       emit({
         status: insert.kind === "inserted" ? "ok" : "idempotent",

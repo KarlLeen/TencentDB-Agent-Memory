@@ -192,7 +192,8 @@ describe("c-4 无 DB 降级：真 NullCitationCorpusRepo + provider 不炸、出
     const win = provider.sessionWindow(S);
     expect(win.pieces).toEqual([]);
     expect(provider.sessionAssetTexts(S).size).toBe(0);
-    expect(provider.excludedCategories()).toEqual([]); // 缺口期仍返回 []，不自己设计枚举
+    // 59 缺口消除：expanded 常量不依赖 DB，降级态同样返回两类（判据用字面量钉值）
+    expect(provider.excludedCategories()).toEqual(["client-system", "user-original"]);
   });
 
   it("rarityTable 在降级态仍可缓存复用（懒构建不因无 DB 退化成每次重建）", () => {

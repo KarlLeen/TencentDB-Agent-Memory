@@ -50,6 +50,10 @@ import {
   __resetAttributionJudgementDetailsRepoForTests,
   getAttributionJudgementDetailsRepo,
 } from "../judgement-details-repo.js";
+import {
+  __resetAttributionStatusEventsRepoForTests,
+  getAttributionStatusEventsRepo,
+} from "../status-events-repo.js";
 import { ATTRIBUTION_JUDGE_PROMPT_V1, sha256Hex } from "../prompts/judge-prompt.js";
 
 // ── fixtures ────────────────────────────────────────────────────────────────────
@@ -259,6 +263,7 @@ beforeAll(async () => {
   __resetDecisionUnitStateForTests();
   __resetAttributionJudgeQueueRepoForTests();
   __resetAttributionJudgementDetailsRepoForTests();
+  __resetAttributionStatusEventsRepoForTests();
 
   // injectors=["skill"] + kernel stub ⇒ 真的产渲染块（S4b 已证），从而有 visibleAssets。
   proxyPos = await startProxy(baseConfig(upstream.url, kernel.url, ["skill"], true));
@@ -717,6 +722,92 @@ describe("58 · T5 mechanical:v1 e2e（真 proxy + 真 worker 子进程（provid
       expect(injectedM?.matchLevel).toBe("exact"); // 注入原文命中 ⇒ confirmed 候选
     } finally {
       await proxyT5.close();
+    }
+  }, 60_000);
+});
+
+describe("59 · T6 asset_used e2e（真 proxy + 真 worker 子进程（mechanical）+ 真库）", () => {
+  it("confirmed ⇒ status 行落库、judgement_id 回指可对上（turn/msg NULL）", async () => {
+    const T9 = "base-3hop-t9";
+    const t9Config = baseConfig(upstream.url, kernel.url, ["skill"], true);
+    t9Config.injection.bridgeFetchEvents = { enabled: true };
+    const proxyT9 = await startProxy(t9Config);
+    const mechWorkerConfigPath = path.join(tmpDir, "worker-mech-t6.yaml");
+    fs.writeFileSync(mechWorkerConfigPath, "attribution:\n  judge:\n    provider: mechanical\n", "utf8");
+    try {
+      const headers = SESSION_HEADERS(T9);
+      const bridgeHeaders = { "x-conversation-id": T9, authorization: "Bearer sk-mem-base-local" };
+      const body = (messages: unknown[]): unknown => ({
+        model: "claude-base-3hop-stub",
+        max_tokens: 64,
+        stream: false,
+        system: "You are Claude Code (base-3hop).",
+        messages,
+      });
+      const H = (text: string): unknown => ({ role: "user", content: text });
+      const EDIT = (id: string, file: string): unknown => ({
+        role: "assistant",
+        content: [{ type: "tool_use", id, name: "Edit", input: { file_path: file } }],
+      });
+      const RES = (id: string): unknown => ({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+      });
+      const main = (messages: unknown[]) =>
+        postJson(proxyT9.port, `/claude-code/${SPACE_ID}/v1/messages`, body(messages), headers);
+      const fetchSkill = (skillId: string) =>
+        postJson(proxyT9.port, "/skill-bridge/v3/skill/get", { skill_id: skillId, name: skillId }, bridgeHeaders);
+
+      const m0: unknown[] = [H("改 skl-t9-f1.ts")];
+      expect((await main(m0)).status).toBe(200);
+      await sleep(150);
+      expect((await fetchSkill("skl-t9-f0")).status).toBe(200);
+      await sleep(150);
+      const m1: unknown[] = [...m0, EDIT("e1", "skl-t9-f1.ts"), RES("e1")];
+      expect((await main(m1)).status).toBe(200);
+      await sleep(150);
+      expect((await fetchSkill("skl-t9-f1")).status).toBe(200);
+      await sleep(150);
+      const m2: unknown[] = [...m1, EDIT("e2", "c-t9.ts"), RES("e2")];
+      expect((await main(m2)).status).toBe(200);
+      expect(await waitFor(() => queueRows("pending", T9).length >= 2), "T9 单元未入队").toBe(true);
+
+      const run = runWorkerOnce(mechWorkerConfigPath);
+      if (run.status !== 0) {
+        throw new Error(`T9 worker --once 退出码 ${run.status}\n--- stderr ---\n${run.stderr}`);
+      }
+
+      const jdRows = getAttributionJudgementDetailsRepo().listBySession(T9);
+      expect(jdRows.length).toBe(2);
+      const u1Jd = jdRows.find((r) => r.verdict === "confirmed");
+      expect(u1Jd, "u1 judgement 应 confirmed（mechanical @ 注入资产）").toBeDefined();
+
+      const statusRows = getAttributionStatusEventsRepo().listByUnit(u1Jd!.unit_id);
+      expect(statusRows.length, "confirmed ⇒ 恰好 1 条 asset_used").toBe(1);
+      const s = statusRows[0]!;
+      const payload = JSON.parse(s.payload_json) as Record<string, unknown>;
+      console.log(
+        `T9 观测点 → status_id=${s.status_id} event=${s.event_type} asset=${s.asset_id} ` +
+          `turn=${s.turn_seq} msg=${s.msg_seq} payload.judgement_id=${payload.judgement_id} ` +
+          `（judgement.judgement_id=${u1Jd!.judgement_id}；u1/u2 各 1 行 ⇒ 本会话 status 行数=2）`,
+      );
+      expect(s.event_type).toBe("asset_used");
+      expect(s.asset_id).toBe("skl-s4-smoke-0001");
+      expect(s.turn_seq).toBe(null);
+      expect(s.msg_seq).toBe(null);
+      expect(payload.judgement_id, "回指可对上").toBe(u1Jd!.judgement_id);
+      expect(payload.judge_impl).toBe("mechanical:v1");
+      expect(payload.verdict).toBe("confirmed");
+      // u2 同样是 confirmed（mechanical 的注入资产命中与单元文本无关：注入块恒在窗口）⇒
+      // 按**本会话单元维度**断各 1 行；库为跨用例共享，不断全库 count。
+      for (const jd of jdRows) {
+        expect(
+          getAttributionStatusEventsRepo().listByUnit(jd.unit_id).length,
+          `unit=${jd.unit_id} 的 status 行数`,
+        ).toBe(1);
+      }
+    } finally {
+      await proxyT9.close();
     }
   }, 60_000);
 });

@@ -490,3 +490,87 @@ worker `consumeRow`：候选（§11 供给）→ **shortlist（前 K）→ judge
 - 可复现指纹 = 标注集 sha256（上）+ `ngramTableSha256`（随每条度量落 `detail_json.citationMetrics`）
   + 扫描参数（网格范围见上；`minIdf` 缺省 0；`n = 4`）。
 - 标定驱动 / 扫描探针：`/tmp/58/scripts/zz-calib-drive.tmp.mts` / `zz-calib-scan.tmp.mts`（不入库）。
+
+## 14 状态事件落点与 excluded 类别（§9 第 3 项；59 落地）
+
+> 本节是 §9 第 3 项（`asset_used` 汇总与链接）的前半：判定产物第一次**落自己的表**。
+> **红线 6**（再申明）：v1 `attribution_events` **只读**，判定产物走新表（B3 改判——写 v1 表 =
+> P-2 确定性碰撞成因）；`attribution_audit` 抽查池属 §9.5，本单不建。
+
+### 14.1 C1 · 表形状（命名定稿，红线 5）
+
+`attribution_status_events`（schema.ts 纯 additive DDL，`SCHEMA_VERSION` 仍为 1）：
+
+```sql
+CREATE TABLE IF NOT EXISTS attribution_status_events (
+  status_id      TEXT    PRIMARY KEY,   -- "se_" + sha1(unit_id|asset_id|round).slice(0,12)（asset_id null ⇒ "" 占位）
+  unit_id        TEXT    NOT NULL,
+  session_key    TEXT    NOT NULL,
+  space_id       TEXT    NOT NULL DEFAULT '_default',
+  asset_id       TEXT    NOT NULL,      -- 本单恒非空（仅 confirmed+非空才写）；派生期 null ⇒ "" 占位（防未来事件型）
+  asset_type     TEXT,
+  round          INTEGER NOT NULL DEFAULT 0,
+  event_type     TEXT    NOT NULL,      -- 本单唯一值 "asset_used"（validated/corrected 属消费侧，禁写）
+  outcome        TEXT,                  -- 单元自带 resultStatus 时落；否则 NULL（不猜）
+  turn_seq       INTEGER,               -- 恒 NULL（F4：不伪造轮次）
+  msg_seq        INTEGER,               -- 恒 NULL
+  payload_json   TEXT    NOT NULL,      -- 链接字段（C4），只回指不复制判定内容（F6）
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ase_unit    ON attribution_status_events(unit_id);
+CREATE INDEX IF NOT EXISTS idx_ase_session ON attribution_status_events(session_key, created_at);
+CREATE INDEX IF NOT EXISTS idx_ase_asset   ON attribution_status_events(asset_id, created_at);  -- 汇总查询（C4）
+```
+
+命名定稿：表 `attribution_status_events`；主键 `status_id`（前缀 `se_`）；本单唯一 `event_type = "asset_used"`；
+索引名 `idx_ase_unit` / `idx_ase_session` / `idx_ase_asset`。
+
+### 14.2 C2 · 触发真值表（`verdict × assetId` 全格子）
+
+| verdict | assetId | 动作 | 计数桶 |
+|---|---|---|---|
+| `confirmed` | 非空 | `insertIdempotent`（写 `asset_used`） | `inserted` / `duplicate` / `failures` |
+| `confirmed` | `null` | **不写**（护栏违反，构造上不可能） | `guardViolations` + warn |
+| `refuted` | * | **不写**（状态机无 refuted 态；不计入"使用"） | `skippedRefuted` |
+| `unconfirmed` | * | **不写** | `skippedUnconfirmed` |
+
+写/不写都有可观测计数（F5）⇒ repo counters =
+`{ inserted, duplicate, failures, guardViolations, skippedRefuted, skippedUnconfirmed }`
+（`getAttributionStatusEventsCounters()` 暴露；`__reset...ForTests` 清零）。
+
+### 14.3 C3 · 幂等与 NULL 纪律
+
+- **锚 = 派生主键**：`status_id = "se_" + sha1(unit_id|asset_id|round).slice(0,12)`；`asset_id` 为 null ⇒
+  **`""` 占位**（照 `deriveJudgementId` 姿势；**不用可空列 UNIQUE** —— R2 陷阱：SQLite NULL 互不相等）。
+- **判别 = 三态**（`inserted` / `duplicate` / `failed`；定向 upsert `ON CONFLICT(status_id) DO UPDATE … RETURNING created_at`
+  + 严格单调 `created_at`，同 judgement repo）：**为什么没有 `anomaly`** —— 锚 = 主键全等
+  （unit_id / asset_id / round 三者全同 ⇒ 同 `status_id`），不存在"同锚不同 asset"的异常面
+  （与 judgement 的 `(unit_id, round)` 锚不同：那里 asset_id 不参与锚才有 anomaly）。
+- `turn_seq` / `msg_seq` **恒 NULL**（F4）。
+- **顺序写**（选定，写入本节）：judgement 落库成功后顺序写 status，**各自幂等**；status 写失败 ⇒
+  counters.failures + warn，**不回滚 judgement**（重放可补：duplicate judgement + status inserted；
+  反向不可能——先 judgement 后 status）。不做同事务：两个 repo 的事务耦合面大于收益（失败面独立且可重放）。
+
+### 14.4 C4 · 链接与汇总形状（F6 写死）
+
+- `payload_json` = `{ judgement_id, verdict, match_level, coverage, prompt_sha256, judge_impl }`
+  （**只回指、不复制判定内容**；`match_level`/`coverage` 取 `citationMetrics` 中该 assetId 的条目，
+  无度量（mock 或无 citationSource）⇒ `null` 不猜）+ `unit_id` 回指决策行。
+- `outcome`：仅单元 payload 自带时落（`key_tool_call.resultStatus` ∈ success/error/unknown），否则 NULL。
+- **汇总 = 查询层，不物化**（避免第二份真相）：
+  - `listByAsset(assetId, opts?: { limit?, eventType? })` —— 行清单（资产维度）。
+  - `rollupByAsset(opts?: { eventType? })` —— `SELECT asset_id, COUNT(*) AS used_count,
+    COUNT(DISTINCT session_key) AS session_count GROUP BY asset_id ORDER BY asset_id ASC`
+    （确定性排序；去重按 `(asset_id, session_key)`，口径同 §3.5 信用分聚合）。
+
+### 14.5 C5 · excluded 类别常量 + 消费点（选定：grading 落点路径）
+
+- 两类常量（40 spec §3a；A5 改判 = 类别常量，不做逐条枚举）：
+  `EXCLUDED_CATEGORY_CLIENT_SYSTEM = "client-system"`（`body.system` 既有项 / 客户端自带 system）与
+  `EXCLUDED_CATEGORY_USER_ORIGINAL = "user-original"`（非注入用户文本 / 用户原语）。
+  `citation/source.ts` 的 `excludedCategories()` 返回 `[client-system, user-original]`（TODO 消除）。
+- **消费点（二选一，本单选"grading 落点路径"，理由如下）**：worker 落 judgement 时把
+  `citationSource.excludedCategories()` 落进 `detail_json.excludedCategories`（无 citationSource ⇒ 不落该键）；
+  T5 以 worker 层实证 + 常量内容断言（常量 → provider 方法 → detail_json 全链）。
+  **不选 e2e 字节级对账**：那需要 injectedBody 全文比对装置（40 spec §8.3 验收③的既有装置），
+  属 40 的验收面；本节只保证"类别声明可被对账方读到"（对账材料落库），不重复造装置。
