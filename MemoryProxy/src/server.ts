@@ -14,6 +14,7 @@ import { createBridgeFetchEventSink } from "./attribution/bridge-fetch-events.js
 import { addBridgeTelemetrySink } from "./memory/bridge-telemetry.js";
 import { createInstanceDestroyHandler } from "./routes/instance-destroy.js";
 import { createRateLimitHandlers } from "./routes/rate-limits.js";
+import { createAttributionReadHandlers } from "./routes/attribution-read.js";
 import { hasAnalyseMarker, hasCostGuardMarker } from "./routes/whitelist.js";
 import { tryActivateStorage, tryActivateRedis } from "./injection/index.js";
 import { getEffectiveBackend } from "./storage/factory.js";
@@ -158,6 +159,13 @@ export function createApp(config: ProxyConfig): Hono {
   app.get("/v3/admin/rate-limits", rateLimitHandlers.get);
   app.put("/v3/admin/rate-limits", rateLimitHandlers.put);
   app.delete("/v3/admin/rate-limits", rateLimitHandlers.delete);
+
+  // 72 · S7-a：归因只读面（回执 DTO + 池候选；纯只读，鉴权照 instance-destroy 的
+  // checkAdminAuth 姿势）。注册位 = Ops 区（在 catch-all `POST /*` 之前）。
+  const attributionReadHandlers = createAttributionReadHandlers(config);
+  app.get("/v3/admin/attribution/sessions", attributionReadHandlers.sessions);
+  app.get("/v3/admin/attribution/sessions/:session_key", attributionReadHandlers.sessionDetail);
+  app.get("/v3/admin/attribution/audit-candidates", attributionReadHandlers.auditCandidates);
 
   // ── Session management endpoints (mem: command 底层接口, 面板前端可复用) ──
   app.post("/v3/session/refresh-cache", (c) => {
