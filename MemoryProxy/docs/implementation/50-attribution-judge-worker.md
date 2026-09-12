@@ -851,6 +851,9 @@ design `:57` 要求 `attribution_status_events` / `attribution_audit` 两张表"
   1. §16.3 表格 `task_boundary` 行补"生产点"列（禁产 → 仅由边界信号产）；
   2. §16.3 的 T4/R3 断言按 `60-corrected-rules.md` §4 的收窄清单调整（负向保留 + 正向新增）；
   3. §14.1 的 `status_id` 派生式扩展含 `event_type`（**硬冲突已在 60 spec §5 勘正登记**；
-     存量 used 行值不变，实现单实测）；
+     存量 used 行值不变，实现单实测）——**排序约束（65 append）**：**派生式分公式必须与
+     corrected 写口同单落地**（避免 inert 分支：本档 `status-events-repo.ts:197` 的插入路径
+     硬编码 `asset_used`，新事件型分支在写口开启前**没有任何可达消费者**）；分公式两条铁律
+     （used 沿用三元组 / 新事件型四元组）与 V6 口径改判见 **`60-corrected-rules.md` 勘正 2**；
   4. §14.1 注释"validated/corrected 禁写"→ 放开 corrected（清单见 60 spec §5）；
   5. §18.4 追加一行指向 60 spec §5 的收窄清单（§18.4 原文"收窄落在写口开启那一单"即此单）。

@@ -1,0 +1,440 @@
+{
+  "note": "65 · O10 双通道 golden（首跑基线；四层一致性为主断言，本文件固定回归面）",
+  "pairs": [
+    {
+      "scenario": "edit-single",
+      "anthropic": {
+        "units": [
+          "code_change|{\"version\":1,\"unitType\":\"code_change\",\"turnSeq\":1,\"filePath\":\"skl-edit-single.ts\",\"edits\":[{\"toolName\":\"Edit\",\"paramKey\":\"new_string\",\"text\":\"b\",\"chars\":1}]}",
+          "code_change|{\"version\":1,\"unitType\":\"code_change\",\"turnSeq\":1,\"filePath\":\"skl-edit-single.ts\",\"edits\":[{\"toolName\":\"Edit\",\"paramKey\":\"new_string\",\"text\":\"d\",\"chars\":1}]}"
+        ],
+        "protocols": [
+          "anthropic"
+        ],
+        "anchoring": [
+          {
+            "verdictKind": "in_turn",
+            "detail": "t1"
+          }
+        ],
+        "metrics": [
+          [
+            {
+              "assetId": "skl-edit-single",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ],
+          [
+            {
+              "assetId": "skl-edit-single",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ]
+        ],
+        "verdicts": [
+          {
+            "verdict": "confirmed",
+            "assetId": "skl-edit-single"
+          },
+          {
+            "verdict": "confirmed",
+            "assetId": "skl-edit-single"
+          }
+        ]
+      },
+      "openai": {
+        "units": [
+          "code_change|{\"version\":1,\"unitType\":\"code_change\",\"turnSeq\":1,\"filePath\":\"skl-edit-single.ts\",\"edits\":[{\"toolName\":\"Edit\",\"paramKey\":\"new_string\",\"text\":\"b\",\"chars\":1}]}",
+          "code_change|{\"version\":1,\"unitType\":\"code_change\",\"turnSeq\":1,\"filePath\":\"skl-edit-single.ts\",\"edits\":[{\"toolName\":\"Edit\",\"paramKey\":\"new_string\",\"text\":\"d\",\"chars\":1}]}"
+        ],
+        "protocols": [
+          "openai"
+        ],
+        "anchoring": [
+          {
+            "verdictKind": "in_turn",
+            "detail": "t1"
+          }
+        ],
+        "metrics": [
+          [
+            {
+              "assetId": "skl-edit-single",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ],
+          [
+            {
+              "assetId": "skl-edit-single",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ]
+        ],
+        "verdicts": [
+          {
+            "verdict": "confirmed",
+            "assetId": "skl-edit-single"
+          },
+          {
+            "verdict": "confirmed",
+            "assetId": "skl-edit-single"
+          }
+        ]
+      }
+    },
+    {
+      "scenario": "edit-push",
+      "anthropic": {
+        "units": [
+          "code_change|{\"version\":1,\"unitType\":\"code_change\",\"turnSeq\":1,\"filePath\":\"skl-edit-push.ts\",\"edits\":[{\"toolName\":\"Edit\",\"paramKey\":\"new_string\",\"text\":\"y\",\"chars\":1}]}",
+          "key_tool_call|{\"version\":1,\"unitType\":\"key_tool_call\",\"turnSeq\":1,\"toolName\":\"Bash\",\"toolParamText\":\"git push origin main\",\"chars\":20,\"matchedBy\":\"git.push\",\"resultStatus\":\"success\",\"resultSnippet\":\"ok\"}"
+        ],
+        "protocols": [
+          "anthropic"
+        ],
+        "anchoring": [
+          {
+            "verdictKind": "in_turn",
+            "detail": "t1"
+          }
+        ],
+        "metrics": [
+          [
+            {
+              "assetId": "skl-edit-push",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ],
+          [
+            {
+              "assetId": "skl-edit-push",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ]
+        ],
+        "verdicts": [
+          {
+            "verdict": "unconfirmed",
+            "assetId": null
+          },
+          {
+            "verdict": "confirmed",
+            "assetId": "skl-edit-push"
+          }
+        ]
+      },
+      "openai": {
+        "units": [
+          "code_change|{\"version\":1,\"unitType\":\"code_change\",\"turnSeq\":1,\"filePath\":\"skl-edit-push.ts\",\"edits\":[{\"toolName\":\"Edit\",\"paramKey\":\"new_string\",\"text\":\"y\",\"chars\":1}]}",
+          "key_tool_call|{\"version\":1,\"unitType\":\"key_tool_call\",\"turnSeq\":1,\"toolName\":\"Bash\",\"toolParamText\":\"git push origin main\",\"chars\":20,\"matchedBy\":\"git.push\",\"resultStatus\":\"success\",\"resultSnippet\":\"ok\"}"
+        ],
+        "protocols": [
+          "openai"
+        ],
+        "anchoring": [
+          {
+            "verdictKind": "in_turn",
+            "detail": "t1"
+          }
+        ],
+        "metrics": [
+          [
+            {
+              "assetId": "skl-edit-push",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ],
+          [
+            {
+              "assetId": "skl-edit-push",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ]
+        ],
+        "verdicts": [
+          {
+            "verdict": "unconfirmed",
+            "assetId": null
+          },
+          {
+            "verdict": "confirmed",
+            "assetId": "skl-edit-push"
+          }
+        ]
+      }
+    },
+    {
+      "scenario": "edit-two-files",
+      "anthropic": {
+        "units": [
+          "code_change|{\"version\":1,\"unitType\":\"code_change\",\"turnSeq\":1,\"filePath\":\"skl-edit-two-files-helper.ts\",\"edits\":[{\"toolName\":\"Edit\",\"paramKey\":\"new_string\",\"text\":\"n\",\"chars\":1}]}",
+          "code_change|{\"version\":1,\"unitType\":\"code_change\",\"turnSeq\":1,\"filePath\":\"skl-edit-two-files.ts\",\"edits\":[{\"toolName\":\"Edit\",\"paramKey\":\"new_string\",\"text\":\"q\",\"chars\":1}]}"
+        ],
+        "protocols": [
+          "anthropic"
+        ],
+        "anchoring": [
+          {
+            "verdictKind": "in_turn",
+            "detail": "t1"
+          }
+        ],
+        "metrics": [
+          [
+            {
+              "assetId": "skl-edit-two-files",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ],
+          [
+            {
+              "assetId": "skl-edit-two-files",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ]
+        ],
+        "verdicts": [
+          {
+            "verdict": "confirmed",
+            "assetId": "skl-edit-two-files"
+          },
+          {
+            "verdict": "confirmed",
+            "assetId": "skl-edit-two-files"
+          }
+        ]
+      },
+      "openai": {
+        "units": [
+          "code_change|{\"version\":1,\"unitType\":\"code_change\",\"turnSeq\":1,\"filePath\":\"skl-edit-two-files-helper.ts\",\"edits\":[{\"toolName\":\"Edit\",\"paramKey\":\"new_string\",\"text\":\"n\",\"chars\":1}]}",
+          "code_change|{\"version\":1,\"unitType\":\"code_change\",\"turnSeq\":1,\"filePath\":\"skl-edit-two-files.ts\",\"edits\":[{\"toolName\":\"Edit\",\"paramKey\":\"new_string\",\"text\":\"q\",\"chars\":1}]}"
+        ],
+        "protocols": [
+          "openai"
+        ],
+        "anchoring": [
+          {
+            "verdictKind": "in_turn",
+            "detail": "t1"
+          }
+        ],
+        "metrics": [
+          [
+            {
+              "assetId": "skl-edit-two-files",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ],
+          [
+            {
+              "assetId": "skl-edit-two-files",
+              "matchLevel": null,
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            },
+            {
+              "assetId": "skl-s4-smoke-0001",
+              "matchLevel": "exact",
+              "matchedTier": "block",
+              "coverage": 1,
+              "coverageDistinct": 1147,
+              "coverageCovered": 1147,
+              "exclusionCount": 0,
+              "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
+            }
+          ]
+        ],
+        "verdicts": [
+          {
+            "verdict": "confirmed",
+            "assetId": "skl-edit-two-files"
+          },
+          {
+            "verdict": "confirmed",
+            "assetId": "skl-edit-two-files"
+          }
+        ]
+      }
+    }
+  ]
+}
