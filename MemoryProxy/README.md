@@ -197,6 +197,14 @@ Anthropic Messages client:
 | `GET/PUT/DELETE` | `/v3/admin/rate-limits` | query / modify per-instance × model TPM/QPM |
 | `GET`  | `/health` | runtime health check (includes `storage.effective`) |
 | `GET`  | `/whoami` | API Key → keyId (plain text, handy with curl) |
+| `GET`  | `/v3/admin/attribution/sessions` | attribution (read): sessions overview with decision-unit counts |
+| `GET`  | `/v3/admin/attribution/sessions/:session_key` | attribution (read): per-session receipt DTO (units / judgement / status events) |
+| `GET`  | `/v3/admin/attribution/audit-candidates` | attribution (read): unfiltered candidates (unconfirmed / queue pending+failed) |
+| `GET`  | `/v3/admin/attribution/audit-pool` | attribution (read): audit / dissent pool (mechanical categories) |
+| `POST` | `/v3/admin/attribution/audit-reviews` | attribution (write): record a review status transition |
+
+> **Auth (attribution endpoints)**: all five use the admin shared secret (`config.admin.apiKey`, `Authorization: Bearer`); **if that key is empty, they are public** (same semantics as `/v3/instance/proxy-destroy`) — **including the write endpoint `audit-reviews`**.
+> Field-level contract: `docs/implementation/70-panel-read-and-audit-pool.md` (§1 / §2 / §4); Panel-side credentials: `deploy/panel-knowledge-combined/README.md` ("归因面板（Attribution）").
 
 ## Configuration
 

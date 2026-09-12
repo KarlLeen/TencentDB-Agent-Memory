@@ -197,6 +197,14 @@ Anthropic Messages 客户端：
 | `GET/PUT/DELETE` | `/v3/admin/rate-limits` | 查询 / 修改实例 × 模型 TPM/QPM |
 | `GET`  | `/health` | 运行时健康检查（含 `storage.effective`） |
 | `GET`  | `/whoami` | API Key → keyId（纯文本，便于 curl） |
+| `GET`  | `/v3/admin/attribution/sessions` | 归因（只读）：会话概览 + 决策单元计数 |
+| `GET`  | `/v3/admin/attribution/sessions/:session_key` | 归因（只读）：单会话回执 DTO（单元 / 判定 / 状态事件） |
+| `GET`  | `/v3/admin/attribution/audit-candidates` | 归因（只读）：未筛候选（unconfirmed / queue pending+failed） |
+| `GET`  | `/v3/admin/attribution/audit-pool` | 归因（只读）：抽查 / 分歧池（机械判据类别） |
+| `POST` | `/v3/admin/attribution/audit-reviews` | 归因（写口）：记录抽查状态迁移 |
+
+> **鉴权（attribution 端点）**：五端点统一走 admin shared secret（`config.admin.apiKey`，`Authorization: Bearer`）；**该键为空 ⇒ 公开**（与 `/v3/instance/proxy-destroy` 同语义）——**含写口 `audit-reviews`**。
+> 字段级契约见 `docs/implementation/70-panel-read-and-audit-pool.md`（§1 / §2 / §4）；面板侧凭证见 `deploy/panel-knowledge-combined/README.md`「归因面板（Attribution）」。
 
 ## 配置说明
 
