@@ -237,6 +237,21 @@ TDAI_PROXY_ADMIN_API_KEY     # 运维端点鉴权 shared secret
 PROXY_DB_PATH                # sqlite 后端 db 路径（storage.sqlite.dbPath 未配时使用）
 ```
 
+## 启用资产归因链
+
+资产归因链（决策单元 → 判定 → 状态事件 → 面板「归因回执 / 抽查池」）**默认关闭**。启用需三步：
+
+1. **打开总开关** —— 在 `config.yaml` 设 `attribution.judge.enqueue: true`。默认 `false`；**只有布尔 `true` 才生效**（字符串 `"true"` 视为 `false`）。完整骨架见 `config.example.yaml` 的 `attribution:` 段。
+2. **起 worker 进程** —— 它是**独立进程**（proxy 不会自动拉起）：
+
+   ```bash
+   npm run worker:attribution              # 常驻轮询
+   npm run worker:attribution -- --once    # 抽干当前积压一轮后退出
+   ```
+
+   其它旗标：`--retry-failed`（先把死信复位再消费）、`--rejudge <unitId>`（单单元重判）、`--correct-l1`（跑 L1 版本漂移修正；**默认关**）。
+3. **面板侧凭证** —— 归因两页需要 `ATTRIBUTION_PROXY_ADMIN_KEY`（否则 fail-closed 返回 `503`）。见 `deploy/panel-knowledge-combined/README.md` 的「归因面板（Attribution）」节。
+
 ## 存储后端选型
 
 `storage.enabled=true` 后所有会话/注入/Skill 状态（`inj:*` / `sk:*` / `vpin:*`）走 ProxyStorage：

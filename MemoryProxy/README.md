@@ -237,6 +237,21 @@ TDAI_PROXY_ADMIN_API_KEY     # shared secret for ops endpoint auth
 PROXY_DB_PATH                # sqlite backend db path (used when storage.sqlite.dbPath is empty)
 ```
 
+## Enabling the attribution pipeline
+
+The asset-attribution chain (decision unit → judge → status events → Panel receipt / audit pages) is **off by default**. Enabling it takes three steps:
+
+1. **Turn on the master switch** — set `attribution.judge.enqueue: true` in `config.yaml`. Default is `false`; **only the boolean `true` takes effect** (the string `"true"` is treated as `false`). Full skeleton: the `attribution:` section in `config.example.yaml`.
+2. **Run the judge worker** — it is a **separate process** (the proxy does not start it):
+
+   ```bash
+   npm run worker:attribution              # long-running poll loop
+   npm run worker:attribution -- --once    # drain the current backlog once, then exit
+   ```
+
+   Other flags: `--retry-failed` (re-queue dead letters first), `--rejudge <unitId>` (re-judge a single unit), `--correct-l1` (run the L1 version-drift correction pass; **off by default**).
+3. **Panel credentials** — the Panel pages require `ATTRIBUTION_PROXY_ADMIN_KEY` (otherwise they fail closed with `503`). See the "归因面板（Attribution）" section in `deploy/panel-knowledge-combined/README.md`.
+
 ## Choosing a storage backend
 
 With `storage.enabled=true`, all session/injection/Skill state (`inj:*` / `sk:*` / `vpin:*`) goes through ProxyStorage:

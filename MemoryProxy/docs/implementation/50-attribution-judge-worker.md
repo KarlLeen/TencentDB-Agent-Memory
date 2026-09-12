@@ -5,6 +5,7 @@
 >
 > 依据：design §4.3、红线 8、R2（NULL 唯一性陷阱）；上游交付单为"落库判别式 + worker 分支"。
 > 验收编号：A1–A4（见 §7）。测量环境：`better-sqlite3 11.10.0`（SQLite `3.49.2`）、node `v22.19.0`。
+> **运行/启用方式**（92 append，2026-09-12）：见 `MemoryProxy/README.md` 的 “Enabling the attribution pipeline” 节（中文：`MemoryProxy/README_CN.md`「启用资产归因链」）——三步：`attribution.judge.enqueue: true` → 起独立 worker（`npm run worker:attribution`）→ 面板凭证（`deploy/panel-knowledge-combined/README.md`「归因面板（Attribution）」；容器栈登记见 `deploy/global-images/README.md`）。
 
 ---
 

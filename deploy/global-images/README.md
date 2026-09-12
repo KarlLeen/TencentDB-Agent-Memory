@@ -178,6 +178,24 @@ memory-core 通过 `MEMORY_PROMPT_MODE` 切换 L1/L2/L3 pipeline 的提示词族
 
 任意组件缺失时脚本会 `warn` 提醒但不阻塞。
 
+## 启用资产归因链（可选；worker 为独立进程）
+
+归因链（资产使用判定 → 状态事件 → 面板「归因回执 / 抽查池」）在 proxy 里**默认关**。要启用需两步——**本栈不会自动拉起 worker**：
+
+1. **proxy 开关**：在 proxy 的 `config.yaml` 设 `attribution.judge.enqueue: true`（默认 `false`，只有布尔 `true` 生效；完整骨架见 `MemoryProxy/config.example.yaml` 的 `attribution:` 段）；
+2. **单独起 worker 进程**（与 proxy **同库**、常驻轮询）：
+
+   ```bash
+   # 源码部署：仓库内直接跑
+   npm run worker:attribution
+   # 容器化部署：镜像内保留完整应用与运行入口（见 MemoryProxy/Dockerfile），在 proxy 容器内执行同一条入口
+   docker exec -d -w /app tdai-proxy npm run worker:attribution
+   ```
+
+   运维旗标：`--once`（抽干一轮后退出）、`--retry-failed`（死信复位）、`--correct-l1`（L1 自动接线；默认关）。
+
+面板侧凭证（`ATTRIBUTION_PROXY_ADMIN_KEY` 等）见 `deploy/panel-knowledge-combined/README.md` 的「归因面板（Attribution）」节。**worker 是否容器化（独立容器 / 服务）属产品决定，本仓未内置。**
+
 ## 数据持久化
 
 - `tdai-memory-core-data`（named volume）→ memory-core 的 SQLite / 记忆数据
