@@ -376,3 +376,38 @@ describe("57 · T5 零写（grading 全路径写计数增量 0 + 水位不变）
     assertNoBoolean(out);
   });
 });
+
+// ── 104 · C1 引文侧限定 tier=message（移除 block 自匹配）────────────────────────────
+
+describe("104 · C1 引文侧限定 tier=message（block 自匹配移除）", () => {
+  it("C5 防过紧：message piece 整体为资产正文子串 ⇒ 仍命中（exact/message）", () => {
+    const asset = "这是资产正文。第二行。";
+    const out = gradeCandidates({
+      sessionKey: "sess-104c5",
+      turnSeq: 1,
+      candidates: [cand("S")],
+      source: fakeSource({
+        pieces: [{ turnSeq: 1, tier: "message", content: msgContent(asset) }],
+        assetTexts: { S: [asset] },
+      }),
+    });
+    expect(out[0]!.matchLevel, "message 层整体 ⊆ 资产 ⇒ 仍命中").toBe("exact");
+    expect(out[0]!.matchedTier).toBe("message");
+  });
+
+  it("C6 封印：仅 block piece（= 资产自身切片）⇒ 不再参与 ⇒ 无命中、matchedTier 绝不为 block", () => {
+    const asset = "资产正文ABC";
+    const out = gradeCandidates({
+      sessionKey: "sess-104c6",
+      turnSeq: 1,
+      candidates: [cand("S")],
+      source: fakeSource({
+        pieces: [{ turnSeq: 1, tier: "block", content: asset }],
+        assetTexts: { S: [asset] },
+      }),
+    });
+    expect(out[0]!.matchLevel, "block 自匹配已移除 ⇒ 无命中").toBe("none");
+    expect(out[0]!.matchedTier).toBe(null);
+    expect(out[0]!.matchedTier, "不得再出现 block").not.toBe("block");
+  });
+});

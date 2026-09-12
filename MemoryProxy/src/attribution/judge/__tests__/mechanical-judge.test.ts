@@ -135,7 +135,8 @@ describe("58 · T2 门禁（unknown / 无文本 / 空语料 / candidates=[] ⇒ 
   it("空语料 ⇒ coverage=unknown 且 verdict=unconfirmed（不落 0/1、不进比较）", async () => {
     const { verdict, metrics } = await verdictOf(byId("fake-fet-neg-3"));
     expect(metrics[0]!.coverage, "空语料 ⇒ unknown 哨兵").toBe("unknown");
-    expect(metrics[0]!.matchLevel, "命中照算（exact）").toBe("exact");
+    // 104 后：该 case 的命中原本来自 tier=block 自匹配（已移除） ⇒ 无命中（none）。
+    expect(metrics[0]!.matchLevel, "104 后无命中（block 自匹配已移除）").toBe("none");
     expect(verdict.verdict).toBe("unconfirmed");
     expect(verdict.assetId).toBe(null);
   });
@@ -267,10 +268,12 @@ describe("58 · T4 DR-6a/b（版本漂移锚版 / 双通道一致）", () => {
     const c = byId("dr6a");
     const { verdict, metrics } = await verdictOf(c);
     // 锚版判：confirmed @ v1 资产；命中级别 exact；命中发生在 block 层（注入归档）
-    expect(verdict.verdict).toBe("confirmed");
-    expect(verdict.assetId).toBe("skl-cal-v1");
-    expect(metrics[0]!.matchLevel).toBe("exact");
-    expect(metrics[0]!.matchedTier).toBe("block");
+    // 104 后：原命中路径 = tier=block 自匹配（已移除） ⇒ 本条降级为 unconfirmed（如实登记；
+    // "锚版"可判定性的端到端验证待引文可达性（103 (d)）恢复后重建）。
+    expect(verdict.verdict).toBe("unconfirmed");
+    expect(verdict.assetId).toBe(null);
+    expect(metrics[0]!.matchLevel).toBe("none");
+    expect(metrics[0]!.matchedTier).toBe(null);
     // DR-2 锚版语义（修正版理解）：档①**如实归档了两个版本**——R0 注入的 v1 块 +
     // R1 hook-cache miss 重拉 listing 得到的 v2 块（本场景实测 piece[2]=v1、piece[5]=v2）。
     // "锚版"= 按**归档窗口**判（各版本都在档里），不是"回查当前资产存储的最新版"；
@@ -285,7 +288,7 @@ describe("58 · T4 DR-6a/b（版本漂移锚版 / 双通道一致）", () => {
       "v1 块在窗口序里先于 v2 块 ⇒ 命中落在 v1 块",
     ).toBe(true);
     console.log(
-      `T4 DR-6a → confirmed@skl-cal-v1 exact(block)；档① v1+v2 双版本归档，命中落在 v1 块（锚版=归档窗口）`,
+      `T4 DR-6a → unconfirmed（104 后 block 自匹配移除）；档① v1+v2 双版本归档仍在窗口（锚版语义的块级证据）`,
     );
   });
 

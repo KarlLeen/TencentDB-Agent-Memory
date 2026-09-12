@@ -952,3 +952,8 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   零行为改动）并补**端到端**格（临时库写真实生产者键事件 → repo → `rollupCreditsByAsset` → loader；
   **两格并存**：① 开闸与关闸**逐字节相同** ② `creditByPath` **非空**——缺 ② 则"键不命中"与"没读到数据"
   不可分）。**#6 严格形态达成**（`98`/`99` 的 T7 残项就此关闭）。
+- **引文口径修正（随单条；2026-09-12，append-only）**：`104` 起引文侧**只取 `tier=message`**——`tier=block`
+  的 piece 与"资产文本"是同一段文本（多资产块更甚）⇒ `piece ⊆ 资产` **恒真**（自匹配/同义反复），block 层
+  贡献的是"伪装成信号的噪声"。真库语料复现：39 实例 `exact/block/1` ⇒ `exact/message/0`（不再 `coverage 1`）。
+  **不承诺 `confirmed` 出现**（可达性 = `103` F8 / (d)）；`58 T1`(18 格)/`57 T6`/`58 T5`/`59 T6`/`65 O10`
+  的期望已如实更新（`65` 豁免 = 1，理由见测试内注释）。

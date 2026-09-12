@@ -559,7 +559,7 @@ describe("56 · T7 证据供给 e2e（真 proxy + 真 worker 子进程 + 真库�
 });
 
 describe("57 · T6 三道机械锚点 e2e（真 proxy + 真 worker 子进程 + 真库）", () => {
-  it("judgement detail_json.citationMetrics 存在、形状正确、无布尔（fetched 无文本 ⇒ null；injected 命中 ⇒ 级别+block 层）", async () => {
+  it("judgement detail_json.citationMetrics 存在、形状正确、无布尔（fetched 无文本 ⇒ null；injected 104 后无命中 ⇒ none/null）", async () => {
     const T6 = "base-3hop-t6";
     const t6Config = baseConfig(upstream.url, kernel.url, ["skill"], true);
     t6Config.injection.bridgeFetchEvents = { enabled: true };
@@ -658,11 +658,9 @@ describe("57 · T6 三道机械锚点 e2e（真 proxy + 真 worker 子进程 + �
 
       const injectedM = metrics!.find((m) => m.assetId !== "skl-t6-0001");
       expect(injectedM, "injected 候选的度量缺失").toBeDefined();
-      expect(
-        ["exact", "whitespace", "punctuation"],
-        "injected 资产原文在窗口 ⇒ 归一化命中（三级之一）",
-      ).toContain(injectedM!.matchLevel);
-      expect(injectedM!.matchedTier, "注入原文在 block 层").toBe("block");
+      // 104 后：引文侧只取 message 层（block 自匹配移除）⇒ 本场景 message 层无整体命中 ⇒ "none"。
+      expect(injectedM!.matchLevel, "104 后注入资产无命中（block 自匹配已移除）").toBe("none");
+      expect(injectedM!.matchedTier, "无命中 ⇒ 层为 null").toBe(null);
       expect(typeof injectedM!.ngramTableSha256).toBe("string");
 
       console.log(
@@ -739,13 +737,15 @@ describe("58 · T5 mechanical:v1 e2e（真 proxy + 真 worker 子进程（provid
 
       const rows = getAttributionJudgementDetailsRepo().listBySession(T5);
       expect(rows.length).toBe(2);
-      const u1Row = rows.find((r) => r.verdict === "confirmed");
-      expect(u1Row, "u1 应有一条 confirmed（注入资产 exact 命中 + 排他 0）").toBeDefined();
-      // 手算一致：fetched skl-t5-f1 无档①文本 ⇒ null ⇒ unconfirmed 候选；
-      //           注入资产有档① ⇒ exact 命中 + coverage 高 + 排他 0 ⇒ confirmed 候选 ⇒ 最强归因
-      expect(u1Row!.asset_id, "mechanical 应归因到注入资产（不是 mock 的 assetId 文本命中）").toBe(
-        "skl-s4-smoke-0001",
-      );
+      // 104 后：fetched 无档①文本 ⇒ null；注入资产的 block 自匹配已移除 ⇒ message 层无整体命中
+      // ⇒ 两条 judgement 均 unconfirmed（"u1 confirmed"原依赖 block 自匹配；真实引用可达性待 103 (d)）。
+      const u1Row = rows.find((r) => {
+        const d = JSON.parse(r.detail_json) as { citationMetrics?: Array<{ assetId: string }> };
+        return d.citationMetrics?.some((m) => m.assetId === "skl-s4-smoke-0001");
+      });
+      expect(u1Row, "u1（候选含注入资产）的 judgement 行").toBeDefined();
+      expect(u1Row!.verdict, "104 后 u1 = unconfirmed").toBe("unconfirmed");
+      expect(u1Row!.asset_id, "无归因 ⇒ asset_id null").toBe(null);
       expect(u1Row!.judge_impl).toBe("mechanical:v1");
 
       const detail = JSON.parse(u1Row!.detail_json) as {
@@ -760,7 +760,7 @@ describe("58 · T5 mechanical:v1 e2e（真 proxy + 真 worker 子进程（provid
           `fetchedM=${fetchedM?.matchLevel}/${fetchedM?.coverage} injectedM=${injectedM?.matchLevel}/${injectedM?.coverage}`,
       );
       expect(fetchedM?.matchLevel).toBe(null); // 无档①文本（不猜）
-      expect(injectedM?.matchLevel).toBe("exact"); // 注入原文命中 ⇒ confirmed 候选
+      expect(injectedM?.matchLevel, "104 后无命中（block 自匹配已移除）").toBe("none");
     } finally {
       await proxyT5.close();
     }
@@ -768,7 +768,7 @@ describe("58 · T5 mechanical:v1 e2e（真 proxy + 真 worker 子进程（provid
 });
 
 describe("59 · T6 asset_used e2e（真 proxy + 真 worker 子进程（mechanical）+ 真库）", () => {
-  it("confirmed ⇒ status 行落库、judgement_id 回指可对上（turn/msg NULL）", async () => {
+  it("104 后：无命中 ⇒ 两条均 unconfirmed、无 status 行（原 confirmed ⇒ status 落库覆盖待 103 (d) 恢复）", async () => {
     const T9 = "base-3hop-t9";
     const t9Config = baseConfig(upstream.url, kernel.url, ["skill"], true);
     t9Config.injection.bridgeFetchEvents = { enabled: true };
@@ -820,32 +820,24 @@ describe("59 · T6 asset_used e2e（真 proxy + 真 worker 子进程（mechanica
 
       const jdRows = getAttributionJudgementDetailsRepo().listBySession(T9);
       expect(jdRows.length).toBe(2);
-      const u1Jd = jdRows.find((r) => r.verdict === "confirmed");
-      expect(u1Jd, "u1 judgement 应 confirmed（mechanical @ 注入资产）").toBeDefined();
+      // 104 后：无命中 ⇒ 两条 judgement 均 unconfirmed ⇒ 无 asset_used 行。
+      // （原"confirmed ⇒ status 落库 + 回指"覆盖因 confirmed 不可达而失效——如实登记；
+      //   端到端 status 落库验证待 103 (d) 引文可达性恢复后重建。）
+      const u1Jd = jdRows.find((r) => r.verdict === "unconfirmed");
+      expect(u1Jd, "104 后 u1 = unconfirmed").toBeDefined();
 
       const statusRows = getAttributionStatusEventsRepo().listByUnit(u1Jd!.unit_id);
-      expect(statusRows.length, "confirmed ⇒ 恰好 1 条 asset_used").toBe(1);
-      const s = statusRows[0]!;
-      const payload = JSON.parse(s.payload_json) as Record<string, unknown>;
+      expect(statusRows.length, "104 后无 confirmed ⇒ 恰好 0 条 asset_used").toBe(0);
       console.log(
-        `T9 观测点 → status_id=${s.status_id} event=${s.event_type} asset=${s.asset_id} ` +
-          `turn=${s.turn_seq} msg=${s.msg_seq} payload.judgement_id=${payload.judgement_id} ` +
-          `（judgement.judgement_id=${u1Jd!.judgement_id}；u1/u2 各 1 行 ⇒ 本会话 status 行数=2）`,
+        `T9 观测点 → u1 judgement=${u1Jd!.verdict} impl=${u1Jd!.judge_impl}；status 行数=${statusRows.length}（104 后无 confirmed ⇒ 无 asset_used）`,
       );
-      expect(s.event_type).toBe("asset_used");
-      expect(s.asset_id).toBe("skl-s4-smoke-0001");
-      expect(s.turn_seq).toBe(null);
-      expect(s.msg_seq).toBe(null);
-      expect(payload.judgement_id, "回指可对上").toBe(u1Jd!.judgement_id);
-      expect(payload.judge_impl).toBe("mechanical:v1");
-      expect(payload.verdict).toBe("confirmed");
       // u2 同样是 confirmed（mechanical 的注入资产命中与单元文本无关：注入块恒在窗口）⇒
-      // 按**本会话单元维度**断各 1 行；库为跨用例共享，不断全库 count。
+      // 104 后：两条均 unconfirmed ⇒ 各 0 行（按**本会话单元维度**断；库为跨用例共享，不断全库 count）。
       for (const jd of jdRows) {
         expect(
           getAttributionStatusEventsRepo().listByUnit(jd.unit_id).length,
-          `unit=${jd.unit_id} 的 status 行数`,
-        ).toBe(1);
+          `unit=${jd.unit_id} 的 status 行数（104 后 0）`,
+        ).toBe(0);
       }
     } finally {
       await proxyT9.close();

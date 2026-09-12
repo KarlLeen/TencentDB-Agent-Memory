@@ -382,6 +382,9 @@ visibleAssets 按原数组序）；双源合并不新增位置。
 **引文口径（写死，不许新造）**：引文 = `sessionWindow` 中 `turnSeq == 当前单元轮` 的 **pieces**
 （档① block + 档② message，`(turn_seq, tier, seq)` 窗口序）；piece 文本 = `visibleTextOfPiece(piece)`
 （`citation/visible-text.ts` 唯一口径）。**逐 piece 比对**，取最强结果（piece 序 + 级别序，确定性）。
+**104 起引文侧只取 `tier=message`**（`grading.ts` 过滤）：`tier=block` 的 piece 与"资产文本"**是同一段文本**
+（多资产块更甚：13 个资产共享整块 `content_utf8`）⇒ `piece ⊆ 资产文本` **从数学上恒真（自匹配）**——
+其"命中"是同义反复，不是信号。**不承诺 `confirmed` 出现**（真实引用可达性 = `103` F8 / (d) 的领域）。
 **资产侧文本** = `sessionAssetTexts(sessionKey).get(assetId)` 的片段，各经 **c2 剥离**后按首见序拼接
 （"模型看到的注入文本 ↔ 资产自身正文"对齐口径，design §4.8.3）；资产文本缺失 ⇒ 走 C3 的 `null` 路径（不猜）。
 

@@ -31,11 +31,11 @@
             },
             {
               "assetId": "skl-s4-smoke-0001",
-              "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
-              "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "matchLevel": "none",
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }
@@ -53,11 +53,11 @@
             },
             {
               "assetId": "skl-s4-smoke-0001",
-              "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
-              "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "matchLevel": "none",
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }
@@ -103,10 +103,10 @@
             {
               "assetId": "skl-s4-smoke-0001",
               "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
+              "matchedTier": "message",
+              "coverage": 0,
               "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }
@@ -125,10 +125,10 @@
             {
               "assetId": "skl-s4-smoke-0001",
               "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
+              "matchedTier": "message",
+              "coverage": 0,
               "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }
@@ -176,11 +176,11 @@
             },
             {
               "assetId": "skl-s4-smoke-0001",
-              "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
-              "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "matchLevel": "none",
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }
@@ -198,11 +198,11 @@
             },
             {
               "assetId": "skl-s4-smoke-0001",
-              "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
-              "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "matchLevel": "none",
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }
@@ -248,10 +248,10 @@
             {
               "assetId": "skl-s4-smoke-0001",
               "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
+              "matchedTier": "message",
+              "coverage": 0,
               "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }
@@ -270,10 +270,10 @@
             {
               "assetId": "skl-s4-smoke-0001",
               "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
+              "matchedTier": "message",
+              "coverage": 0,
               "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }
@@ -321,11 +321,11 @@
             },
             {
               "assetId": "skl-s4-smoke-0001",
-              "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
-              "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "matchLevel": "none",
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }
@@ -343,11 +343,11 @@
             },
             {
               "assetId": "skl-s4-smoke-0001",
-              "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
-              "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "matchLevel": "none",
+              "matchedTier": null,
+              "coverage": "unknown",
+              "coverageDistinct": 0,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }
@@ -393,10 +393,10 @@
             {
               "assetId": "skl-s4-smoke-0001",
               "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
+              "matchedTier": "message",
+              "coverage": 0,
               "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }
@@ -415,10 +415,10 @@
             {
               "assetId": "skl-s4-smoke-0001",
               "matchLevel": "exact",
-              "matchedTier": "block",
-              "coverage": 1,
+              "matchedTier": "message",
+              "coverage": 0,
               "coverageDistinct": 1147,
-              "coverageCovered": 1147,
+              "coverageCovered": 0,
               "exclusionCount": 0,
               "ngramTableSha256": "d07b03afe3df964dda583f43a2bdceab79194db88bc9be94862c66b9c98a270e"
             }

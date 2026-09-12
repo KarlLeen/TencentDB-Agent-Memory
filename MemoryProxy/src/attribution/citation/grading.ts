@@ -83,7 +83,10 @@ export function gradeCandidates(input: {
 }): CandidateCitationMetrics[] {
   const window = input.source.sessionWindow(input.sessionKey);
   const pieceTexts: PieceText[] = window.pieces
-    .filter((p) => p.turnSeq === input.turnSeq)
+    // 104 · C1：引文侧只取 message 层 —— tier=block 的 piece 与"资产文本"是同一段文本
+    // （多资产块更甚：13 个资产共享整块 content_utf8）⇒ `piece ⊆ 资产文本` 恒真（自匹配/同义反复）。
+    // message 层判据逐字未动；只改 piece 集合（见 103 F1–F4、50 spec §12.2 补注）。
+    .filter((p) => p.turnSeq === input.turnSeq && p.tier === "message")
     // 引文侧同样经 c2 剥离：比对两侧必须都对齐到"正文"（design §4.8.3）——
     // 否则带包装的注入块永远不是剥离后资产正文的子串（injected 恒 none）。
     // 对 message 层剥离是无害恒等（R8 防过度剥离：无包装 ⇒ removed=[]）。

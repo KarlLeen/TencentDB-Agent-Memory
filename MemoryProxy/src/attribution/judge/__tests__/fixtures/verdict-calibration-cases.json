@@ -71,9 +71,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-cal-alpha-1",
-        "rationale": "注入资产 block 原文 exact 命中、coverage 高、排他 0"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "注入资产 block 原文 exact 命中、coverage 高、排他 0｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -149,9 +149,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-cal-alpha-2",
-        "rationale": "同上（第二独立样本）"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "同上（第二独立样本）｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -239,9 +239,9 @@
         }
       ],
       "expected": {
-        "verdict": "refuted",
-        "assetId": "skl-cal-b1",
-        "rationale": "两资产共享同段 ⇒ 命中但排他 1（引用不排他）；最强 = 候选顺序第一 b1"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "两资产共享同段 ⇒ 命中但排他 1（引用不排他）；最强 = 候选顺序第一 b1｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -341,9 +341,9 @@
         }
       ],
       "expected": {
-        "verdict": "refuted",
-        "assetId": "skl-cal-c1",
-        "rationale": "三资产共享同段 ⇒ 排他 2；最强 = c1"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "三资产共享同段 ⇒ 排他 2；最强 = c1｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -452,9 +452,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-cal-delta-1",
-        "rationale": "双源（抓+注）⇒ fetched 优先候选 + 命中 + 排他 0"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "双源（抓+注）⇒ fetched 优先候选 + 命中 + 排他 0｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -568,9 +568,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-cal-delta-2",
-        "rationale": "同上（第二独立样本）"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "同上（第二独立样本）｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -785,9 +785,9 @@
         }
       ],
       "expected": {
-        "verdict": "refuted",
-        "assetId": "skl-cal-h1",
-        "rationale": "双源 h1（fetched 优先）+ 与 h2 共享段 ⇒ 排他 1 ⇒ refuted @h1"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "双源 h1（fetched 优先）+ 与 h2 共享段 ⇒ 排他 1 ⇒ refuted @h1｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -895,9 +895,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-cal-v1",
-        "rationale": "版本漂移：引文命中档①锚版 v1（cacheStrategy=session_init 使档①恒 v1），按锚版判 confirmed"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "版本漂移：引文命中档①锚版 v1（cacheStrategy=session_init 使档①恒 v1），按锚版判 confirmed｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -1008,9 +1008,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-cal-dual",
-        "rationale": "双通道 a（anthropic）：与 b 同逻辑会话 ⇒ 判定须一致"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "双通道 a（anthropic）：与 b 同逻辑会话 ⇒ 判定须一致｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -1124,9 +1124,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-cal-dual",
-        "rationale": "双通道 b（openai）：与 a 逐条一致"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "双通道 b（openai）：与 a 逐条一致｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -1160,9 +1160,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-fp3",
-        "rationale": "coverage=1.0"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "coverage=1.0｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -1196,9 +1196,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-fp4",
-        "rationale": "coverage≈0.8"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "coverage≈0.8｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -1232,9 +1232,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-fp5",
-        "rationale": "coverage≈0.6"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "coverage≈0.6｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -1275,9 +1275,9 @@
         }
       ],
       "expected": {
-        "verdict": "refuted",
-        "assetId": "skl-fn-a",
-        "rationale": "排他 1；最强 = 顺序第一 skl-fn-a"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "排他 1；最强 = 顺序第一 skl-fn-a｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -1380,9 +1380,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-ff1",
-        "rationale": "coverage=1.0"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "coverage=1.0｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -1415,9 +1415,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-ff2",
-        "rationale": "coverage≈0.8"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "coverage≈0.8｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -1450,9 +1450,9 @@
         }
       ],
       "expected": {
-        "verdict": "confirmed",
-        "assetId": "skl-ff3",
-        "rationale": "coverage=0.5（边界格：T_COV≤0.5 才 confirmed）"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "coverage=0.5（边界格：T_COV≤0.5 才 confirmed）｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
@@ -1493,9 +1493,9 @@
         }
       ],
       "expected": {
-        "verdict": "refuted",
-        "assetId": "skl-ff-a",
-        "rationale": "排他 1；最强 = 顺序第一 skl-ff-a"
+        "verdict": "unconfirmed",
+        "assetId": null,
+        "rationale": "排他 1；最强 = 顺序第一 skl-ff-a｜104：原判据部分依赖 `tier=block` 自匹配（注入块=资产文本）；该路径已移除 ⇒ 本条改为 `unconfirmed`；真实引用可达性待 103 (d) 标定。"
       }
     },
     {
