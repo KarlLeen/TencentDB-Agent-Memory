@@ -110,7 +110,7 @@ unknown tombstone、vocab 命中矩阵 corpus、开启 checklist / 组合矩阵 
 | v2：bridge 遥测 SQLite sink（落地③） | S4 | **叠加式** sink 链（`memory/bridge-telemetry.ts` `(row, ctx)` 通道）+ 提取器 `attribution/bridge-fetch-assets.ts` + 落点 `attribution/bridge-fetch-events.ts`；CH 通路保留（勘正 2：不是"换 sink"） | 单测 42（含 9 类 reject / 真 pin 逐字段对照 / row+CH 列键集合）+ 真实冒烟 |
 | v2：attribution judge worker（落地④） | S5 | 新进程 + prompt 版本管理 | — |
 | v2：corrected 三路机器规则 + 版本链快照（§3.2.2） | S6 | 规则层 + 事件消费 | — |
-| v2：回执 + 抽查池两页（落地⑤） | S7 | MemoryPanel | — |
+| v2：回执 + 抽查池两页（落地⑤） | S7 | MemoryPanel（契约 = `70-panel-read-and-audit-pool.md`；docs 编号顺延 60→70） | — |
 | v3：信用分→排序 / 索引行（§3.4/3.5） | S8 | 排序侧 | — |
 | v1.1（二轮评审 R1/R4）：最小观测 + 分级日志 + 水位上限 | S3/S1 | 30 spec §4.10/§5.6；10 spec §5.2/§10 | §6 单测 21 |
 | v1.1（二轮评审 R2）：撕裂窗口 risky 动作 unknown tombstone | S3 | 30 spec §4.4/§4.7 | §6 单测 19/20 |

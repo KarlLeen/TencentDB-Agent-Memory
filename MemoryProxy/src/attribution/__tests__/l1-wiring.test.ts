@@ -1,5 +1,5 @@
 /**
- * 69 · L1 自动接线测试矩阵（50 spec §20 C1–C7）。
+ * 69 · L1 自动接线测试矩阵（70 spec §3 C1–C7）。
  *
  * ⚠️ 定格口径（C6）= **68 D1（60 spec §5 "payload 新鲜度契约"）**：corrected 行版本字段 =
  * 检测时（首次判定）快照；重跑 ⇒ duplicate、`payload_json`/`created_at` **逐字不变**（T4 钉死）。

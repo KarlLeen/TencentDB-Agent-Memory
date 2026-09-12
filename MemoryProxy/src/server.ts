@@ -166,6 +166,9 @@ export function createApp(config: ProxyConfig): Hono {
   app.get("/v3/admin/attribution/sessions", attributionReadHandlers.sessions);
   app.get("/v3/admin/attribution/sessions/:session_key", attributionReadHandlers.sessionDetail);
   app.get("/v3/admin/attribution/audit-candidates", attributionReadHandlers.auditCandidates);
+  // 74 · S7-b：抽查/分歧池（查询层，只读）+ 状态写口（唯一新增写路径；70 spec §2.3/§2.4）。
+  app.get("/v3/admin/attribution/audit-pool", attributionReadHandlers.auditPool);
+  app.post("/v3/admin/attribution/audit-reviews", attributionReadHandlers.auditReviews);
 
   // ── Session management endpoints (mem: command 底层接口, 面板前端可复用) ──
   app.post("/v3/session/refresh-cache", (c) => {

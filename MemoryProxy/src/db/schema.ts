@@ -229,4 +229,18 @@ CREATE TABLE IF NOT EXISTS attribution_status_events (
 CREATE INDEX IF NOT EXISTS idx_ase_unit    ON attribution_status_events(unit_id);
 CREATE INDEX IF NOT EXISTS idx_ase_session ON attribution_status_events(session_key, created_at);
 CREATE INDEX IF NOT EXISTS idx_ase_asset   ON attribution_status_events(asset_id, created_at);
+
+-- 74 · S7-b 抽查状态（append-only；70 spec §2.4）。纯 additive：SCHEMA_VERSION 仍为 1。
+-- 读侧 = 每个 audit_key 的 latest（按 created_at, review_id 定序）；prev_status 参与幂等锚
+-- （允许多次真实迁移、天然防重放）。
+CREATE TABLE IF NOT EXISTS attribution_audit_reviews (
+  review_id    TEXT PRIMARY KEY,   -- "ar_" + sha1(audit_key|prev_status|status|actor).slice(0,12)
+  audit_key    TEXT NOT NULL,
+  status       TEXT NOT NULL,      -- confirmed | dismissed | needs_fix
+  prev_status  TEXT NOT NULL,      -- unreviewed | confirmed | dismissed | needs_fix
+  actor        TEXT NOT NULL,      -- 必填（不许匿名）
+  note         TEXT,               -- 选填（长度上限 2000）
+  created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_aar_key ON attribution_audit_reviews(audit_key, created_at);
 `;

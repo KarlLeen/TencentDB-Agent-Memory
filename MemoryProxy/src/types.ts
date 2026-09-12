@@ -634,7 +634,7 @@ export interface AttributionJudgeWorkerConfig {
   /** 消费失败后的真实退避。 */
   backoffMs: number;
   /**
-   * 69 · L1 自动接线（50 spec §20 C3；post-cycle 脏集钩子）：
+   * 69 · L1 自动接线（70 spec §3.3 C3；post-cycle 脏集钩子）：
    * - `enabled` **缺省 false**（显式 CLI `--correct-l1` 调用即开，不受此开关约束）；
    * - `minIdleMs` 同一 session 相邻两次修正的最小间隔（缺省 30000；空集/未到期 ⇒ 零动作）。
    */
@@ -981,7 +981,7 @@ export interface RawYamlConfig {
         backoffMs?: number;
         /** 62 · top-N 成本闸门（缺省 30；见 50 spec §17 C2）。 */
         topNPerCycle?: number;
-        /** 69 · L1 自动接线（缺省关；见 50 spec §20 C3）。 */
+        /** 69 · L1 自动接线（缺省关；见 70 spec §3.3）。 */
         correctL1?: {
           enabled?: boolean;
           minIdleMs?: number;

@@ -1,5 +1,5 @@
 /**
- * 69 · L1 自动接线（50 spec §20）：CLI 范围 + post-cycle 脏集 + 节流 + 六计数观测。
+ * 69 · L1 自动接线（70 spec §3）：CLI 范围 + post-cycle 脏集 + 节流 + 六计数观测。
  *
  * 定格口径（C6）：以 60 spec §5 "payload 新鲜度契约"（68 D1）为**唯一来源** —— corrected 行
  * 版本字段 = **检测时（首次判定）快照**；重跑 ⇒ duplicate、`payload_json` 逐字不变。

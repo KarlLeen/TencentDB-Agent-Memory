@@ -507,7 +507,7 @@ export interface WorkerCliOptions {
   retryFailed: boolean;
   /** 61 · 人工重判目标（50 spec §16 C2；`--rejudge <unit_id>`）。 */
   rejudgeUnitId?: string;
-  /** 69 · L1 修正入口（50 spec §20 C1；显式调用即开，不受 `correctL1.enabled` 开关约束）。 */
+  /** 69 · L1 修正入口（70 spec §3.1 C1；显式调用即开，不受 `correctL1.enabled` 开关约束）。 */
   correctL1: boolean;
   /** 69 · 范围：`--session=<key>`（与 `--all-sessions` 二选一）。 */
   sessionKey?: string;
@@ -598,7 +598,7 @@ export const EXIT_CONFIG_INVALID = 3;
 /** 61 · `--rejudge` 目标没有首判行（50 spec §16 C2）：明确报错，零入队。 */
 export const EXIT_REJUDGE_TARGET_MISSING = 4;
 /**
- * 69 · L1 范围参数不合法（50 spec §20 C1）：无范围 / 双范围 / `--all-sessions` 缺 `--since` /
+ * 69 · L1 范围参数不合法（70 spec §3.1 C1）：无范围 / 双范围 / `--all-sessions` 缺 `--since` /
  * `--since` 值非法 —— 明确报错退出、**零扫描**（不猜、不默认无界全表扫）。
  */
 export const EXIT_L1_SCOPE_INVALID = 5;

@@ -13,6 +13,17 @@
 import type { Context } from "hono";
 
 import {
+  AUDIT_CATEGORIES,
+  buildAuditPool,
+} from "../attribution/audit-pool.js";
+import {
+  AUDIT_PREV_STATUSES,
+  AUDIT_STATUSES,
+  AUDIT_TRANSITIONS,
+  deriveReviewId,
+  getAttributionAuditReviewsRepo,
+} from "../attribution/audit-reviews-repo.js";
+import {
   getAttributionJudgeQueueRepo,
   type JudgeQueueRow,
 } from "../attribution/judge-queue-repo.js";
@@ -43,7 +54,7 @@ function ok(c: Context, data: Record<string, unknown>): Response {
   return c.json({ code: 0, message: "ok", data });
 }
 
-function error(c: Context, status: 400 | 404, message: string): Response {
+function error(c: Context, status: 400 | 404 | 503, message: string): Response {
   return c.json({ code: status, message }, status);
 }
 
@@ -375,10 +386,109 @@ function handleAuditCandidates(c: Context, config: ProxyConfig): Response {
   });
 }
 
+// ── 端点 4：抽查/分歧池（74 · S7-b；只读，70 spec §2.3） ─────────────────────────
+
+function handleAuditPool(c: Context, config: ProxyConfig): Response {
+  const auth = checkAdminAuth(c, config.admin.apiKey);
+  if (auth !== "ok") return adminAuthError(c, auth);
+
+  const categoryRaw = c.req.query("category");
+  if (categoryRaw !== undefined && !(AUDIT_CATEGORIES as readonly string[]).includes(categoryRaw)) {
+    return error(c, 400, `unknown category: "${categoryRaw}"`);
+  }
+  let limit = DEFAULT_LIMIT;
+  const limitRaw = c.req.query("limit");
+  if (limitRaw !== undefined) {
+    const n = Number(limitRaw);
+    if (!Number.isFinite(n) || n <= 0) return error(c, 400, `invalid limit: "${limitRaw}"`);
+    limit = Math.min(MAX_LIMIT, Math.trunc(n));
+  }
+  let offset = 0;
+  const offsetRaw = c.req.query("offset");
+  if (offsetRaw !== undefined) {
+    const n = Number(offsetRaw);
+    if (!Number.isFinite(n) || n < 0) return error(c, 400, `invalid offset: "${offsetRaw}"`);
+    offset = Math.trunc(n);
+  }
+  const spaceId = (c.req.query("space_id") ?? "").trim() || "_default"; // C3 同 §1
+
+  const { items, countsByCategory } = buildAuditPool({ spaceId });
+  const filtered = categoryRaw ? items.filter((i) => i.category === categoryRaw) : items;
+  filtered.sort((a, b) => {
+    if (a.created_at !== b.created_at) return b.created_at - a.created_at;
+    return a.audit_key < b.audit_key ? -1 : a.audit_key > b.audit_key ? 1 : 0;
+  });
+  const truncated = offset + limit < filtered.length; // 防静默截断（同页纪律）
+  return ok(c, {
+    items: filtered.slice(offset, offset + limit),
+    counts_by_category: countsByCategory,
+    truncated,
+  });
+}
+
+// ── 端点 5：抽查状态写口（74 · S7-b；**唯一新增写路径**，70 spec §2.4） ──────────
+
+async function handleAuditReviews(c: Context, config: ProxyConfig): Promise<Response> {
+  const auth = checkAdminAuth(c, config.admin.apiKey);
+  if (auth !== "ok") return adminAuthError(c, auth);
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return error(c, 400, "invalid JSON body");
+  }
+  const auditKey = body.audit_key;
+  const status = body.status;
+  const prevStatus = body.prev_status;
+  const actor = body.actor;
+  const note = body.note;
+
+  if (typeof auditKey !== "string" || auditKey.trim().length === 0) {
+    return error(c, 400, "audit_key is required");
+  }
+  if (typeof status !== "string" || !(AUDIT_STATUSES as readonly string[]).includes(status)) {
+    return error(c, 400, `invalid status: ${JSON.stringify(status)} (expected ${AUDIT_STATUSES.join("|")})`);
+  }
+  if (typeof prevStatus !== "string" || !(AUDIT_PREV_STATUSES as readonly string[]).includes(prevStatus)) {
+    return error(c, 400, `invalid prev_status: ${JSON.stringify(prevStatus)} (expected ${AUDIT_PREV_STATUSES.join("|")})`);
+  }
+  const allowed = AUDIT_TRANSITIONS[prevStatus as (typeof AUDIT_PREV_STATUSES)[number]];
+  if (!(allowed as readonly string[]).includes(status)) {
+    return error(c, 400, `illegal transition: ${prevStatus} → ${status}（自迁移/未知组合均拒）`);
+  }
+  if (typeof actor !== "string" || actor.trim().length === 0) {
+    return error(c, 400, "actor is required (anonymous review is not allowed)");
+  }
+  if (note !== undefined && note !== null && (typeof note !== "string" || note.length > 2000)) {
+    return error(c, 400, "note must be a string with length ≤ 2000");
+  }
+
+  const repo = getAttributionAuditReviewsRepo();
+  const reviewId = deriveReviewId(auditKey, prevStatus, status, actor);
+  // 重放先行：同迁移（同 review_id）已存在 ⇒ duplicate（不再做 prev 校验，保证重放幂等）。
+  if (repo.getById(reviewId) !== null) {
+    return ok(c, { review_id: reviewId, status, prev_status: prevStatus, kind: "duplicate" });
+  }
+  // 乐观校验：prev_status 必须等于该 audit_key 的当前 latest 状态（无行 ⇒ unreviewed）。
+  const latest = repo.latestByAuditKey(auditKey);
+  const current = latest?.status ?? "unreviewed";
+  if (current !== prevStatus) {
+    return error(c, 400, `prev_status mismatch: current="${current}"`);
+  }
+  const res = repo.insertIdempotent({ auditKey, status, prevStatus, actor, note: note ?? null });
+  if (res.kind === "failed") {
+    return error(c, 503, "audit review insert failed (persistence unavailable)");
+  }
+  return ok(c, { review_id: res.reviewId, status, prev_status: prevStatus, kind: res.kind });
+}
+
 export function createAttributionReadHandlers(config: ProxyConfig) {
   return {
     sessions: (c: Context) => handleSessions(c, config),
     sessionDetail: (c: Context) => handleSessionDetail(c, config),
     auditCandidates: (c: Context) => handleAuditCandidates(c, config),
+    auditPool: (c: Context) => handleAuditPool(c, config),
+    auditReviews: (c: Context) => handleAuditReviews(c, config),
   };
 }

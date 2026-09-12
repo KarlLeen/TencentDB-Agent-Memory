@@ -79,7 +79,7 @@ export interface AttributionEventRepo {
    */
   listBySessionWithRowid(sessionKey: string): AttributionEventRowWithRowid[];
   /**
-   * 69 · 会话枚举读口（50 spec §20 C1/T8；**只读、无副作用**）：
+   * 69 · 会话枚举读口（70 spec §3.1；**只读、无副作用**）：
    * `created_at >= sinceMs` 水位内出现过的 session（去重、确定性排序；sinceMs 缺省 0 = 全量）。
    * DB 降级 ⇒ 空数组（与 Null repo 姿势一致）。
    */

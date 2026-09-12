@@ -23,6 +23,7 @@ import {
 } from "../../judgement-details-repo.js";
 import { __resetAttributionJudgeLoggerForTests } from "../../judge-log.js";
 import { DeterministicMockJudge } from "../../judge/deterministic-mock-judge.js";
+import { __resetAttributionAuditReviewsRepoForTests } from "../../audit-reviews-repo.js";
 import { __resetAttributionStatusEventsRepoForTests } from "../../status-events-repo.js";
 import type { AttributionWorkerDeps } from "../../worker.js";
 
@@ -36,6 +37,7 @@ export function withTempDb(): string {
   __resetAttributionJudgeQueueRepoForTests();
   __resetAttributionJudgementDetailsRepoForTests();
   __resetAttributionStatusEventsRepoForTests(); // 59 · 状态事件单例 + counters
+  __resetAttributionAuditReviewsRepoForTests(); // 74 · 抽查状态单例 + counters
   __resetAttributionJudgeLoggerForTests();
   return dir;
 }
@@ -45,6 +47,7 @@ export function teardownTempDb(): void {
   __resetAttributionJudgeQueueRepoForTests();
   __resetAttributionJudgementDetailsRepoForTests();
   __resetAttributionStatusEventsRepoForTests();
+  __resetAttributionAuditReviewsRepoForTests();
   __resetAttributionJudgeLoggerForTests();
   __resetDbForTests();
   delete process.env.PROXY_DB_PATH;
