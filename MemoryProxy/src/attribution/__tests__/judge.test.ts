@@ -100,11 +100,10 @@ describe("T8 prompt ref", () => {
     expect(judge.promptRef.prompt_sha256).toBe(GOLDEN_PROMPT_SHA256);
   });
 
-  it("createJudge：mock 正常装配；未知 provider 降级 mock 且不抛（judge_impl 可辨识）", () => {
+  it("createJudge：mock 正常装配；未知 provider **fail-closed** 抛 JudgeConfigError（60 方向反转；judge_impl 可辨识）", () => {
     expect(createJudge({ attribution: { judge: { provider: "mock" } } }).impl).toBe("mock:v1");
-    // 写错 provider 不能让 worker 起不来
-    expect(() => createJudge({ attribution: { judge: { provider: "gpt-9" } } })).not.toThrow();
-    expect(createJudge({ attribution: { judge: { provider: "gpt-9" } } }).impl).toBe("mock:v1");
-    expect(createJudge({}).impl).toBe("mock:v1");
+    // 60 · §15 C1：A6 推翻"降级 mock"——假判定被当真实归因比 crash 危险 ⇒ 未知 provider 必须抛。
+    expect(() => createJudge({ attribution: { judge: { provider: "gpt-9" } } })).toThrow(/unknown judge provider/);
+    expect(createJudge({}).impl).toBe("mock:v1"); // 缺省仍 mock（缺省关闭不变）
   });
 });

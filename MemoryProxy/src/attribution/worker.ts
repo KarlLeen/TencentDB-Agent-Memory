@@ -28,7 +28,7 @@ import {
 } from "./evidence-supply.js";
 import { gradeCandidates, shortlistCandidates, type CandidateCitationMetrics } from "./citation/grading.js";
 import { getCitationSourceProvider, type CitationSourceProvider } from "./citation/source.js";
-import { createJudge, type CreateJudgeDeps } from "./judge/create-judge.js";
+import { createJudge, JudgeConfigError, validateJudgeConfig, type CreateJudgeDeps } from "./judge/create-judge.js";
 import type { Judge, JudgeCandidate, JudgeInput, JudgeVerdict } from "./judge/types.js";
 import {
   getAttributionStatusEventsRepo,
@@ -92,6 +92,8 @@ export interface AttributionWorkerCycleResult {
   completed: number;
   /** 幂等命中（明细已存在）——成功路径的一个分支，不算失败。 */
   idempotent: number;
+  /** 60 · 幻觉护栏触发次数（assetId ∉ candidates ⇒ 强制 unconfirmed；C4）。 */
+  guarded: number;
   /** 判定异常：同 (unit_id, round) 已被**另一个 asset** 占用。与 errored 分开计。 */
   anomaly: number;
   /** 消费抛错（judge 抛错，或落库返回 failed / 抛错）。 */
@@ -107,6 +109,7 @@ function emptyCycleResult(): AttributionWorkerCycleResult {
     claimed: 0,
     completed: 0,
     idempotent: 0,
+    guarded: 0,
     anomaly: 0,
     errored: 0,
     deadLettered: 0,
@@ -139,6 +142,27 @@ function safeParsePayload(payloadJson: string): { kind: string; payload: unknown
 export function extractJudgeCandidates(unitPayload: unknown): JudgeCandidate[] {
   if (!unitPayload || typeof unitPayload !== "object") return [];
   return extractVisibleAssetCandidates((unitPayload as { visibleAssets?: unknown }).visibleAssets);
+}
+
+/**
+ * 60 · C4 幻觉护栏（**worker 边界**，对 mock / mechanical / real **一律生效**）：
+ * provider 是不可信输入源，校验必须在信任边界这一侧做 —— provider 实现不重复此逻辑。
+ * `assetId` 不在候选内 ⇒ 强制降级 `unconfirmed` + `rationaleRef` 标记；**不改选其它候选**（不猜）。
+ */
+export function applyHallucinationGuard(
+  verdict: JudgeVerdict,
+  candidates: readonly JudgeCandidate[],
+): { verdict: JudgeVerdict; tripped: boolean } {
+  if (verdict.assetId === null) return { verdict, tripped: false };
+  if (candidates.some((c) => c.assetId === verdict.assetId)) return { verdict, tripped: false };
+  return {
+    verdict: {
+      assetId: null,
+      verdict: "unconfirmed",
+      rationaleRef: `guard:asset_not_in_candidates:${verdict.assetId}`,
+    },
+    tripped: true,
+  };
 }
 
 /**
@@ -258,7 +282,11 @@ async function consumeRow(
   };
 
   try {
-    const verdict = await deps.judge.judge(input);
+    const rawVerdict = await deps.judge.judge(input);
+    // 60 · C4：护栏后的 verdict 才进落库/状态/计数（对一切 provider 生效）。
+    const guard = applyHallucinationGuard(rawVerdict, input.candidates);
+    if (guard.tripped) result.guarded += 1;
+    const verdict = guard.verdict;
     const insert = deps.detailsRepo.insertIdempotent({
       unitId: row.unit_id,
       sessionKey: row.session_key,
@@ -448,10 +476,26 @@ export function buildWorkerDeps(
 const EXIT_OK = 0;
 /** DB 不可用：明确报错退出（**不**伪造成功 —— checklist 组合矩阵第 6 行）。 */
 export const EXIT_DB_UNAVAILABLE = 2;
+/**
+ * 60 · 配置不合法（未知 provider / real 缺参数）——fail-closed（50 spec §15 C1）：
+ * 明确报错退出，**绝不**降级 mock；校验在 getDb() 之前、一次性判死、不重试。
+ */
+export const EXIT_CONFIG_INVALID = 3;
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   const opts = parseWorkerArgs(argv);
   const config = buildConfig({ configFile: opts.configFile });
+
+  // 60 · C1 fail-closed：配置校验在 getDb() **之前**（不碰库、不重试、进程级判死）。
+  try {
+    validateJudgeConfig(config);
+  } catch (err) {
+    if (err instanceof JudgeConfigError) {
+      process.stderr.write(`[attribution-judge] FATAL: ${err.message}\n`);
+      return EXIT_CONFIG_INVALID;
+    }
+    throw err;
+  }
 
   initAttributionJudgeLogger(resolveAttributionJudgeLogDir(config));
 
@@ -493,8 +537,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
   process.stderr.write(
     `[attribution-judge] worker exit claimed=${result.claimed} completed=${result.completed} ` +
-      `idempotent=${result.idempotent} anomaly=${result.anomaly} errored=${result.errored} ` +
-      `deadLettered=${result.deadLettered} requeued=${result.requeued} leaseLost=${result.leaseLost}\n`,
+      `idempotent=${result.idempotent} guarded=${result.guarded} anomaly=${result.anomaly} ` +
+      `errored=${result.errored} deadLettered=${result.deadLettered} requeued=${result.requeued} ` +
+      `leaseLost=${result.leaseLost}\n`,
   );
 
   await shutdownAttributionJudgeLogger();

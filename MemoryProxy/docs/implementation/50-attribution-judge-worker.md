@@ -574,3 +574,92 @@ CREATE INDEX IF NOT EXISTS idx_ase_asset   ON attribution_status_events(asset_id
   T5 以 worker 层实证 + 常量内容断言（常量 → provider 方法 → detail_json 全链）。
   **不选 e2e 字节级对账**：那需要 injectedBody 全文比对装置（40 spec §8.3 验收③的既有装置），
   属 40 的验收面；本节只保证"类别声明可被对账方读到"（对账材料落库），不重复造装置。
+
+## 15 真 provider 接入（§9.4 第一半 / A6；60 落地）
+
+> 本节是 §9 第 4 项的前半：判定来源从"永远是确定性规则"推进到"**可以是真的 LLM**"。
+> `round>0` 重判 / `trigger` / `task_boundary`（A7）＝下一单；本单 enqueue 仍 `round=0`。
+>
+> **方向反转登记（F1）**：`create-judge.ts` 原头注理由 = "未知 provider ⇒ 降级 mock + warn；
+> worker 是独立进程，配置写错就让进程起不来（crash-loop）比降级 mock 危险得多，且 mock 产出带
+> `judge_impl=mock:v1` 落表可见"。**A6 推翻**：判定的消费方是人类与后续汇总，"落表可见"不足以
+> 对冲"**假判定被当真实归因**"——尤其 `asset_used`（§14）已开始把 confirmed 当"使用"汇总。
+> 新口径：**fail-closed**（未知/缺参 ⇒ 启动失败），crash-loop 顾虑改由
+> "配置校验在 `getDb()` **之前**、一次性判死、**不重试**"处理。原理由文字保留在 create-judge 头注
+> （并排新理由，不覆盖）。
+
+### 15.1 C1 · fail-closed（启动期校验）
+
+- `validateJudgeConfig(config)`（`create-judge.ts` 导出纯函数，不联网）：`provider ∈ {mock, mechanical, real}`；
+  `real` 还需 C2 必需参数齐备。不合法 ⇒ throw `JudgeConfigError`。
+- `main()` 流程调整：`parseWorkerArgs → buildConfig → **validateJudgeConfig**（此处在 `getDb()` 之前）
+  → initLogger → 探库 → …`；catch `JudgeConfigError` ⇒ 明确 stderr（含 provider 名/缺哪个参数）
+  + **`EXIT_CONFIG_INVALID = 3`** + **不重试**（进程退出，由外部重启策略决定，不内部重试）。
+- `mock` / `mechanical` 行为不变；**`provider` 缺省仍 `"mock"`**（缺省关闭不变）。
+- `createJudge` 自身同样 fail-closed（throw `JudgeConfigError`，防御 buildWorkerDeps 被其它入口调用）。
+
+### 15.2 C2 · 配置面（命名与缺省值定稿）
+
+```ts
+// AttributionJudgeConfig 扩展（types.ts）
+provider: string;            // "mock"(缺省) | "mechanical" | "real"；未知 ⇒ 启动失败（C1）
+real?: {
+  baseUrl: string;           // OpenAI-compatible 基址（本单请求打到 `${baseUrl}/chat/completions`）
+  apiKey: string;
+  model: string;
+  timeoutMs?: number;        // 缺省 30000；纯本地参数，有缺省
+};
+```
+
+- **缺省值口径**：`baseUrl` / `apiKey` / `model` **无缺省**（缺任一 ⇒ C1 fail-closed，**绝不**"用缺省值去连空地址"）；
+  env 兜底 `TDAI_ATTRIBUTION_JUDGE_BASE_URL` / `_API_KEY` / `_MODEL`（config 优先于 env）。
+- **密钥纪律**：`apiKey` 只从 config/env 读，**绝不落库、绝不进日志、绝不进 payload/detail_json**；
+  报告给"全库 + 全日志 grep 零命中"证据（照 51 `attributionSessionKey` 纪律姿势）。
+
+### 15.3 C3 · 响应白名单解析（写死）
+
+严格解析**恰好一个** JSON 对象，字段白名单 `{asset_id, verdict, rationale_ref}`：
+
+| 类别 | 触发 |
+|---|---|
+| `too_large` | 响应文本 > **65536** 字符（上限写死） |
+| `not_json` | trim 后非 `{` 开头 / 非 `}` 结尾（含前后解释文字）/ `JSON.parse` 失败 / 顶层非对象（数组、null、裸标量） |
+| `multiple_objects` | trim 后文本含 `}\s*{`（两个对象拼接） |
+| `unknown_field` | 存在白名单外键 |
+| `missing_field` | 白名单键缺失 |
+| `type_error` | `asset_id` 非 `string\|null` 或 `rationale_ref` 非 `string` |
+| `bad_verdict` | `verdict ∉ {confirmed, refuted, unconfirmed}` |
+
+**任何**畸形 ⇒ 该行判定 = `unconfirmed`（`assetId: null`、`rationaleRef: "malformed:<category>"`）
++ **按类别计数**（`getRealProviderMalformedCounters()`）；**不 throw、不猜、不"取第一个能解析的"、不取部分字段**。
+
+**外层包装与内层的分界（写死）**：HTTP 非 200 / 响应非 OpenAI-compatible 形状
+（`choices[0].message.content` 非 string）⇒ **throw**（服务契约破坏 ⇒ 走 C5 fail/重试路径）；
+仅**模型自由文本**畸形 ⇒ `unconfirmed`（判定产物，重试无意义）。
+
+### 15.4 C4 · 幻觉护栏（worker 边界，所有 provider 一律生效）
+
+`applyHallucinationGuard(verdict, candidates)`（纯函数，`worker.ts` 导出，供直测）：
+
+```
+verdict.assetId !== null && !candidates.some(c => c.assetId === verdict.assetId)
+  ⇒ { assetId: null, verdict: "unconfirmed", rationaleRef: `guard:asset_not_in_candidates:<assetId>` }
+```
+
+- 触发 ⇒ `result.guarded += 1`（cycle result 新字段 + main 退出摘要）；**不改选其它候选**（不猜）。
+- **只放 worker 边界**（校验在信任边界这一侧；provider 不可信输入源，不许下放到各 provider 自证诚实）；
+  对 `mock` / `mechanical` / `real` **一律生效**（T2 断言三者均过闸）。
+
+### 15.5 C5 · 超时/失败语义
+
+per-call timeout = `real.timeoutMs`（AbortController + abort；**不引入新依赖**）；超时 / 网络错误 /
+非 200 / 包装畸形 ⇒ **throw** ⇒ 既有 `fail()` 重试/死信路径（**不新增**重试机制）；日志沿用 `judge-log`
+引用式（不塞响应全文）。
+
+### 15.6 C6 · prompt 消费
+
+请求体（OpenAI-compatible）：`POST ${baseUrl}/chat/completions`，`{model, temperature: 0,
+max_tokens: 512, messages: [{role: "user", content}]}`，其中
+`content = ATTRIBUTION_JUDGE_PROMPT_V1.text + "\n\nINPUT:\n" + JSON.stringify({unit: input.unit,
+candidates: input.candidates})`。`promptRef` 原样落表（链路不变）；`judge_impl = "real:" + model`
+（可辨识到具体模型；落 `judgement_details.judge_impl`）。

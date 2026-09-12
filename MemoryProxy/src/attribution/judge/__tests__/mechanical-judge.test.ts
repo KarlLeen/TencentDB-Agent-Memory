@@ -250,10 +250,12 @@ describe("58 · T3 缺省关闭（缺省 mock；显式才 mechanical）", () => 
     }
   });
 
-  it("createJudge 解析：mock / mechanical / 未知（fail-open mock + warn）", () => {
+  it("createJudge 解析：mock / mechanical / 未知（60 起 fail-closed：throw，不再降级 mock）", () => {
     expect(createJudge({ attribution: { judge: { provider: "mock" } } }).impl).toBe("mock:v1");
     expect(createJudge({ attribution: { judge: { provider: "mechanical" } } }).impl).toBe("mechanical:v1");
-    expect(createJudge({ attribution: { judge: { provider: "not-a-provider" } } }).impl).toBe("mock:v1");
+    expect(() => createJudge({ attribution: { judge: { provider: "not-a-provider" } } })).toThrow(
+      /unknown judge provider/,
+    );
     expect(createJudge({}).impl).toBe("mock:v1"); // 缺省
   });
 });

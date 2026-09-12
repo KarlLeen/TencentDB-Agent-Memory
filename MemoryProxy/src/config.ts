@@ -478,8 +478,10 @@ export function buildConfig(overrides: CliOverrides = {}): ProxyConfig {
       enabled: yaml.extraction?.enabled ?? DEFAULT_CONFIG.extraction.enabled,
       extractors: yaml.extraction?.extractors ?? DEFAULT_CONFIG.extraction.extractors,
     },
-    // 共享基座（v2 前置骨架）。逐字段守卫：错型/缺失一律回 DEFAULT_CONFIG（不抛，
-    // 与全仓 config 解析口径一致：配置写坏不应该让进程起不来）。
+    // 共享基座（v2 前置骨架）。逐字段守卫：错型/缺失一律回 DEFAULT_CONFIG（不抛）。
+    // ⚠️ 60 起 judge.**provider** 是唯一例外：字段本身照旧透传（不认识的值也原样带出去），
+    // 但 **语义校验在 worker 启动期**（validateJudgeConfig，`EXIT_CONFIG_INVALID`）——
+    // provider 写错 ⇒ fail-closed 起不来（A6：假判定比 crash 危险），不是这里回缺省。
     attribution: {
       judge: {
         // 总开关：只有显式 `true` 才入队；其余（含 "true" 字符串）一律 false。
@@ -492,6 +494,23 @@ export function buildConfig(overrides: CliOverrides = {}): ProxyConfig {
           yaml.attribution.judge.provider.trim().length > 0
             ? yaml.attribution.judge.provider.trim()
             : DEFAULT_CONFIG.attribution!.judge.provider,
+        // 60 · 真 provider 参数（仅 provider="real" 消费；缺项由 validateJudgeConfig
+        // 在启动期 fail-closed 点名，绝不"用缺省值去连空地址"）。
+        ...(yaml.attribution?.judge?.real
+          ? {
+              real: {
+                baseUrl: typeof yaml.attribution.judge.real.baseUrl === "string" ? yaml.attribution.judge.real.baseUrl.trim() : "",
+                apiKey: typeof yaml.attribution.judge.real.apiKey === "string" ? yaml.attribution.judge.real.apiKey.trim() : "",
+                model: typeof yaml.attribution.judge.real.model === "string" ? yaml.attribution.judge.real.model.trim() : "",
+                timeoutMs:
+                  typeof yaml.attribution.judge.real.timeoutMs === "number" &&
+                  Number.isFinite(yaml.attribution.judge.real.timeoutMs) &&
+                  yaml.attribution.judge.real.timeoutMs > 0
+                    ? Math.trunc(yaml.attribution.judge.real.timeoutMs)
+                    : undefined,
+              },
+            }
+          : {}),
         worker: {
           pollIntervalMs: positiveIntOrDefault(
             yaml.attribution?.judge?.worker?.pollIntervalMs,

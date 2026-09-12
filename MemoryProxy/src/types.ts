@@ -593,8 +593,26 @@ export interface AttributionJudgeConfig {
    * **缺省 false** ⇒ 零访问（硬约束：不允许"缺省也建表/也读库"）。
    */
   enqueue: boolean;
-  /** judge 实现。"mock" 是本期唯一实现；未知值 ⇒ 降级 mock + warn（不抛）。 */
+  /**
+   * judge 实现："mock"（缺省）| "mechanical" | "real"。
+   * **60 起 fail-closed（50 spec §15 C1）**：未知值 / real 缺参数 ⇒ worker 启动失败
+   * （`EXIT_CONFIG_INVALID`），**不再**降级 mock + warn（A6 推翻旧口径，见 create-judge 头注）。
+   */
   provider: string;
+  /**
+   * 60 · 真 provider 参数（仅 provider="real" 必需；缺任一必需项 ⇒ 启动失败，绝不连空地址）。
+   * ⚠️ apiKey 只从 config / env 读，**绝不落库、绝不进日志、绝不进 payload**。
+   */
+  real?: {
+    /** OpenAI-compatible 基址（请求打到 `${baseUrl}/chat/completions`）。 */
+    baseUrl: string;
+    /** 密钥（env 兜底 TDAI_ATTRIBUTION_JUDGE_API_KEY，config 优先）。 */
+    apiKey: string;
+    /** 模型名（env 兜底 TDAI_ATTRIBUTION_JUDGE_MODEL）。落 judge_impl = "real:" + model。 */
+    model: string;
+    /** per-call 超时 ms（缺省 30000）。 */
+    timeoutMs?: number;
+  };
   /** worker 进程侧参数（独立进程，不由 proxy 消费）。 */
   worker: AttributionJudgeWorkerConfig;
 }
@@ -934,6 +952,13 @@ export interface RawYamlConfig {
     judge?: {
       enqueue?: boolean;
       provider?: string;
+      /** 60 · 真 provider 参数（仅 provider="real" 消费；缺任一必需项 ⇒ 启动期 fail-closed）。 */
+      real?: {
+        baseUrl?: string;
+        apiKey?: string;
+        model?: string;
+        timeoutMs?: number;
+      };
       worker?: {
         pollIntervalMs?: number;
         batchSize?: number;

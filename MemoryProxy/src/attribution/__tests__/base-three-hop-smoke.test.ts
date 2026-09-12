@@ -16,9 +16,10 @@
  *   - judge 是 `mock`（本期唯一实现）：本装置验的是**落点形状与幂等**，
  *     不验任何"归因正确性"（基座只出度量，判定属 50 spec）。
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
+import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -207,6 +208,26 @@ interface WorkerRun {
   signal: NodeJS.Signals | null;
   stdout: string;
   stderr: string;
+}
+
+/**
+ * 60 · 异步版 worker 子进程（T5 专用）：真 provider 的 e2e 里 worker 要回调**主进程**的
+ * stub LLM server —— `spawnSync` 会阻塞主进程事件循环，stub 收不到请求（实测：全超时 abort）。
+ * 异步 spawn 不阻塞 ⇒ stub 可正常响应。
+ */
+function runWorkerOnceAsync(configPath: string): Promise<WorkerRun> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx/esm", path.join(pkgRoot, "src/attribution/worker.ts"), "--once", "--config", configPath],
+      { cwd: pkgRoot, env: { ...process.env, PROXY_DB_PATH: dbPath, PROXY_DATA_DIR: dataDir }, stdio: "pipe" },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+    child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+    child.on("close", (code, signal) => resolve({ status: code, signal, stdout, stderr }));
+  });
 }
 
 /** 真 worker 子进程（`--once`）：跨进程边界的唯一入口。configPath 缺省 = mock 配置。 */
@@ -808,6 +829,127 @@ describe("59 · T6 asset_used e2e（真 proxy + 真 worker 子进程（mechanica
       }
     } finally {
       await proxyT9.close();
+    }
+  }, 60_000);
+});
+
+describe("60 · T5 真 provider e2e（本地 stub LLM + 真 worker 子进程 + 真库）", () => {
+  it("real:v1 全链：judge_impl/prompt_sha256/verdict/asset_id 正确落库 + status 照落 + 密钥零命中", async () => {
+    const T10 = "base-3hop-t10";
+    const STUB_KEY = "stub-key-60-e2e"; // 只在请求头上出现；断言库/日志/响应面零命中
+
+    // 本地 stub LLM（F7：不碰真网络、不需真凭据）
+    const llmReqs: Array<{ auth: string | undefined; body: Record<string, unknown> }> = [];
+    const llm = http.createServer((req, res) => {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        llmReqs.push({ auth: req.headers.authorization, body: JSON.parse(raw) as Record<string, unknown> });
+        res
+          .writeHead(200, { "content-type": "application/json" })
+          .end(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      asset_id: "skl-s4-smoke-0001",
+                      verdict: "confirmed",
+                      rationale_ref: "stub-r1",
+                    }),
+                  },
+                },
+              ],
+            }),
+          );
+      });
+    });
+    llm.listen(0, "127.0.0.1");
+    await once(llm, "listening");
+    const llmPort = (llm.address() as AddressInfo).port;
+
+    const t10Config = baseConfig(upstream.url, kernel.url, ["skill"], true);
+    t10Config.injection.bridgeFetchEvents = { enabled: true };
+    const proxyT10 = await startProxy(t10Config);
+    const realWorkerConfigPath = path.join(tmpDir, "worker-real-t5.yaml");
+    fs.writeFileSync(
+      realWorkerConfigPath,
+      `attribution:\n  judge:\n    provider: real\n    real:\n      baseUrl: http://127.0.0.1:${llmPort}/v1\n      apiKey: ${STUB_KEY}\n      model: stub-model\n      timeoutMs: 10000\n`,
+      "utf8",
+    );
+    try {
+      const headers = SESSION_HEADERS(T10);
+      const bridgeHeaders = { "x-conversation-id": T10, authorization: "Bearer sk-mem-base-local" };
+      const body = (messages: unknown[]): unknown => ({
+        model: "claude-base-3hop-stub",
+        max_tokens: 64,
+        stream: false,
+        system: "You are Claude Code (base-3hop).",
+        messages,
+      });
+      const H = (text: string): unknown => ({ role: "user", content: text });
+      const EDIT = (id: string, file: string): unknown => ({
+        role: "assistant",
+        content: [{ type: "tool_use", id, name: "Edit", input: { file_path: file } }],
+      });
+      const RES = (id: string): unknown => ({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+      });
+      const main = (messages: unknown[]) =>
+        postJson(proxyT10.port, `/claude-code/${SPACE_ID}/v1/messages`, body(messages), headers);
+      const fetchSkill = (skillId: string) =>
+        postJson(proxyT10.port, "/skill-bridge/v3/skill/get", { skill_id: skillId, name: skillId }, bridgeHeaders);
+
+      const m0: unknown[] = [H("改 skl-t10-f1.ts")];
+      expect((await main(m0)).status).toBe(200);
+      await sleep(150);
+      expect((await fetchSkill("skl-t10-f0")).status).toBe(200);
+      await sleep(150);
+      const m1: unknown[] = [...m0, EDIT("e1", "skl-t10-f1.ts"), RES("e1")];
+      expect((await main(m1)).status).toBe(200);
+      await sleep(150);
+      expect((await fetchSkill("skl-t10-f1")).status).toBe(200);
+      await sleep(150);
+      const m2: unknown[] = [...m1, EDIT("e2", "c-t10.ts"), RES("e2")];
+      expect((await main(m2)).status).toBe(200);
+      expect(await waitFor(() => queueRows("pending", T10).length >= 1), "T10 单元未入队").toBe(true);
+
+      const run = await runWorkerOnceAsync(realWorkerConfigPath);
+      if (run.status !== 0) {
+        throw new Error(`T10 worker --once 退出码 ${run.status}\n--- stderr ---\n${run.stderr}`);
+      }
+      // 真 provider ⇒ 每个单元一次 LLM 调用（审计面：请求数 = 单元数）
+      const jdRows = getAttributionJudgementDetailsRepo().listBySession(T10);
+      expect(jdRows.length).toBeGreaterThanOrEqual(1);
+      const jd = jdRows[0]!;
+      console.log(
+        `T5 观测 → judge_impl=${jd.judge_impl} verdict=${jd.verdict} asset=${jd.asset_id} ` +
+          `prompt_sha=${(jd.prompt_sha256 ?? "(null)").slice(0, 12)}… llm_calls=${llmReqs.length} stderr 摘要=${run.stderr.trim().split("\n").at(-1)}`,
+      );
+      expect(jd.judge_impl).toBe("real:stub-model");
+      expect(jd.verdict).toBe("confirmed");
+      expect(jd.asset_id).toBe("skl-s4-smoke-0001");
+      expect(jd.prompt_sha256).toBe(sha256Hex(ATTRIBUTION_JUDGE_PROMPT_V1.text)); // C6：链路不变
+      expect(llmReqs.length).toBe(jdRows.length);
+      expect(llmReqs[0]!.auth).toBe(`Bearer ${STUB_KEY}`); // 密钥在请求头（传输面）
+      const llmMsgs = llmReqs[0]!.body.messages as Array<{ content: string }>;
+      expect(llmMsgs[0]!.content).toContain("exactly one JSON object");
+      expect(llmMsgs[0]!.content).toContain("INPUT:");
+
+      // 59 联动：real 判定 confirmed ⇒ asset_used 照常落
+      expect(getAttributionStatusEventsRepo().listByUnit(jd.unit_id).length).toBe(1);
+
+      // 密钥纪律零命中（C2）：库文件 + judge log + detail_json 均不得含 key
+      const dbBytes = fs.readFileSync(dbPath);
+      expect(dbBytes.includes(STUB_KEY), "库文件零命中").toBe(false);
+      const logFile = path.join(dataDir, "attribution-judge.log");
+      const logText = fs.existsSync(logFile) ? fs.readFileSync(logFile, "utf8") : "";
+      expect(logText.includes(STUB_KEY), "judge 日志零命中").toBe(false);
+      expect(jd.detail_json.includes(STUB_KEY), "detail_json 零命中").toBe(false);
+    } finally {
+      await proxyT10.close();
+      await new Promise<void>((resolve) => llm.close(() => resolve()));
     }
   }, 60_000);
 });
