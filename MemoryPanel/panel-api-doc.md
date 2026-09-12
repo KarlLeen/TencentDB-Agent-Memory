@@ -1221,6 +1221,45 @@ KS → Panel 的 S2S 状态回调（ingest/sync 完成或进度更新）。**无
 
 ---
 
+## 3.13 归因面板（Attribution；76 · S7-c）
+
+> 数据源 = context-proxy 的 `/v3/admin/attribution/*`（只读 DTO + 池查询 + 状态写口；
+> 契约的权威定义在 `docs/implementation/70-panel-read-and-audit-pool.md`，本节的 BFF 面照它做）。
+> **页面级展示约束是契约、不是样式**——三条硬约束见 §3.13.4。
+
+### 3.13.1 端点（RPC；全 POST；三头鉴权同 §1.2）
+
+| 接口 | 请求体 | 响应 `data` |
+|---|---|---|
+| `POST /attribution/sessions` | `{ since?, limit, space_id? }`（**`since` 与 `limit` 至少给一个**，缺 ⇒ 400 `UNBOUNDED_QUERY_REJECTED`） | `{ sessions: [{ session_key, space_id, first_event_at, last_event_at, counts{units,judged,unconfirmed,used,corrected,pending,failed} }], truncated }` |
+| `POST /attribution/receipt` | `{ session_key, limit?, offset? }`（缺 `session_key` ⇒ 400 `MISSING_SESSION_KEY`） | 回执 DTO：`{ session{…,assets[]}, counts, overflow{pending,note}, units[{unit_id,kind,unit_type,turn_seq,msg_seq,created_at,judgement|null,status_events[],missing[]}], truncated }` |
+| `POST /attribution/pool` | `{ category?, space_id?, limit?, offset? }` | `{ items[{audit_key,unit_id,round,category,categories[],verdict,judge_impl,rationale_ref,session_key,created_at}], counts_by_category, truncated }` |
+| `POST /attribution/review` | `{ audit_key, prev_status, status, note? }` | `{ review_id, status, prev_status, kind: "inserted"\|"duplicate" }` |
+
+### 3.13.2 鉴权与 `actor` 注入（硬）
+
+- 四端点均走 §1.2 三头；**缺 `x-tdai-user-key`（且无 IdP 会话）⇒ 400 `MISSING_USER_KEY`**（**不匿名**）；
+- `review` 的 **`actor` 由服务端从 `x-tdai-user-key` 注入**——请求体里的任何 `actor` 字段**一律忽略**（审计身份不可伪造）；
+- 状态迁移只允许（自迁移禁，违规 ⇒ 400，proxy 侧兜底）：`unreviewed→{confirmed,dismissed,needs_fix}`、`confirmed→{needs_fix,dismissed}`、`dismissed→{needs_fix}`、`needs_fix→{confirmed,dismissed}`；`note` ≤ 2000。
+
+### 3.13.3 fail-closed 与配置（硬）
+
+- 服务端凭证 = env `ATTRIBUTION_PROXY_ADMIN_KEY`（+ `ATTRIBUTION_PROXY_BASE_URL` / `ATTRIBUTION_TIMEOUT_MS`）；
+  **只在服务端**：不下发浏览器、不进日志/错误文案；
+- **`proxyAdminKey` 缺失 ⇒ 503 `ATTRIBUTION_PROXY_NOT_CONFIGURED`**（**不是** 200 空列表）；
+- **空态三因必须可区分**（前端按码分支）：未配置 key（`_NOT_CONFIGURED`）/ 上游不可达（`_UNREACHABLE`/`_UNAVAILABLE`）/ 无数据（`code:0` + 空集）——**"页面能开但空"不得被读成"无数据"**。
+
+### 3.13.4 页面级展示约束（契约）
+
+1. **快照 ≠ 当前值（68 D1）**：corrected 行**必须**显示**检测时间**（`detected_at`）并标注"**检测时快照**"；**禁止**出现"当前版本"字样（`latest_version` 只是检测时快照）；
+2. **粒度 = 轮（K2）**：`turn_seq`/`msg_seq` 原样透传，不得合成更细粒度；
+3. **溢出可表达**：必须能显示"另有 N 个次要决策未逐一归因（top-N 闸门；保持 pending，下轮 FIFO 优先）"；
+4. tombstone（`tombstone:result_missing`）= "未执行"类：**单列、不进 suspect 标记**（与抽查池的硬排除一致）。
+
+**错误码**（面板稳定枚举，见 §4.3）；**错误文案不泄漏 key、不回显 proxy 原始 message/栈**。
+
+---
+
 ## 4. 附录
 
 ### 4.1 废弃接口
@@ -1303,3 +1342,14 @@ KS → Panel 的 S2S 状态回调（ingest/sync 完成或进度更新）。**无
 | 403 | NOT_YOUR_AGENT | 非 agent owner |
 | 404 | AGENT_NOT_FOUND | agent 不存在 |
 | 500 | SKILL_DELETE_FAILED | 级联删除 skill 失败 |
+
+**Attribution（76 · S7-c）**
+
+| HTTP | message | 说明 |
+|---|---|---|
+| 400 | MISSING_USER_KEY / INVALID_BODY / MISSING_SESSION_KEY / UNBOUNDED_QUERY_REJECTED | BFF 层参数校验 |
+| 400 | ATTRIBUTION_PROXY_BAD_REQUEST | 上游 proxy 参数拒绝（原始细节只进服务端日志） |
+| 401 | ATTRIBUTION_PROXY_UNAUTHORIZED | proxy 拒绝 admin key（检查 `ATTRIBUTION_PROXY_ADMIN_KEY`） |
+| 404 | ATTRIBUTION_PROXY_NOT_FOUND | 目标不存在 |
+| 502 | ATTRIBUTION_PROXY_UNREACHABLE / ATTRIBUTION_PROXY_PROTOCOL_ERROR | 上游不可达 / 响应非信封 |
+| 503 | ATTRIBUTION_PROXY_NOT_CONFIGURED / ATTRIBUTION_PROXY_UNAVAILABLE | 未配置 key（fail-closed）/ 上游暂不可用 |

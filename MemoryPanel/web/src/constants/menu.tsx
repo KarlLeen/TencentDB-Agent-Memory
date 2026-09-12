@@ -14,6 +14,8 @@ import {
   CodeIcon,
   ToolsIcon,
   ChatIcon,
+  RootListIcon,
+  BrowseIcon,
 } from 'tea-icons-react';
 
 export type PageId =
@@ -25,7 +27,9 @@ export type PageId =
   | 'team_members'
   | 'team_agents'
   | 'api_keys'
-  | 'analytics';
+  | 'analytics'
+  | 'attribution_receipt'
+  | 'audit_pool';
 
 /** 页面元数据 */
 export interface PageMeta {
@@ -46,6 +50,9 @@ export function usePageMeta(): Record<PageId, PageMeta> {
   return {
     workbench_board: { id: 'workbench_board', label: t('menu.workbench_board'), desc: t('menu.desc.workbench_board'), group: t('menu.group.workbench'), order: 0, affix: true },
     analytics:      { id: 'analytics',      label: t('menu.analytics'), desc: t('menu.desc.analytics'), group: t('menu.group.observability'), order: 0 },
+    // 76 · S7-c：归因两页（与 analytics 同组、order 紧随其后）。
+    attribution_receipt: { id: 'attribution_receipt', label: t('menu.attribution_receipt'), desc: t('menu.desc.attribution_receipt'), group: t('menu.group.observability'), order: 1 },
+    audit_pool:          { id: 'audit_pool',          label: t('menu.audit_pool'),          desc: t('menu.desc.audit_pool'),          group: t('menu.group.observability'), order: 2 },
     wiki:            { id: 'wiki',            label: t('menu.wiki'), desc: t('menu.desc.wiki'), group: t('menu.group.assets'), order: 2 },
     code:            { id: 'code',            label: t('menu.code'), desc: t('menu.desc.code'), group: t('menu.group.assets'), order: 3 },
     skills:          { id: 'skills',          label: t('menu.skills'), desc: t('menu.desc.skills'), group: t('menu.group.assets'), order: 4 },
@@ -77,6 +84,8 @@ export const ITEM_ICON: Record<PageId, JSX.Element> = {
   code: <CodeIcon size={16} />,
   skills: <ToolsIcon size={16} />,
   chat_memory: <ChatIcon size={16} />,
+  attribution_receipt: <RootListIcon size={16} />,
+  audit_pool: <BrowseIcon size={16} />,
 };
 
 /** 分组图标（工作台 / 可观测 / 组织与权限 / 资产管理） */

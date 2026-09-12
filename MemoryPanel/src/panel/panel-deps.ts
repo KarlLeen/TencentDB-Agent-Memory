@@ -10,6 +10,8 @@ import type { KernelHttpPort } from './kernel/ports/kernel-http-port.js';
 import type { MetaKernelPort } from './kernel/ports/meta-kernel-port.js';
 import type { SkillKernelPort } from './kernel/ports/skill-kernel-port.js';
 import type { AnalyticsKernelPort } from './kernel/ports/analytics-kernel-port.js';
+import type { AttributionProxyPort } from './kernel/ports/attribution-proxy-port.js';
+import { FetchAttributionProxyAdapter } from './kernel/adapters/fetch-attribution-proxy-adapter.js';
 import type { Logger } from './infra/logger.js';
 import type { KnowledgeClientPort } from './kernel/ports/knowledge-client-port.js';
 import { HttpKnowledgeClient } from './kernel/adapters/http-knowledge-client.js';
@@ -30,6 +32,11 @@ export interface PanelDeps {
   skillKernel: SkillKernelPort;
   /** 内核 /v3/analytics/* 查询面透明代理（GET/POST 按 action 分流）。 */
   analyticsKernel: AnalyticsKernelPort;
+  /**
+   * 76 · S7-c：context-proxy 归因 admin 面（`/v3/admin/attribution/*`）。
+   * **独立凭证**（`config.attribution`；不复用内核 toKernelCredentials）——fail-closed。
+   */
+  attributionProxy: AttributionProxyPort;
   /** Knowledge 抽取任务内存态：create 时 stash owner key，callback ready 时取出注册 meta asset。 */
   knowledgeTaskRegistry: KnowledgeTaskRegistry;
   /** Wiki ingest 细粒度进度（KS ingest_progress 回调写入；wiki/get 聚合读出）。 */
@@ -59,6 +66,8 @@ export function buildPanelDeps(config: PanelConfig): PanelDeps {
     });
   const skillKernel = new FetchSkillKernelAdapter(kernelHttp, config.metadataRemoteTimeoutMs);
   const analyticsKernel = new FetchAnalyticsKernelAdapter(kernelHttp, config.metadataRemoteTimeoutMs);
+  // 76 · S7-c：归因 admin 面适配器（独立 fetch；凭证来自 config.attribution）。
+  const attributionProxy = new FetchAttributionProxyAdapter(logger);
   const knowledgeTaskRegistry = new KnowledgeTaskRegistry();
   const ingestProgressStore = new IngestProgressStore();
   // instance_id → gateway 参数：telemetry backfill 需要 per-instance 调 auth/verify
@@ -91,6 +100,7 @@ export function buildPanelDeps(config: PanelConfig): PanelDeps {
     knowledgeClientFactory,
     skillKernel,
     analyticsKernel,
+    attributionProxy,
     knowledgeTaskRegistry,
     ingestProgressStore,
     apiCallTelemetry,

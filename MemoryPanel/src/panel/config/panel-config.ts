@@ -101,6 +101,19 @@ export interface PanelConfig {
     sync: boolean;
     proxyBaseUrl: string;
   };
+  /**
+   * 76 · S7-c：归因面板（回执 + 抽查池）访问 context-proxy admin 面的凭证。
+   *
+   * 语义边界：**不复用** `knowledgeLlmBinding.proxyBaseUrl`（那块是"知识库 LLM 记账"），
+   * **不用** `toKernelCredentials`（内核 instance+api_key+user_key 语义）——本块是
+   * "Panel → proxy admin 面的固定服务端静态密钥"，生命周期与信任模型均不同。
+   * `proxyAdminKey` **只在服务端**：不下发浏览器、不进日志/错误文案；缺失 ⇒ fail-closed。
+   */
+  attribution: {
+    proxyBaseUrl: string;
+    proxyAdminKey: string;
+    timeoutMs: number;
+  };
   /** 默认 Agent 模板文件的本地存储目录根（存 Panel 本地，按 {dir}/{instanceId}/{team_id}/template.json）。 */
   agentTemplateDir: string;
   /**
@@ -227,6 +240,12 @@ export function loadPanelConfig(): PanelConfig {
     knowledgeLlmBinding: {
       sync: envBool('KNOWLEDGE_LLM_BINDING_SYNC', true),
       proxyBaseUrl: env('KNOWLEDGE_LLM_PROXY_BASE_URL', 'http://127.0.0.1:8096'),
+    },
+    // 76 · S7-c：归因面板凭证（照 knowledge 块惯例；key 缺省空 ⇒ 端点 fail-closed）。
+    attribution: {
+      proxyBaseUrl: env('ATTRIBUTION_PROXY_BASE_URL', 'http://127.0.0.1:8096'),
+      proxyAdminKey: env('ATTRIBUTION_PROXY_ADMIN_KEY', ''),
+      timeoutMs: envInt('ATTRIBUTION_TIMEOUT_MS', 15_000),
     },
     agentTemplateDir: env('TDAI_AGENT_TEMPLATE_DIR', './data/agent-templates'),
     // 默认关闭（保守）：可观测页依赖内核 ClickHouse 埋点，未接入的部署不展示入口。
