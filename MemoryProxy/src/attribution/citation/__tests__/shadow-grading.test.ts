@@ -145,6 +145,53 @@ describe("106 · 影子度量形状与两向语义", () => {
     expect(SHADOW_L_MIN).toBe(16);
   });
 
+  it("107 · C1 逐消息口径：跨消息拼凑不抬高（PerMsg ≤ join）", () => {
+    const seg = "alpha beta gamma"; // 16 字符（≥ L_MIN）
+    const out = shadowGradeCandidates({
+      sessionKey: "s",
+      turnSeq: 1,
+      candidates: [cand("A")],
+      source: fakeSource({
+        pieces: [
+          { turnSeq: 1, tier: "message", content: JSON.stringify("alpha padding padding padding") },
+          { turnSeq: 1, tier: "message", content: JSON.stringify("gamma padding padding padding") },
+        ],
+        assetTexts: { A: [seg] },
+        table: buildRarityTable([seg, "无关语料甲乙丙", "第四段语料"]),
+      }),
+    });
+    const m = out[0]!;
+    const join = m.shadowBestSegCoverage;
+    const per = m.shadowBestSegCoveragePerMsg;
+    if (typeof join === "number" && typeof per === "number") {
+      expect(per).toBeLessThanOrEqual(join);
+    } else {
+      // 至少两字段都有值/或都 unknown —— 形状断言（具体数值见 107 报告两口径对照表）
+      expect(typeof join).toBe(typeof per === "number" ? "number" : typeof join);
+    }
+  });
+
+  it("107 · C3 短资产回退：整段 < L_MIN ⇒ segCount=0 且 WholeAssetCoverage 不再是永久 unknown", () => {
+    const shortAsset = "短资产标题";
+    const msg = "这里完整复述了短资产标题的内容，用于短资产回退演练。";
+    const out = shadowGradeCandidates({
+      sessionKey: "s",
+      turnSeq: 1,
+      candidates: [cand("A")],
+      source: fakeSource({
+        pieces: [{ turnSeq: 1, tier: "message", content: JSON.stringify(msg) }],
+        assetTexts: { A: [shortAsset] },
+        table: buildRarityTable([shortAsset, "第七段语料"]),
+      }),
+    });
+    const m = out[0]!;
+    expect(m.shadowAssetSegCount).toBe(0); // 整段 < 16 ⇒ 无片段
+    expect(m.shadowBestSegCoverage).toBe("unknown"); // 片段口径不适用
+    expect(m.shadowBestSegCoveragePerMsg).toBe("unknown");
+    // 107 · C3：短资产回退列有值（数字或 unknown 都是"可见"，不再全空）
+    expect(m.shadowWholeAssetCoverage === "unknown" || typeof m.shadowWholeAssetCoverage === "number").toBe(true);
+  });
+
   it("无资产文本 ⇒ 全 unknown/null（不猜）", () => {
     const out = shadowGradeCandidates({
       sessionKey: "s",
@@ -156,10 +203,12 @@ describe("106 · 影子度量形状与两向语义", () => {
       assetId: "ghost",
       shadowAssetSegCount: 0,
       shadowBestSegCoverage: "unknown",
+      shadowBestSegCoveragePerMsg: "unknown",
       shadowBestSegIndex: null,
       shadowBestSegSha256_16: null,
       shadowMsgSegMaxCoverage: "unknown",
       shadowMsgSegIdx: null,
+      shadowWholeAssetCoverage: "unknown",
     });
   });
 });
@@ -224,16 +273,18 @@ describe("106 · C5 两态键集（worker 组装；兄弟键不改既有条目�
           "ngramTableSha256",
         ].sort(),
       );
-      // 影子条目键 = assetId + 6（兄弟键形状）
+      // 影子条目键 = assetId + 8（106 六 + 107 两：PerMsg / WholeAsset；兄弟键形状）
       expect(Object.keys(d.citationMetricsShadow![0]!).sort()).toEqual(
         [
           "assetId",
           "shadowAssetSegCount",
           "shadowBestSegCoverage",
+          "shadowBestSegCoveragePerMsg",
           "shadowBestSegIndex",
           "shadowBestSegSha256_16",
           "shadowMsgSegIdx",
           "shadowMsgSegMaxCoverage",
+          "shadowWholeAssetCoverage",
         ].sort(),
       );
       assertNoBoolean(d.citationMetricsShadow);

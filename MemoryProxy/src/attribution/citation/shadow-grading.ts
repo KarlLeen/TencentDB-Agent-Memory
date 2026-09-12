@@ -25,17 +25,25 @@ import { stripRenderWrappers } from "./wrapper-registry.js";
 /** 片段长度下限（常量；报告给敏感性扫描 —— 106 C7-4 / R5）。 */
 export const SHADOW_L_MIN = 16;
 
-/** 每候选 4+2 个零布尔数字（(d2) 主 4 + (d1) 附带 2）。 */
+/** 每候选 4+2 个零布尔数字（(d2) 主 4 + (d1) 附带 2）；
+ *  **107**：+`shadowBestSegCoveragePerMsg`（逐消息 max 口径，F-a 补强）+ `shadowWholeAssetCoverage`
+ *  （短资产回退，F-c 补强）。**旧字段 `shadowBestSegCoverage` 语义不改**（join 口径，供两口径对照）。 */
 export interface CandidateShadowMetrics {
   assetId: string;
   /** (d2) 主向：资产行级片段 ⊆ 会话消息 */
   shadowAssetSegCount: number;
+  /** join 口径（**107 起不改义**，作对照保留）：`gramCoverage(join(消息面), 片段)` 的全段 max。 */
   shadowBestSegCoverage: number | "unknown";
+  /** **107 · C1**：逐消息口径 —— `max over (片段 × 单条消息)` 的 coverage（不做 join，防跨消息 trigram 拼凑）。 */
+  shadowBestSegCoveragePerMsg: number | "unknown";
   shadowBestSegIndex: number | null;
   shadowBestSegSha256_16: string | null;
   /** (d1) 向（附带）：消息行级片段 ⊆ 资产正文 */
   shadowMsgSegMaxCoverage: number | "unknown";
   shadowMsgSegIdx: number | null;
+  /** **107 · C3**：短资产回退 —— 仅当 `shadowAssetSegCount === 0` 时计算 `gramCoverage(消息面, 资产全文)`
+   *  （"资产整体 ⊆ 消息"的覆盖比；只记录只报数），否则 `"unknown"`（不适用）。 */
+  shadowWholeAssetCoverage: number | "unknown";
 }
 
 function segmentsOf(text: string, lMin: number): string[] {
@@ -76,10 +84,12 @@ export function shadowGradeCandidates(input: {
       assetId: candidate.assetId,
       shadowAssetSegCount: 0,
       shadowBestSegCoverage: "unknown",
+      shadowBestSegCoveragePerMsg: "unknown",
       shadowBestSegIndex: null,
       shadowBestSegSha256_16: null,
       shadowMsgSegMaxCoverage: "unknown",
       shadowMsgSegIdx: null,
+      shadowWholeAssetCoverage: "unknown",
     };
     // 无资产文本可比 ⇒ 全 unknown/null（不猜；与 grading 的 null 路径同姿势）。
     if (!rawTexts || rawTexts.length === 0) return base;
@@ -98,6 +108,24 @@ export function shadowGradeCandidates(input: {
     }
     base.shadowAssetSegCount = assetSegs.length;
     base.shadowBestSegCoverage = isCoverageKnown(bestCov) ? bestCov : "unknown";
+
+    // 107 · C1：逐消息口径（**不 join**）——max over (片段 × 单条消息)，防跨消息 trigram 拼凑（F-a）。
+    let bestPerMsg = Number.NaN;
+    for (const seg of assetSegs) {
+      for (const msg of msgTexts) {
+        const cov = gramCoverage(msg, seg, table).coverage;
+        if (isCoverageKnown(cov) && (!isCoverageKnown(bestPerMsg) || cov > bestPerMsg)) {
+          bestPerMsg = cov;
+        }
+      }
+    }
+    base.shadowBestSegCoveragePerMsg = isCoverageKnown(bestPerMsg) ? bestPerMsg : "unknown";
+
+    // 107 · C3：短资产回退（F-c）——segCount === 0 时记"资产整体 ⊆ 消息"覆盖比（只记录只报数）。
+    if (assetSegs.length === 0) {
+      const whole = gramCoverage(msgText, assetText, table).coverage;
+      base.shadowWholeAssetCoverage = isCoverageKnown(whole) ? whole : "unknown";
+    }
 
     // (d1) 向：消息行级片段 ⊆ 资产正文（quote = 消息片段，window = 资产正文）。
     const msgSegs = msgTexts.flatMap((t) => segmentsOf(t, lMin));

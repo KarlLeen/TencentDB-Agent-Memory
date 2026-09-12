@@ -967,3 +967,7 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   真库负例 `shadowBestSegCoverage = 0.000`（covMax）；构造正例（真库块文本取材）整行 = 1、行一部分 ≈ 0.61、
   轻微改写 ≈ 1 ⇒ **分离区间 (0, 0.61]**（只报数，不定案）；`L_MIN` 16/8/32 下负例恒 0、正例恒 1。
   切换判定 = **(d)-2**（须重标定，单独成单）。
+- **标定台补强（随单条；2026-09-12，append-only）**：`107` 起 (d2) 增**逐消息口径**
+  （`shadowBestSegCoveragePerMsg`；旧 join 字段不改义、并存对照）+ **短资产回退列**（`shadowWholeAssetCoverage`）。
+  **hard negatives 四类**（同主题散文 / 他资产的行 / 去引用改写 / 常见短语；trigram∩目标行 = 25/17/198/28）
+  ⇒ **重叠区 [0.605, 0.877]：当前口径不可分**（如实推翻 106 "完美分离"的乐观读数；(d)-2 不得据此下阈值）。

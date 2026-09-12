@@ -394,6 +394,11 @@ visibleAssets 按原数组序）；双源合并不新增位置。
 **106 起影子度量旁路记录（(d)-1；判定未启用）**：与本节口径**并列**并行计算"(d2) 资产行级片段 ⊆ 会话消息 /
 (d1) 消息行级片段 ⊆ 资产正文"，只落 `detail_json.citationMetricsShadow` 的数字 + 片段指纹（sha256[:16]），
 **绝不落正文**、**判定层零读取**（阈值/真值表/`asset_used` 不变）。切换判定 = (d)-2（须重标定，单独成单）。
+**107 补强**：(d2) 增 **逐消息口径** `shadowBestSegCoveragePerMsg`（`max over (片段 × 单条消息)`，防跨消息
+trigram 拼凑；旧 `shadowBestSegCoverage` = join 口径**不改义**，供对照）；**短资产回退**列
+`shadowWholeAssetCoverage`（`segCount === 0` 时记"资产整体 ⊆ 消息"覆盖比，短资产不再永久不可见）。
+**标定台警示（107 C4）**：hard negatives（改写型，未算引用）cov 最高 **0.877** ≥ 构造正例 min **0.605**
+⇒ **重叠区 [0.605, 0.877]，当前口径不可分** —— (d)-2 不得据 106 的"完美分离"下阈值。
 
 1. **引文归一化命中**：对每个 piece，按 `exact → whitespace → punctuation` 逐级
    `normalizeForMatch(piece文本, level) ⊆ normalizeForMatch(资产文本, level)` 判定；
