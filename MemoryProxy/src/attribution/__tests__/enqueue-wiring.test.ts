@@ -70,6 +70,9 @@ class CountingQueueRepo implements AttributionJudgeQueueRepo {
   countByStatus(): Record<string, number> {
     return {};
   }
+  latestByUnit(): JudgeQueueRow | null {
+    return null;
+  }
 }
 
 let eventRepo: FakeEventRepo;

@@ -48,6 +48,7 @@ import {
   type AttributionJudgeQueueRepo,
   type JudgeQueueRow,
 } from "./judge-queue-repo.js";
+import { rejudgeUnit } from "./rejudge.js";
 import {
   getAttributionJudgementDetailsRepo,
   type AttributionJudgementDetailsRepo,
@@ -429,6 +430,8 @@ export interface WorkerCliOptions {
   configFile?: string;
   once: boolean;
   retryFailed: boolean;
+  /** 61 · 人工重判目标（50 spec §16 C2；`--rejudge <unit_id>`）。 */
+  rejudgeUnitId?: string;
 }
 
 export function parseWorkerArgs(argv: string[]): WorkerCliOptions {
@@ -437,7 +440,15 @@ export function parseWorkerArgs(argv: string[]): WorkerCliOptions {
     const arg = argv[i];
     if (arg === "--once") opts.once = true;
     else if (arg === "--retry-failed") opts.retryFailed = true;
-    else if (arg === "--config") {
+    else if (arg === "--rejudge") {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("--")) {
+        opts.rejudgeUnitId = next;
+        i += 1;
+      }
+    } else if (arg.startsWith("--rejudge=")) {
+      opts.rejudgeUnitId = arg.slice("--rejudge=".length);
+    } else if (arg === "--config") {
       const next = argv[i + 1];
       if (next && !next.startsWith("--")) {
         opts.configFile = next;
@@ -481,6 +492,8 @@ export const EXIT_DB_UNAVAILABLE = 2;
  * 明确报错退出，**绝不**降级 mock；校验在 getDb() 之前、一次性判死、不重试。
  */
 export const EXIT_CONFIG_INVALID = 3;
+/** 61 · `--rejudge` 目标没有首判行（50 spec §16 C2）：明确报错，零入队。 */
+export const EXIT_REJUDGE_TARGET_MISSING = 4;
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   const opts = parseWorkerArgs(argv);
@@ -519,6 +532,23 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   if (opts.retryFailed) {
     const n = deps.queueRepo.retryFailed();
     process.stderr.write(`[attribution-judge] retry-failed: ${n} row(s) reset to pending\n`);
+  }
+
+  // 61 · 人工重判（50 spec §16 C2）：新轮 = max(round)+1，trigger="manual"，旧行不动。
+  // 与 --once 可组合：先重判入队、再抽干消费（一步到位）。
+  if (opts.rejudgeUnitId) {
+    const out = rejudgeUnit({ unitId: opts.rejudgeUnitId });
+    if (!out.ok) {
+      process.stderr.write(
+        `[attribution-judge] FATAL: rejudge target not found (unit=${opts.rejudgeUnitId}) — ` +
+          `no prior queue row; nothing enqueued.\n`,
+      );
+      await shutdownAttributionJudgeLogger();
+      return EXIT_REJUDGE_TARGET_MISSING;
+    }
+    process.stderr.write(
+      `[attribution-judge] rejudge unit=${opts.rejudgeUnitId} round=${out.round} enqueued=${out.enqueued}\n`,
+    );
   }
 
   let stopping = false;

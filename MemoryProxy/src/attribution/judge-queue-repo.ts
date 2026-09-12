@@ -134,10 +134,22 @@ export interface AttributionJudgeQueueRepo {
   get(queueId: number): JudgeQueueRow | null;
   listByStatus(status: JudgeQueueStatus, limit?: number): JudgeQueueRow[];
   countByStatus(): Record<string, number>;
+  /** 61 · 该 unit 的最新轮（queue 为权威轮次账本；`round DESC` 首行）。 */
+  latestByUnit(unitId: string): JudgeQueueRow | null;
 }
 
 const DEFAULT_SPACE_ID = "_default";
-const DEFAULT_TRIGGER = "decision_unit";
+
+// ── 61 · trigger 枚举（50 spec §16 C3 穷举；未来值 = 常量 + 联合类型 + §16.3 表格同行）──────
+/** 首判（缺省；行为不变）。 */
+export const TRIGGER_DECISION_UNIT = "decision_unit";
+/** 人工重判（61 开始生产；`--rejudge`）。 */
+export const TRIGGER_MANUAL = "manual";
+/** **只登记枚举值，生产路径禁产**（A7 留给 S6；"不可达"由 61 T4/R3 焊成断言）。 */
+export const TRIGGER_TASK_BOUNDARY = "task_boundary";
+export type JudgeTrigger = typeof TRIGGER_DECISION_UNIT | typeof TRIGGER_MANUAL | typeof TRIGGER_TASK_BOUNDARY;
+
+const DEFAULT_TRIGGER = TRIGGER_DECISION_UNIT;
 /** SQLite 默认变量上限 999；调用方 batchSize 远小于此，这里只做兜底防御。 */
 const MAX_BATCH_SIZE = 500;
 
@@ -165,6 +177,7 @@ class SqliteAttributionJudgeQueueRepo implements AttributionJudgeQueueRepo {
   private readonly getStmt: Database.Statement;
   private readonly byStatusStmt: Database.Statement;
   private readonly countStmt: Database.Statement;
+  private readonly latestByUnitStmt: Database.Statement;
   private readonly claimBatchTx: (items: Array<{ id: number; owner: string; leaseExpires: number; now: number }>) => number[];
 
   constructor(private readonly db: Database.Database) {
@@ -211,6 +224,10 @@ UPDATE attribution_judge_queue
       `SELECT ${SELECT_COLUMNS} FROM attribution_judge_queue WHERE status = ? ORDER BY queue_id ASC LIMIT ?`,
     );
     this.countStmt = db.prepare("SELECT status, COUNT(*) AS n FROM attribution_judge_queue GROUP BY status");
+    // 61 · 权威轮次账本读取（重判入口用；tie-break 用 queue_id 保证排序全序稳定）。
+    this.latestByUnitStmt = db.prepare(
+      `SELECT ${SELECT_COLUMNS} FROM attribution_judge_queue WHERE unit_id = ? ORDER BY round DESC, queue_id ASC LIMIT 1`,
+    );
 
     // 认领必须在一个事务里（§4.2；照 attributionEventRepo.appendMany 的 F6 姿势）：
     // 选候选与逐条 CAS 之间不能被别的连接插入新行，否则游标语义漂移。
@@ -379,6 +396,14 @@ UPDATE attribution_judge_queue
       return {};
     }
   }
+
+  latestByUnit(unitId: string): JudgeQueueRow | null {
+    try {
+      return (this.latestByUnitStmt.get(unitId) as JudgeQueueRow | undefined) ?? null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 /** DB 不可用（getDb() → null，F1）时的降级实现：一切静默 no-op / 空结果。 */
@@ -406,6 +431,9 @@ export class NullAttributionJudgeQueueRepo implements AttributionJudgeQueueRepo 
   }
   countByStatus(): Record<string, number> {
     return {};
+  }
+  latestByUnit(): JudgeQueueRow | null {
+    return null;
   }
 }
 

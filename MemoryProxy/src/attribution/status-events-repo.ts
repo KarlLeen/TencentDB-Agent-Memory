@@ -117,6 +117,8 @@ export interface AttributionStatusEventsRepo {
   /** 汇总 = 查询层（不物化）：per-asset used 行数 + 去重会话数，确定性排序。 */
   rollupByAsset(opts?: { eventType?: string }): RollupRow[];
   count(): number;
+  /** 61 · 取最新轮（50 spec §16 C4；查询层，不物化）：`round DESC` 首行 + 主键 tie-break。 */
+  latestByUnit(unitId: string): StatusEventRow | null;
 }
 
 /** 进程内**严格单调**的 created_at（同 judgement repo 姿势：消同毫秒重放误判）。 */
@@ -140,6 +142,7 @@ class SqliteAttributionStatusEventsRepo implements AttributionStatusEventsRepo {
   private readonly rollupStmt: Database.Statement;
   private readonly rollupTypeStmt: Database.Statement;
   private readonly countStmt: Database.Statement;
+  private readonly latestByUnitStmt: Database.Statement;
 
   constructor(db: Database.Database) {
     // 定向 upsert：冲突目标 = 主键 status_id（锚全等，无 anomaly 面）。
@@ -173,6 +176,9 @@ RETURNING created_at
        FROM attribution_status_events WHERE event_type = ? GROUP BY asset_id ORDER BY asset_id ASC`,
     );
     this.countStmt = db.prepare("SELECT COUNT(*) AS n FROM attribution_status_events");
+    this.latestByUnitStmt = db.prepare(
+      `SELECT ${SELECT_COLUMNS} FROM attribution_status_events WHERE unit_id = ? ORDER BY round DESC, status_id ASC LIMIT 1`,
+    );
   }
 
   insertIdempotent(event: NewStatusEvent): StatusEventInsertResult {
@@ -262,6 +268,14 @@ RETURNING created_at
       return 0;
     }
   }
+
+  latestByUnit(unitId: string): StatusEventRow | null {
+    try {
+      return (this.latestByUnitStmt.get(unitId) as StatusEventRow | undefined) ?? null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 class NullAttributionStatusEventsRepo implements AttributionStatusEventsRepo {
@@ -283,6 +297,9 @@ class NullAttributionStatusEventsRepo implements AttributionStatusEventsRepo {
   }
   count(): number {
     return 0;
+  }
+  latestByUnit(): StatusEventRow | null {
+    return null;
   }
 }
 

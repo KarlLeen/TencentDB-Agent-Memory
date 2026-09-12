@@ -29,7 +29,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { buildConfig } from "../../config.js";
 import { getAttributionEventRepo } from "../../db/attributionEventRepo.js";
-import { __resetDbForTests } from "../../db/index.js";
+import { __resetDbForTests, closeDb, getDb } from "../../db/index.js";
 import { __resetVisibleTextRepoForTests, getVisibleTextRepo } from "../../db/visibleTextRepo.js";
 import { __resetDecisionUnitStateForTests } from "../../decision-units/decision-unit-runner.js";
 import { __resetInjectionPipelineForTests } from "../../injection/index.js";
@@ -208,6 +208,18 @@ interface WorkerRun {
   signal: NodeJS.Signals | null;
   stdout: string;
   stderr: string;
+}
+
+/**
+ * 61 · e2e 跨进程读前刷新连接：主进程长驻 `_db` 在子进程（spawnSync 多轮）写库后可能读到
+ * **滞后视图**（实测：reopen 前看不到刚提交的行、reopen 后全在；WAL 多进程 + 长驻连接组合）。
+ * 数据始终已提交；这是测试装置约束，非生产形态（worker 单进程/短命令读自身连接）。
+ */
+function refreshDbReadView(): void {
+  closeDb();
+  __resetAttributionJudgeQueueRepoForTests();
+  __resetAttributionJudgementDetailsRepoForTests();
+  __resetAttributionStatusEventsRepoForTests();
 }
 
 /**
@@ -950,6 +962,110 @@ describe("60 · T5 真 provider e2e（本地 stub LLM + 真 worker 子进程 + �
     } finally {
       await proxyT10.close();
       await new Promise<void>((resolve) => llm.close(() => resolve()));
+    }
+  }, 60_000);
+});
+
+describe("61 · T6 重判 e2e（真 worker 子进程 `--rejudge` + 真库）", () => {
+  it("入队 → 判定 → --rejudge 一轮 ⇒ 两轮的行都在、latestByUnit 指新轮、旧行不动", async () => {
+    const T11 = "base-3hop-t11";
+    const t11Config = baseConfig(upstream.url, kernel.url, ["skill"], true);
+    t11Config.injection.bridgeFetchEvents = { enabled: true };
+    const proxyT11 = await startProxy(t11Config);
+    try {
+      const headers = SESSION_HEADERS(T11);
+      const bridgeHeaders = { "x-conversation-id": T11, authorization: "Bearer sk-mem-base-local" };
+      const body = (messages: unknown[]): unknown => ({
+        model: "claude-base-3hop-stub",
+        max_tokens: 64,
+        stream: false,
+        system: "You are Claude Code (base-3hop).",
+        messages,
+      });
+      const H = (text: string): unknown => ({ role: "user", content: text });
+      const EDIT = (id: string, file: string): unknown => ({
+        role: "assistant",
+        content: [{ type: "tool_use", id, name: "Edit", input: { file_path: file } }],
+      });
+      const RES = (id: string): unknown => ({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+      });
+      const main = (messages: unknown[]) =>
+        postJson(proxyT11.port, `/claude-code/${SPACE_ID}/v1/messages`, body(messages), headers);
+      const fetchSkill = (skillId: string) =>
+        postJson(proxyT11.port, "/skill-bridge/v3/skill/get", { skill_id: skillId, name: skillId }, bridgeHeaders);
+
+      const m0: unknown[] = [H("改 skl-t11-f1.ts")];
+      expect((await main(m0)).status).toBe(200);
+      await sleep(150);
+      expect((await fetchSkill("skl-t11-f0")).status).toBe(200);
+      await sleep(150);
+      const m1: unknown[] = [...m0, EDIT("e1", "skl-t11-f1.ts"), RES("e1")];
+      expect((await main(m1)).status).toBe(200);
+      await sleep(150);
+      expect((await fetchSkill("skl-t11-f1")).status).toBe(200);
+      await sleep(150);
+      const m2: unknown[] = [...m1, EDIT("e2", "c-t11.ts"), RES("e2")];
+      expect((await main(m2)).status).toBe(200);
+      expect(await waitFor(() => queueRows("pending", T11).length >= 2), "T11 单元未入队").toBe(true);
+
+      // 第一轮（缺省 mock config）
+      const run1 = runWorkerOnce();
+      if (run1.status !== 0) throw new Error(`T11 首轮退出码 ${run1.status}\n${run1.stderr}`);
+      // ⚠️ 跨进程读前刷新连接：主进程长驻连接在子进程写库后可能读到**滞后视图**
+      //（实测：reopen 前 13 行、reopen 后 14 行且 target 两行俱在；数据实际已提交）。
+      // 生产读口无此形态（worker 单进程/短命令读自身连接）；这是 e2e「长驻连接读子进程写」的装置约束。
+      refreshDbReadView();
+      const jdRows = getAttributionJudgementDetailsRepo().listBySession(T11);
+      expect(jdRows.length).toBe(2);
+      const target = jdRows[0]!.unit_id;
+      const other = jdRows[1]!.unit_id;
+
+      // 重判 + 抽干（一步到位）：真子进程 CLI
+      const rejudgeRun = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx/esm",
+          path.join(pkgRoot, "src/attribution/worker.ts"),
+          "--rejudge",
+          target,
+          "--once",
+          "--config",
+          workerConfigPath,
+        ],
+        { cwd: pkgRoot, env: { ...process.env, PROXY_DB_PATH: dbPath, PROXY_DATA_DIR: dataDir }, encoding: "utf8", timeout: 120_000 },
+      );
+      const rejudgeLine = (rejudgeRun.stderr ?? "").split("\n").find((l) => l.includes("rejudge unit=")) ?? "";
+      console.log(`T11 观测 → ${rejudgeLine.trim()}`);
+      expect(rejudgeRun.status).toBe(0);
+      expect(rejudgeLine).toContain(`rejudge unit=${target} round=1 enqueued=true`);
+
+      // 两轮的行都在 + latestByUnit 指新轮 + 旧行不动（读前再刷新一次连接）
+      refreshDbReadView();
+      const targetJds = getAttributionJudgementDetailsRepo().listByUnit(target);
+      const targetSts = getAttributionStatusEventsRepo().listByUnit(target);
+      const qRows = getDb()!
+        .prepare("SELECT round, trigger FROM attribution_judge_queue WHERE unit_id = ? ORDER BY round ASC")
+        .all(target) as Array<{ round: number; trigger: string }>;
+      console.log(
+        `T11 逐表 → queue=${JSON.stringify(qRows.map((r) => r.round))} judgement=${JSON.stringify(targetJds.map((r) => r.round))} ` +
+          `status=${JSON.stringify(targetSts.map((r) => r.round))}；latest.judgement.round=${getAttributionJudgementDetailsRepo().latestByUnit(target)!.round}`,
+      );
+      expect(targetJds.map((r) => r.round)).toEqual([0, 1]);
+      expect(targetSts.map((r) => r.round)).toEqual([0, 1]);
+      expect(qRows.map((r) => r.round)).toEqual([0, 1]);
+      expect(qRows[1]!.trigger).toBe("manual");
+      expect(qRows[0]!.trigger).toBe("decision_unit");
+      expect(getAttributionJudgementDetailsRepo().latestByUnit(target)!.round).toBe(1);
+      // 另一单元不受影响（重判只针对目标 unit；u2 无资产文本 ⇒ mock unconfirmed ⇒ 不写 status）
+      const otherJd = getAttributionJudgementDetailsRepo().listByUnit(other);
+      expect(otherJd.length).toBe(1);
+      expect(otherJd[0]!.verdict).toBe("unconfirmed");
+      expect(getAttributionStatusEventsRepo().listByUnit(other).length).toBe(0);
+    } finally {
+      await proxyT11.close();
     }
   }, 60_000);
 });

@@ -13,7 +13,7 @@
  * 由 `decision-unit-runner` 用**动态 import** 调用（design §4.6）：关闭时连本模块都不加载。
  */
 
-import { getAttributionJudgeQueueRepo } from "./judge-queue-repo.js";
+import { getAttributionJudgeQueueRepo, TRIGGER_DECISION_UNIT } from "./judge-queue-repo.js";
 
 /** 只依赖到最小结构：runner 传的就是整个 ProxyConfig，结构兼容即可。 */
 export interface EnqueueGuardedConfig {
@@ -38,6 +38,11 @@ export interface EnqueueParams {
   sessionKey: string;
   spaceId?: string;
   trigger?: string;
+  /**
+   * 61 · 轮次（50 spec §16 C1）：缺省 0（首判，行为不变）；`>0` = 重判。
+   * 生产首判路径不传（round=0）；重判走 `--rejudge` 入口（`rejudge.ts`）。
+   */
+  round?: number;
 }
 
 export interface EnqueueOutcome {
@@ -70,10 +75,10 @@ export function enqueueUnitsForJudge(params: EnqueueParams): EnqueueOutcome {
     for (const unit of params.units) {
       const ok = repo.enqueue({
         unitId: unit.unitId,
-        round: 0, // 首判；重判（round>0）的生产路径留 50 spec
+        round: params.round ?? 0, // 61：缺省 0 = 首判（行为不变）；>0 = 重判（--rejudge 入口）
         sessionKey: params.sessionKey,
         spaceId: params.spaceId,
-        trigger: params.trigger ?? "decision_unit",
+        trigger: params.trigger ?? TRIGGER_DECISION_UNIT,
         payload: {
           kind: unit.kind,
           turnSeq: unit.turnSeq,

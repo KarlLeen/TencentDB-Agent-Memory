@@ -134,6 +134,7 @@ describe("T10 处理抛错", () => {
         listByUnit: () => [],
         listBySession: () => [],
         count: () => 0,
+        latestByUnit: () => null,
       },
     });
     const result = await runWorker(deps, { drain: true });
@@ -164,6 +165,7 @@ describe("T11 DB 降级（worker 侧）", () => {
         get: () => null,
         listByStatus: () => [],
         countByStatus: () => ({}),
+        latestByUnit: () => null,
       },
     });
     const result = await runWorker(deps, { drain: true });
@@ -242,6 +244,7 @@ describe("S5 交付单元：落库四态在 worker 侧的分支（A1/A2）", () 
     listByUnit: () => [],
     listBySession: () => [],
     count: () => 0,
+    latestByUnit: () => null,
   });
 
   const spyQueueCompletion = () => {

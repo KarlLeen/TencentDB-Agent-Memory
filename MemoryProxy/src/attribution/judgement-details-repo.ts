@@ -96,6 +96,8 @@ export interface AttributionJudgementDetailsRepo {
   listByUnit(unitId: string, limit?: number): JudgementDetailRow[];
   listBySession(sessionKey: string, limit?: number): JudgementDetailRow[];
   count(): number;
+  /** 61 · 取最新轮（50 spec §16 C4；查询层，不物化）：`round DESC` 首行 + 主键 tie-break。 */
+  latestByUnit(unitId: string): JudgementDetailRow | null;
 }
 
 /**
@@ -123,6 +125,7 @@ class SqliteAttributionJudgementDetailsRepo implements AttributionJudgementDetai
   private readonly byUnitStmt: Database.Statement;
   private readonly bySessionStmt: Database.Statement;
   private readonly countStmt: Database.Statement;
+  private readonly latestByUnitStmt: Database.Statement;
 
   constructor(db: Database.Database) {
     // 定向 upsert：冲突目标 = 唯一索引 idx_ajd_unit_round 的 (unit_id, round)。
@@ -149,6 +152,9 @@ RETURNING created_at
       `SELECT ${SELECT_COLUMNS} FROM attribution_judgement_details WHERE session_key = ? ORDER BY created_at ASC, judgement_id ASC LIMIT ?`,
     );
     this.countStmt = db.prepare("SELECT COUNT(*) AS n FROM attribution_judgement_details");
+    this.latestByUnitStmt = db.prepare(
+      `SELECT ${SELECT_COLUMNS} FROM attribution_judgement_details WHERE unit_id = ? ORDER BY round DESC, judgement_id ASC LIMIT 1`,
+    );
   }
 
   insertIdempotent(detail: NewJudgementDetail): InsertIdempotentResult {
@@ -230,6 +236,14 @@ RETURNING created_at
       return 0;
     }
   }
+
+  latestByUnit(unitId: string): JudgementDetailRow | null {
+    try {
+      return (this.latestByUnitStmt.get(unitId) as JudgementDetailRow | undefined) ?? null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 class NullAttributionJudgementDetailsRepo implements AttributionJudgementDetailsRepo {
@@ -249,6 +263,9 @@ class NullAttributionJudgementDetailsRepo implements AttributionJudgementDetails
   }
   count(): number {
     return 0;
+  }
+  latestByUnit(): JudgementDetailRow | null {
+    return null;
   }
 }
 

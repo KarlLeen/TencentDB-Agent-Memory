@@ -663,3 +663,55 @@ max_tokens: 512, messages: [{role: "user", content}]}`，其中
 `content = ATTRIBUTION_JUDGE_PROMPT_V1.text + "\n\nINPUT:\n" + JSON.stringify({unit: input.unit,
 candidates: input.candidates})`。`promptRef` 原样落表（链路不变）；`judge_impl = "real:" + model`
 （可辨识到具体模型；落 `judgement_details.judge_impl`）。
+
+## 16 轮次与触发（§9.4 第二半 / A7；61 落地）
+
+> 本节是 §9 第 4 项的后半：`round` 从"恒 0"变成**可单调递增的重判轮次**。
+> `task_boundary` 启发式 / 自动触发（版本漂移 / 规则升级）按 A7 **留给 S6**；本单只保证
+> 人工重判入口与语义就位。前置事实（全部复核到 `2d4bd04`）：
+> ① 生产路径把 `round` 焊死为 0（`enqueue.ts:73`）；② 三条幂等键/派生主键**都已含 round**
+> （queue `(unit_id, round)` / `judgement_id` / `status_id`，59）⇒ 每轮各落各的行，天然支持多轮，
+> 本单**不改**任何键规则；③ repo 已能收 `round`（`judge-queue-repo.ts:30`）⇒ 缺的只是"谁算下一轮"；
+> ④ `trigger` 枚举值只登记未生产；⑤ 全仓零 `DELETE FROM`（三张归因表）⇒ "旧行不删"当前只是事实。
+
+### 16.1 C1 · round 语义（写死）
+
+- 重判 = 新轮 = **`max(该 unit 在 queue 表的 round) + 1`**；**queue 表是权威轮次账本**
+  （不用内存计数、不读 judgement/status 表推断）。
+- 不回退、不复用；每轮的行（queue / `judgement_details` / `status_events`）**永不删、永不改写**。
+- 并发：`max+1` 的读-写窗口由 `(unit_id, round)` 幂等键兜住（两方同算 `k` ⇒ 第二方入队
+  幂等命中 `false`，非错误）——**不新增锁**、不引入事务隔离级别讨论。
+
+### 16.2 C2 · 重判触发路径（命名定稿）
+
+- CLI：**`--rejudge <unit_id>`**（worker 进程；与 `--once` 可组合：先重判入队、再抽干消费）。
+- 语义：取该 unit 的**最新轮 queue 行**（`round DESC` 首行）作为重判输入（payload/session/space
+  从旧行复制 —— "旧行不删"使重判可读原始输入）；不存在 ⇒ 报错 `EXIT_REJUDGE_TARGET_MISSING = 4`
+  （运维拼错 unit_id 必须知道），零入队。
+- 产出 `trigger = "manual"`；**不查 `attribution.judge.enqueue` 开关**（同 `--retry-failed` 姿势：
+  显式运维命令，非缺省路径）。
+- 自动触发（版本漂移 / 规则升级 / 计划任务）**不属本单**（S6 corrected 规则的前置）。
+
+### 16.3 C3 · trigger 枚举（写死；穷举 + 未来值加法）
+
+| 值 | 状态 | 生产点 |
+|---|---|---|
+| `decision_unit` | 缺省（行为不变） | `enqueueUnitsForJudge`（首判） |
+| `manual` | **本单开始生产** | `--rejudge` 入口 |
+| `task_boundary` | **只登记枚举值**（A7 留给 S6） | **禁产**（T4 + R3 把"不可达"焊成断言） |
+
+穷举以 `TRIGGER_*` 常量导出（名：`TRIGGER_DECISION_UNIT` / `TRIGGER_MANUAL` /
+`TRIGGER_TASK_BOUNDARY`；`JudgeTrigger` 联合类型）；未来新增值 = 常量 + 联合类型 + 本节表格同行
+（出现"生产点"列才可生产）。
+
+### 16.4 C4 · 消费侧"取最新"口径（查询层，不物化）
+
+- `AttributionJudgementDetailsRepo.latestByUnit(unitId)` 与 `AttributionStatusEventsRepo.latestByUnit(unitId)`：
+  `WHERE unit_id = ? ORDER BY round DESC, <主键> ASC LIMIT 1`（tie-break 用主键：同 unit 同 round
+  在主键幂等下至多一行，此处仅保证排序全序稳定）。
+- **不建物化"最新轮"视图/汇总表**（避免第二份真相；照 §14.5 的 rollup 姿势）。
+
+### 16.5 C5 · 可观测
+
+- 重判入口回显 `unit=<id> round=<n> enqueued=<bool>`（每轮入队结果分轮计数）；
+- 重判**零"改写"计数**：不产生任何行的 update/delete（旧行逐字节不变，T1 断言快照）。
