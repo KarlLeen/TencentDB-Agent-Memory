@@ -40,6 +40,7 @@ import { recordSessionContextBlock, VisibleBlockArchiveObserver } from "../visib
 // 共因（s4-smoke-design.md §3 要点 2 / §5.3 纪律 3）：「可见正文提取」与「还原串拼接」口径
 // 只有一份实现 —— S4 真链路冒烟与本装置都从这里取，改一处等于改两处断言口径。
 import { restoredVisibleText, visibleTextOfPiece } from "./_helpers/attribution-window.js";
+import { restoreIsolatedDbPath } from "../../__tests__/setup/isolate-db.js";
 
 let dir: string;
 
@@ -57,7 +58,7 @@ beforeEach(() => {
 afterEach(() => {
   __resetVisibleTextRepoForTests();
   __resetDbForTests();
-  delete process.env.PROXY_DB_PATH;
+  restoreIsolatedDbPath(); // 73 · C3：delete → 恢复 setup 隔离值（防裸跑回落到默认真库）
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
 });
 

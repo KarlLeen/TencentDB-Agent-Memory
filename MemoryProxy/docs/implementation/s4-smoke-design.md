@@ -816,3 +816,11 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   ——留痕目的 = 防下一轮把"绿灯"当异常（或以"两处不一致"误判为漂移）。
   （实测注：`typecheck:baseline` 工具与测试套均为 **fork-local 产物、不在 `906b582`** ⇒ 修复分支上
   以 `tsc=59` + 主系列工作区**临时同款 patch** 实测 `PASS — 59 errors` / `544 passed`（已还原）为证。）
+- **测试隔离与取证时机（73 append；2026-09-12，append-only）**：本系列曾长期**测试直连默认真库**
+  （33 文件裸跑 ⇒ 真库主文件 sha/mtime 随每次 `npm test` 变；**逻辑三计数稳定、页/头部被改写**）。
+  **隔离前**：任何"真库未碰"声明**必须在未跑 `npm test` 的窗口内取证**。
+  **隔离后（73 落地起，见 73 报告 commit）**：该限制**解除**——`setupFiles` 每文件独享临时库（C1）
+  + `getDb()` 真库守卫（C2，`try` 之外、`VITEST==="true"` 且解析到默认真库 ⇒ throw）
+  + 10 文件 `delete → restoreIsolatedDbPath()`（C3）；**C4 实测**：跑全量前后 `.backup` sha256 /
+  **主文件 sha256+mtime** / 三计数**逐字不变**（三套对照：跑前 / 全量后 / 反向控制后）。
+  **取证清单升级为四件**：`.backup` sha256 + **主文件 sha256/mtime** + 三计数 + 无持有者。

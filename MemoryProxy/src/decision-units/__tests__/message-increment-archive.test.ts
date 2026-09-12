@@ -29,6 +29,7 @@ import {
 import type { BlockSeenWithTextRow, MessageSnapRow } from "../../db/visibleTextRepo.js";
 import { sha256Of } from "../../injection/visible-block-archive-observer.js";
 import { countHumanTurns } from "../../turnSeq.js";
+import { restoreIsolatedDbPath } from "../../__tests__/setup/isolate-db.js";
 import {
   DEFAULT_MAX_MESSAGE_CHARS,
   archiveMessageIncrement,
@@ -54,7 +55,7 @@ beforeEach(() => {
 afterEach(() => {
   __resetVisibleTextRepoForTests();
   __resetDbForTests();
-  delete process.env.PROXY_DB_PATH;
+  restoreIsolatedDbPath(); // 73 · C3：delete → 恢复 setup 隔离值（防裸跑回落到默认真库）
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
 });
 

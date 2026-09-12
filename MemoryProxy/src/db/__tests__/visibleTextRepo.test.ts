@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { __resetDbForTests, getDb } from "../index.js";
 import type { NewBlockSeen, NewBlockText, NewMessageSnap } from "../visibleTextRepo.js";
+import { restoreIsolatedDbPath } from "../../__tests__/setup/isolate-db.js";
 import {
   __resetVisibleTextRepoForTests,
   archiveVisibleText,
@@ -44,7 +45,7 @@ beforeEach(() => {
 afterEach(() => {
   __resetVisibleTextRepoForTests();
   __resetDbForTests();
-  delete process.env.PROXY_DB_PATH;
+  restoreIsolatedDbPath(); // 73 · C3：delete → 恢复 setup 隔离值（防裸跑回落到默认真库）
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
 });
 

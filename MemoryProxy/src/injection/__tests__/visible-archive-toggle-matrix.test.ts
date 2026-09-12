@@ -30,6 +30,7 @@ import { __resetVisibleTextRepoForTests, getVisibleTextRepo } from "../../db/vis
 import { archiveMessageIncrement } from "../../decision-units/message-increment-archive.js";
 import type { AgentContextMetadata, ContextBlock, InjectionHook } from "../types.js";
 import { VisibleBlockArchiveObserver } from "../visible-block-archive-observer.js";
+import { restoreIsolatedDbPath } from "../../__tests__/setup/isolate-db.js";
 
 const NEW_TABLES = [
   "attribution_block_text",
@@ -54,7 +55,7 @@ afterEach(() => {
   __resetVisibleTextRepoForTests();
   __resetAttributionEventRepoForTests();
   __resetDbForTests();
-  delete process.env.PROXY_DB_PATH;
+  restoreIsolatedDbPath(); // 73 · C3：delete → 恢复 setup 隔离值（防裸跑回落到默认真库）
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
   if (cfgDir) fs.rmSync(cfgDir, { recursive: true, force: true });
 });

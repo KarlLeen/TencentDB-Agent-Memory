@@ -73,6 +73,23 @@ export function getDb(): Database.Database | null {
   if (_dbInitFailed) return null;
 
   const dbPath = resolveDbPath();
+
+  // 73 · C2：真实用户库守卫（仅测试环境生效；生产路径零改动）。
+  // ⚠️ 必须放在 `try` **之外**：下方 catch 会把异常吞成 `console.warn` + `return null`
+  // （持久化降级路径）——守卫的 throw 若插进 try，会被降级成静默 warn，正好违背目的
+  // （宁可显式报错也不要静默；实测反模式见 73 工单 F7）。
+  // 判据（实测值）：vitest 下 `process.env.VITEST === "true"`（WORKER_ID/POOL_ID 仅为编号）。
+  if (
+    process.env.VITEST === "true" &&
+    dbPath === path.join(os.homedir(), ".tdai-memory-proxy", "proxy.db")
+  ) {
+    throw new Error(
+      `[test-db-guard] 测试正在打开真实用户库（${dbPath}）。\n` +
+        `请勿删除 PROXY_DB_PATH —— 它由 setupFiles 指向临时库；\n` +
+        `若确实需要自建库，请显式设 process.env.PROXY_DB_PATH 并在 afterAll 恢复。`,
+    );
+  }
+
   try {
     ensureDbDir(dbPath);
 

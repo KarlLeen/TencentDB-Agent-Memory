@@ -48,6 +48,7 @@ import { extractFetchedAssets } from "../../attribution/bridge-fetch-assets.js";
 import { createBridgeFetchEventSink } from "../../attribution/bridge-fetch-events.js";
 import { KvVersionPinRepo } from "../kv-version-pin-repo.js";
 import { createSkillBridgeHandler } from "../skill-bridge.js";
+import { restoreIsolatedDbPath } from "../../__tests__/setup/isolate-db.js";
 
 const CONV = "conv-s4";
 /** session store 的 key = 带 agent 前缀的 composite key（F10）。 */
@@ -236,7 +237,7 @@ afterEach(() => {
   __resetBridgeTelemetrySinksForTests();
   __resetAttributionEventRepoForTests();
   __resetProxyStorageForTests();
-  delete process.env.PROXY_DB_PATH;
+  restoreIsolatedDbPath(); // 73 · C3：delete → 恢复 setup 隔离值（防裸跑回落到默认真库）
   __resetDbForTests();
 });
 

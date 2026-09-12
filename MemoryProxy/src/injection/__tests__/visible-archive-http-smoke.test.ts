@@ -48,6 +48,7 @@ import { __resetSessionStoreForTests } from "../../session/store.js";
 import { createApp } from "../../server.js";
 import type { ProxyConfig } from "../../types.js";
 import { __resetInjectionPipelineForTests } from "../index.js";
+import { restoreIsolatedDbPath } from "../../__tests__/setup/isolate-db.js";
 import {
   SEAM_GLUE,
   rebuildInjectedBodyFromArchive,
@@ -212,7 +213,7 @@ afterAll(async () => {
   __resetVisibleTextRepoForTests();
   __resetDbForTests();
   __resetSessionStoreForTests();
-  delete process.env.PROXY_DB_PATH;
+  restoreIsolatedDbPath(); // 73 · C3：delete → 恢复 setup 隔离值（防裸跑回落到默认真库）
   delete process.env.PROXY_DATA_DIR;
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });

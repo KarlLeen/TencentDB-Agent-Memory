@@ -45,6 +45,7 @@ import {
 } from "../judgement-details-repo.js";
 import { __resetAttributionStatusEventsRepoForTests } from "../status-events-repo.js";
 import { buildWorkerDeps, runWorker } from "../worker.js";
+import { restoreIsolatedDbPath } from "../../__tests__/setup/isolate-db.js";
 
 // ── 装置（照三跳冒烟：真 proxy + stub 上游/kernel + 真库）──────────────────────────
 
@@ -426,7 +427,7 @@ beforeAll(async () => {
 afterAll(() => {
   upstream?.close();
   kernel?.close();
-  delete process.env.PROXY_DB_PATH;
+  restoreIsolatedDbPath(); // 73 · C3：delete → 恢复 setup 隔离值（防裸跑回落到默认真库）
   delete process.env.PROXY_DATA_DIR;
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });

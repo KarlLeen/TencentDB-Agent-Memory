@@ -17,6 +17,7 @@ import {
   type NewAttributionEvent,
 } from "../attributionEventRepo.js";
 import { __resetDbForTests, getDb } from "../index.js";
+import { restoreIsolatedDbPath } from "../../__tests__/setup/isolate-db.js";
 
 let dir: string;
 
@@ -34,7 +35,7 @@ beforeEach(() => {
 afterEach(() => {
   __resetAttributionEventRepoForTests();
   __resetDbForTests();
-  delete process.env.PROXY_DB_PATH;
+  restoreIsolatedDbPath(); // 73 · C3：delete → 恢复 setup 隔离值（防裸跑回落到默认真库）
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
 });
 
