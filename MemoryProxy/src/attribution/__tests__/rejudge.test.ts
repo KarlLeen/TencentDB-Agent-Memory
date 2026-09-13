@@ -2,9 +2,9 @@
  * 61 · 轮次与触发测试矩阵（50 spec §16）T1–T5（T6 e2e 在三跳冒烟）。
  *
  * T1 重判落新轮（行数 = 轮数 + 旧轮行逐字节仍在）；T2 round 单调；T3 幂等三路径；
- * T4 trigger 标记（task_boundary 登记不可达）；T5 取最新口径。
+ * T4 trigger 标记（rejudge 路径不产 task_boundary —— 该 trigger 由 runner 的 compaction 分支下发；122 · F2 更正）；T5 取最新口径。
  * 反向控制（手工、用后即还原）：R1 删/覆盖旧轮行 ⇒ T1 红；R2 round 复用 ⇒ T2 红；
- * R3 生产路径产 task_boundary ⇒ T4 红。
+ * R3 让 rejudge 路径也产 task_boundary ⇒ T4 红（注：runner 的 compaction 分支产 task_boundary 属正常，不再触发本控制）。
  */
 import { describe, expect, it } from "vitest";
 
@@ -170,7 +170,7 @@ describe("61 · T3 幂等（同 (unit_id, round) 重放 ⇒ 三条路径都不�
   });
 });
 
-describe("61 · T4 trigger 标记（task_boundary 登记但不可达）", () => {
+describe("61 · T4 trigger 标记（rejudge 路径不产 task_boundary）", () => {
   it("首判 ⇒ decision_unit；重判 ⇒ manual；生产两步后库内不含 task_boundary", () => {
     withTempDb();
     try {

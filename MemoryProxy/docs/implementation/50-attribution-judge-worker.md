@@ -901,7 +901,7 @@ design `:57` 要求 `attribution_status_events` / `attribution_audit` 两张表"
 | ③ `asset_used` 汇总 + outcome/validated 链接 + excluded 清单 | **59**（状态事件表）+ 62（边界） | `f045389` / `c3d24a1` | §14 C1–C5（T1–T6）；excluded 两类常量 + 落库消费点；`rollupByAsset`/`latestByUnit` |
 | 　└ `validated` 链接 | **判后置**（§18.1②；S6/S7 依赖） | — | 本节 |
 | ④ 真 provider + `round>0` + `task_boundary`/`manual` 触发 | **60** + **61** | `2d4bd04` / `95c281f` | §15（fail-closed/白名单/护栏；T1–T6+R1–R3）/ §16（round 账本/trigger；T1–T6+R1–R3） |
-| 　└ `task_boundary` 启发式 | **登记**（S6；§16.3 只登记禁产，T4/R3 焊死不可达） | — | §16.3 |
+| 　└ `task_boundary` 启发式 | **`66` 起已生产**（仅由边界信号；§16.3 已更正 "S6 起"旧记；rejudge 路径不产 —— T4 对该路径成立） | — | §16.3 |
 | ⑤ 消费侧：tombstone + 双通道一致性 + top-N + F4 metadata key | **62**（tombstone + top-N）+ **58**（双通道 DR-6a/b） | `c3d24a1` / `ce150a5` | §17 C1–C4（T1–T5+R1–R3）；DR-6a×1 + DR-6b×1（58） |
 | 　└ F4 metadata key 统一（A8③） | **不属 S5**（如实标注） | — | §17 头注 / §18.1 判定外 |
 
