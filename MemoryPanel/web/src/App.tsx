@@ -2,7 +2,7 @@
  * App.tsx — 根组件
  *
  * 职责：
- *   1. 管理登录态（zustand auth store，对接新面板 Control 的 sessionStorage 会话）
+ *   1. 管理登录态（zustand auth store，对接新面板 Control 的 localStorage 会话）
  *   2. 启动时读取本地会话缓存是否有效（checkSession）：
  *        - 检测中 → loading
  *        - 未登录 → LoginGate
@@ -41,7 +41,7 @@ export default function App() {
     return () => i18n.off('languageChanged', handler);
   }, [i18n]);
 
-  // 启动时读取 sessionStorage 缓存的 { instance_id, user_key, user } 是否有效
+  // 启动时读取 localStorage 缓存的 { instance_id, user_key, user } 是否有效
   useEffect(() => {
     checkSession();
   }, [checkSession]);

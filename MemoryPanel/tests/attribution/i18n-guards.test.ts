@@ -6,7 +6,8 @@
  * - **C4 key 对齐**：`attribution.*` 的 zh/en key **集合相等**（防"只加一边"）。
  *
  * 渲染级双向守卫（zh 无英文词表 / en 无 CJK）在 `receipt-page.test.tsx` / `pool-page.test.tsx`
- * （需要 jsdom + 组件，照 120 · C3-en 格风格；词表从本文件导出，避免第二份词表）。
+ * （需要 jsdom + 组件，照 120 · C3-en 格风格；词表按页分置 —— 回执页用 `_helpers/labels.ts`
+ * 导出的 `EN_UI_WORDS`，池页用页内 `POOL_WORDS`（两表不相交）；本文件不导出词表）。
  */
 import { readFileSync } from 'node:fs';
 

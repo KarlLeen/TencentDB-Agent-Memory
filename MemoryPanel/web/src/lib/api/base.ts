@@ -3,7 +3,7 @@
  *
  * 规则（无 Cookie · 无状态）：
  *   - 元数据 CRUD 统一走 POST /api/v1/meta/{action}；
- *   - 鉴权由前端 sessionStorage 缓存 instance_id + user_key（见 lib/panelSession.ts），
+ *   - 鉴权由前端 localStorage 缓存 instance_id + user_key（见 lib/panelSession.ts），
  *     每次请求注入 Header X-Tdai-Service-Id + X-Tdai-User-Key（auth/verify 除外，
  *     该接口 user_key 只放 body，不放 Header）；
  *   - agent-fixed-asset/* 不适用通用「资产」UI（PANEL_CAPABILITIES.assets 为 false），
@@ -124,7 +124,7 @@ export const META_PAGE_SIZE = 100;
 
 /**
  * 登出 / 401 时清空前端会话（instance_id + user_key + user 缓存）。
- * 无 Cookie，"清会话"就是清 sessionStorage，不涉及后端调用。
+ * 无 Cookie，"清会话"就是清 localStorage，不涉及后端调用。
  */
 export function clearSessionCache(): void {
   clearPanelSession();
