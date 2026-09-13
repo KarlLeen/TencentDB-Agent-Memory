@@ -62,3 +62,46 @@ describe('126 · C4 key 对齐：attribution.* 的 zh/en key 集合相等', () =
     expect(zh.length).toBeGreaterThan(40); // 现状面（41+13 新增≥54）——防"两边同时清空"式假绿
   });
 });
+
+
+describe('131 · C2 全命名空间 key 集合相等（126·C4 的同型升级）', () => {
+  it('差集两侧都为空 + 下限断言（防两边同时清空式假绿）', () => {
+    const zh = Object.keys(zhCN as unknown as Record<string, unknown>);
+    const en = Object.keys(enUS as unknown as Record<string, unknown>);
+    expect(zh.length).toBeGreaterThan(1500); // 下限：现有 ~1547
+    const onlyZh = zh.filter((k) => !en.includes(k));
+    const onlyEn = en.filter((k) => !zh.includes(k));
+    expect({ onlyZh, onlyEn }).toEqual({ onlyZh: [], onlyEn: [] });
+  });
+});
+
+describe('131 · C3 补键占位符一致（同名同数；运行时字符串）', () => {
+  const KEYS_131 = [
+    'memory.detail.cancel',
+    'memory.detail.save',
+    'memory.detail.editTitle',
+    'memory.detail.modeBrowse',
+    'memory.detail.modeSearch',
+    'memory.detail.search',
+    'memory.detail.clearSearch',
+    'memory.detail.searchEmpty',
+    'memory.detail.searchPlaceholderL0',
+    'memory.detail.searchPlaceholderL1',
+    'memory.detail.searchPrompt',
+    'memory.detail.searchResultCount',
+    'memory.detail.searchScore',
+    'memory.notify.editSuccess',
+    'memory.notify.editFailed',
+    'memory.notify.searchFailed',
+  ] as const;
+
+  it('每个键的 {{var}} 集合两侧相等（不少也不多）', () => {
+    const holders = (v: unknown): string[] => (String(v).match(/\{\{(\w+)\}\}/g) ?? []).sort();
+    const zh = zhCN as unknown as Record<string, unknown>;
+    const en = enUS as unknown as Record<string, unknown>;
+    for (const k of KEYS_131) {
+      expect(holders(zh[k]), `${k}: zh 侧应存在`).toBeDefined();
+      expect(holders(en[k]), `${k}: 占位符集合须与 zh 一致`).toEqual(holders(zh[k]));
+    }
+  });
+});

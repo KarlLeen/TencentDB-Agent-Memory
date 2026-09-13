@@ -697,7 +697,6 @@ export const zhCN = {
   'memory.detail.save': '保存',
   'memory.detail.cancel': '取消',
   'memory.detail.search': '搜索',
-  'memory.detail.searchPlaceholder': '按语义搜索本记忆…',
   'memory.detail.searchPlaceholderL0': '按语义搜索本记忆的 L0 对话原文…',
   'memory.detail.searchPlaceholderL1': '按语义搜索本记忆的 L1 原子记忆…',
   'memory.detail.clearSearch': '清除',
