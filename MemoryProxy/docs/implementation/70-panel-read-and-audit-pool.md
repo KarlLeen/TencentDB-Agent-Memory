@@ -9,6 +9,11 @@
 
 ## 1 只读面（S7-a 回填；实现 = `src/routes/attribution-read.ts`，commit `a342f98`）
 
+> **可见性来源（`119` · D2 语义句；2026-09-13 拍定原文照贴，后续修订须同批更新本句）**：
+> **"会话与单元的可见性来源 = `attribution_events` ∪ `attribution_status_events` ∪ `attribution_judge_queue`（按 `session_key` 取并集）。语义 = 「被观测到／被送去判定过／有判定结果」三者**之一**即视为可见。`space_id` 归属按 `events → status → queue` 的**首见序**派生；当**事件域与判定域不一致**时，**两域都展示并显式标注**。**任何新增的 queue 清理/保留策略均视为会改变可见性**，必须同批更新本句。"**
+> （实现落点：`handleSessions` / `handleAuditCandidates` / `buildAuditPool` 三处 keys + `handleSessions` 派生链；
+> 依据 `118` F1–F12；`119` 实测见 54 节 append。）
+
 ### 1.1 三端点（注册于 `server.ts` Ops 区、catch-all 前）
 
 | 端点 | 参数 | 契约要点 |

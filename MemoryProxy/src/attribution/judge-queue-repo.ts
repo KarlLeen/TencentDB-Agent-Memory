@@ -136,6 +136,16 @@ export interface AttributionJudgeQueueRepo {
   countByStatus(): Record<string, number>;
   /** 61 · 该 unit 的最新轮（queue 为权威轮次账本；`round DESC` 首行）。 */
   latestByUnit(unitId: string): JudgeQueueRow | null;
+  /**
+   * 119 · A′：会话枚举（只读；确定性排序；`created_at >= sinceMs`，缺省 0 = 全量）。
+   * DB 降级 ⇒ 空数组（**静默降级 = 可见性少而不报错**；同 events 仓姿势）。
+   */
+  distinctSessionKeys(sinceMs?: number): string[];
+  /**
+   * 119 · A′：按会话列行（`created_at ASC, queue_id ASC` 全序）。
+   * 供 sessions 端点的 **space 派生（首行）** 与 **时间兜底**（F11）。
+   */
+  listBySession(sessionKey: string, opts?: { limit?: number }): JudgeQueueRow[];
 }
 
 const DEFAULT_SPACE_ID = "_default";
@@ -178,6 +188,9 @@ class SqliteAttributionJudgeQueueRepo implements AttributionJudgeQueueRepo {
   private readonly byStatusStmt: Database.Statement;
   private readonly countStmt: Database.Statement;
   private readonly latestByUnitStmt: Database.Statement;
+  // 119 · A′：可见性来源（会话枚举 + 按会话列行）。
+  private readonly distinctSessionsStmt: Database.Statement;
+  private readonly bySessionStmt: Database.Statement;
   private readonly claimBatchTx: (items: Array<{ id: number; owner: string; leaseExpires: number; now: number }>) => number[];
 
   constructor(private readonly db: Database.Database) {
@@ -227,6 +240,13 @@ UPDATE attribution_judge_queue
     // 61 · 权威轮次账本读取（重判入口用；tie-break 用 queue_id 保证排序全序稳定）。
     this.latestByUnitStmt = db.prepare(
       `SELECT ${SELECT_COLUMNS} FROM attribution_judge_queue WHERE unit_id = ? ORDER BY round DESC, queue_id ASC LIMIT 1`,
+    );
+    // 119 · A′：可见性来源（会话枚举 + 按会话列行；确定性排序）。
+    this.distinctSessionsStmt = db.prepare(
+      "SELECT DISTINCT session_key FROM attribution_judge_queue WHERE session_key != '' AND created_at >= ? ORDER BY session_key ASC",
+    );
+    this.bySessionStmt = db.prepare(
+      `SELECT ${SELECT_COLUMNS} FROM attribution_judge_queue WHERE session_key = ? ORDER BY created_at ASC, queue_id ASC LIMIT ?`,
     );
 
     // 认领必须在一个事务里（§4.2；照 attributionEventRepo.appendMany 的 F6 姿势）：
@@ -377,6 +397,26 @@ UPDATE attribution_judge_queue
     }
   }
 
+  distinctSessionKeys(sinceMs = 0): string[] {
+    try {
+      const rows = (this.distinctSessionsStmt.all(Math.max(0, Math.trunc(sinceMs))) ?? []) as Array<{
+        session_key: string;
+      }>;
+      return rows.map((r) => r.session_key);
+    } catch {
+      return [];
+    }
+  }
+
+  listBySession(sessionKey: string, opts: { limit?: number } = {}): JudgeQueueRow[] {
+    try {
+      const limit = Number.isInteger(opts.limit) && (opts.limit as number) > 0 ? (opts.limit as number) : 1000;
+      return (this.bySessionStmt.all(sessionKey, limit) ?? []) as JudgeQueueRow[];
+    } catch {
+      return [];
+    }
+  }
+
   listByStatus(status: JudgeQueueStatus, limit = 1000): JudgeQueueRow[] {
     try {
       const n = Math.max(1, Math.trunc(limit));
@@ -434,6 +474,12 @@ export class NullAttributionJudgeQueueRepo implements AttributionJudgeQueueRepo 
   }
   latestByUnit(): JudgeQueueRow | null {
     return null;
+  }
+  distinctSessionKeys(): string[] {
+    return [];
+  }
+  listBySession(): JudgeQueueRow[] {
+    return [];
   }
 }
 

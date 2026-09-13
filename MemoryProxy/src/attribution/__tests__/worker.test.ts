@@ -172,6 +172,8 @@ describe("T11 DB 降级（worker 侧）", () => {
         listByStatus: () => [],
         countByStatus: () => ({}),
         latestByUnit: () => null,
+        distinctSessionKeys: () => [],
+        listBySession: () => [],
       },
     });
     const result = await runWorker(deps, { drain: true });

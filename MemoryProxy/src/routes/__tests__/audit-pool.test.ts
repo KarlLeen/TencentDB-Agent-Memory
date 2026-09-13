@@ -25,6 +25,7 @@ import { teardownTempDb, withTempDb } from "../../attribution/__tests__/_helpers
 function makeApp(): Hono {
   const h = createAttributionReadHandlers(buildConfig({}));
   const app = new Hono();
+  app.get("/v3/admin/attribution/sessions", h.sessions); // 119 · A′：会话列表（T11）
   app.get("/v3/admin/attribution/audit-pool", h.auditPool);
   app.post("/v3/admin/attribution/audit-reviews", h.auditReviews);
   return app;
@@ -49,13 +50,14 @@ function mkShortlist(overflowCount: number): Record<string, unknown> {
   return { k: 2, total: 4, overflowCount, overflowAssetIds: [] };
 }
 
-function seedUnitEvent(sessionKey: string, unitId: string, msgSeq: number): void {
+function seedUnitEvent(sessionKey: string, unitId: string, msgSeq: number, spaceId?: string): void {
   getAttributionEventRepo().append({
     sessionKey,
     eventType: "decision_unit.created",
     unitId,
     turnSeq: 1,
     msgSeq,
+    ...(spaceId ? { spaceId } : {}), // 119 · T11：可选 space（缺省 _default，不破既有 T）
     payload: { unitType: "code_change" },
   });
 }
@@ -63,12 +65,12 @@ function seedUnitEvent(sessionKey: string, unitId: string, msgSeq: number): void
 function seedDetail(
   sessionKey: string,
   unitId: string,
-  opts: { verdict: string; detail: Record<string, unknown>; round?: number; assetId?: string },
+  opts: { verdict: string; detail: Record<string, unknown>; round?: number; assetId?: string; spaceId?: string },
 ): void {
   getAttributionJudgementDetailsRepo().insertIdempotent({
     unitId,
     sessionKey,
-    spaceId: "_default",
+    spaceId: opts.spaceId ?? "_default",
     assetId: opts.assetId ?? null,
     assetType: opts.assetId ? "skill" : null,
     round: opts.round ?? 0,
@@ -623,6 +625,50 @@ describe("77 · T1–T4 池 review latest-join + review_status= 过滤", () => {
     } finally {
       teardownTempDb();
       __resetAttributionAuditReviewsRepoForTests();
+    }
+  });
+});
+
+describe("119 · A′+C：可见性来源并入 queue（会话级 F3 + 单元级 F4 + 跨域 T1）", () => {
+  it("T11 三格：space-1 可见且派生 = space-1（专钉 T1）／Units 三源口径／不跨 space 混显", async () => {
+    try {
+      withTempDb();
+      const q = getAttributionJudgeQueueRepo();
+      // 会话 A（cc-vis 形态，space=default）：
+      //   u-dc = 有 created 事件（来源①）；u-tb = 无事件、queue(task_boundary)+jd（来源②③，F9 形态）；
+      //   u-jd = 无事件、无 queue、有 jd（来源③）。
+      seedUnitEvent("cc-vis-119", "u-dc", 0, "default");
+      q.enqueue({ unitId: "u-tb", sessionKey: "cc-vis-119", spaceId: "default", trigger: "task_boundary", payload: {} });
+      seedDetail("cc-vis-119", "u-tb", { verdict: "unconfirmed", detail: { rationaleRef: "mechanical:test" }, spaceId: "default" });
+      seedDetail("cc-vis-119", "u-jd", { verdict: "unconfirmed", detail: { rationaleRef: "mechanical:test" }, spaceId: "default" });
+      // 会话 B（sess-1 形态，space=space-1）：无事件、无 status，仅 queue+jd。
+      q.enqueue({ unitId: "u-orph", sessionKey: "sess-119", spaceId: "space-1", trigger: "manual", payload: {} });
+      seedDetail("sess-119", "u-orph", {
+        verdict: "unconfirmed",
+        detail: { rationaleRef: "mechanical:test" },
+        spaceId: "space-1",
+      });
+
+      const app = makeApp();
+      type SessionsBody = { data: { sessions: Array<{ session_key: string; space_id: string; counts: { units: number; judged: number } }> } };
+      // ① space-1 可见 sess-119，且**派生 space_id 必须是 space-1**（不是 _default —— 专钉 T1 假绿）
+      const r1 = (await (await app.request("/v3/admin/attribution/sessions?space_id=space-1&limit=10")).json()) as SessionsBody;
+      const s1 = r1.data.sessions.find((x) => x.session_key === "sess-119");
+      expect(s1, "sess-119 应可见（queue 并入 keys）").toBeTruthy();
+      expect(s1!.space_id, "派生链必须含 queue（T1）").toBe("space-1");
+      // ② cc-vis-119 的 Units = 三源并集 = 3（dc+tb+jd）；旧口径（只看 created 事件）= 1
+      const r2 = (await (await app.request("/v3/admin/attribution/sessions?space_id=default&limit=10")).json()) as SessionsBody;
+      const s2 = r2.data.sessions.find((x) => x.session_key === "cc-vis-119");
+      expect(s2!.counts.units, "Units = 事件∪判定∪队列 去重（119·C）").toBe(3);
+      expect(s2!.counts.judged).toBe(2);
+      // ③ 不跨 space 混显
+      const r3 = (await (await app.request("/v3/admin/attribution/sessions?space_id=default&limit=100")).json()) as SessionsBody;
+      expect(r3.data.sessions.some((x) => x.session_key === "sess-119"), "default 不得出现 space-1 的会话").toBe(false);
+      const r4 = (await (await app.request("/v3/admin/attribution/sessions?space_id=space-1&limit=100")).json()) as SessionsBody;
+      expect(r4.data.sessions.some((x) => x.session_key === "cc-vis-119"), "space-1 不得出现 default 的会话").toBe(false);
+      console.log(`T11 → sess-119 space=${s1!.space_id} | cc-vis-119 units=${s2!.counts.units} judged=${s2!.counts.judged}`);
+    } finally {
+      teardownTempDb();
     }
   });
 });

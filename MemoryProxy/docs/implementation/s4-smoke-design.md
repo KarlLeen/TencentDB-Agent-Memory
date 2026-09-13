@@ -1030,3 +1030,14 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   （`115` 已修）；③**真库判定行** = **harness 命名**（`default`/`space-1`）—— **要让产品 space 可见
   ⇒ 需重放/新造"产品会话"的 unit**（写库改既有行 space、或造产品会话，**均不在本单做**）⇒ **触发式登记**。
   写入面：`judgement_details`/`judge_queue` 各 **6→10**（其余表不变）；dump 指纹 `7290cebd… → 05ba0c40…`。
+- **可见性来源并入 queue（A′）+ UI 口径（C）（随单条；2026-09-13，append-only）**：`119` 落地 `118`
+  拍定（D1 = A′+C；D2 语义句**原文入 `70 spec §1`**；D4 = 不回填）。**改动面 = 三处**（较 `118` 纸面多
+  一处——`118` 写 `:345` 时把 `candidates` 当池端点；真实池端点 = `buildAuditPool`，两消费面都并入）：
+  `handleSessions`（keys + **派生链**（T1）+ 时间兜底（F11）+ `Units` 三源口径）、`handleAuditCandidates`
+  （keys）、**`buildAuditPool`**（keys）；`judge-queue-repo.ts` **新增 `distinctSessionKeys`/`listBySession`**
+  （静默降级 ⇒ `[]`，可见性"少而不报错"）。**真库对照（C4 逐格）**：`sessions?space-1` **0→1**（`sess-1`，
+  派生 = `space-1`）、`default` **3→3**、`sp-p0` **4→4**、`sp-p0a` **2→2**、`_default` **0→0**；
+  回执 `Units`（cc-vis）**2→3**、`Judged` 6→6；**池（`default`）4→4 不变**；**连带（如实补记）**：
+  `pool?space_id=space-1` **0→1**（同源增量 = 恰好 1 个会话）。**R 全演**：R1（关扩源 ⇒ 回 0）/
+  R2（只改一处 ⇒ 两页不一致：`sessions`=1、`pool`=0）/ R3（写侧越界 ⇒ name-only 红）/
+  R4（keys 进但不改派生链 ⇒ `space-1` 仍 0 = **假绿被抓**）/ R5·R6（只读侧改动；无回填、无历史行改动）。

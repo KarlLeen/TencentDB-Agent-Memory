@@ -100,6 +100,23 @@ interface Counts {
   failed: number;
 }
 
+/**
+ * 119 · C：`Units` 口径 = **事件 / 判定 / 队列**三源覆盖的 unit **去重数**（空 unit_id 不计）。
+ * 依据 `118` F4/F6/F9：非 `decision_unit` 路径（`task_boundary`/`manual`）不写 created 事件，
+ * 只看事件会把"确实被送去判定过"的单元漏掉；并 queue 后 `c98a` 计入（`Units 2 → 3`）。
+ */
+function countUnits(
+  evRows: readonly AttributionEventRowWithRowid[],
+  jds: readonly JudgementDetailRow[],
+  queueRows: readonly JudgeQueueRow[],
+): number {
+  const ids = new Set<string>();
+  for (const e of evRows) if (e.event_type === "decision_unit.created" && e.unit_id) ids.add(e.unit_id);
+  for (const j of jds) if (j.unit_id) ids.add(j.unit_id);
+  for (const q of queueRows) if (q.unit_id) ids.add(q.unit_id);
+  return ids.size;
+}
+
 /** 会话计数（列表行与回执共用；queue 两桶由调用方传入避免 N×全表）。 */
 function countsOf(
   key: string,
@@ -108,9 +125,10 @@ function countsOf(
   jds: readonly JudgementDetailRow[],
   queuePending: readonly JudgeQueueRow[],
   queueFailed: readonly JudgeQueueRow[],
+  queueRows: readonly JudgeQueueRow[], // 119 · A′：该会话 queue 行（Units 口径 + 展示）
 ): Counts {
   return {
-    units: evRows.filter((e) => e.event_type === "decision_unit.created").length,
+    units: countUnits(evRows, jds, queueRows), // 119 · C：三源并集（不再只看 created 事件）
     judged: jds.length,
     unconfirmed: jds.filter((j) => j.verdict === "unconfirmed").length,
     used: stRows.filter((s) => s.event_type === "asset_used").length,
@@ -232,7 +250,14 @@ function handleSessions(c: Context, config: ProxyConfig): Response {
   const spaceId = (c.req.query("space_id") ?? "").trim() || "_default"; // C3（缺省 _default；本单不做 ACL）
 
   const r = repos();
-  const keys = [...new Set([...r.events.distinctSessionKeys(since ?? 0), ...r.status.distinctSessionKeys(since ?? 0)])];
+  // 119 · A′：可见性来源 = events ∪ status ∪ **queue**（D2 语义句："被观测到／被送去判定过／有判定结果"之一）。
+  const keys = [
+    ...new Set([
+      ...r.events.distinctSessionKeys(since ?? 0),
+      ...r.status.distinctSessionKeys(since ?? 0),
+      ...r.queue.distinctSessionKeys(since ?? 0),
+    ]),
+  ];
   const queuePending = r.queue.listByStatus("pending", COUNT_LIMIT);
   const queueFailed = r.queue.listByStatus("failed", COUNT_LIMIT);
   const rows = keys
@@ -240,14 +265,20 @@ function handleSessions(c: Context, config: ProxyConfig): Response {
       const evRows = r.events.listBySessionWithRowid(key);
       const stRows = r.status.listBySession(key, { limit: COUNT_LIMIT });
       const jds = r.details.listBySession(key, COUNT_LIMIT);
-      const times = [...evRows.map((x) => x.created_at), ...stRows.map((x) => x.created_at)];
-      const space = evRows[0]?.space_id ?? stRows[0]?.space_id ?? "_default";
+      const qRows = r.queue.listBySession(key, { limit: COUNT_LIMIT }); // 119 · A′
+      const times = [
+        ...evRows.map((x) => x.created_at),
+        ...stRows.map((x) => x.created_at),
+        ...qRows.map((x) => x.created_at), // F11：无事件会话的时间兜底（queue.created_at）
+      ];
+      // T1：无事件/无 status 的会话（如 sess-1）继续派生成 _default 会被 space 过滤丢掉 ⇒ 派生链加 queue。
+      const space = evRows[0]?.space_id ?? stRows[0]?.space_id ?? qRows[0]?.space_id ?? "_default";
       return {
         session_key: key,
         space_id: space,
         first_event_at: times.length > 0 ? Math.min(...times) : 0,
         last_event_at: times.length > 0 ? Math.max(...times) : 0,
-        counts: countsOf(key, evRows, stRows, jds, queuePending, queueFailed),
+        counts: countsOf(key, evRows, stRows, jds, queuePending, queueFailed, qRows),
       };
     })
     .filter((row) => row.space_id === spaceId)
@@ -285,13 +316,19 @@ function handleSessionDetail(c: Context, config: ProxyConfig): Response {
   const evRows = r.events.listBySessionWithRowid(sessionKey);
   const stRows = r.status.listBySession(sessionKey, { limit: COUNT_LIMIT });
   const jds = r.details.listBySession(sessionKey, COUNT_LIMIT);
-  if (evRows.length === 0 && stRows.length === 0 && jds.length === 0) {
+  const qRows = r.queue.listBySession(sessionKey, { limit: COUNT_LIMIT }); // 119 · A′（口径一致性：与列表/池同源）
+  if (evRows.length === 0 && stRows.length === 0 && jds.length === 0 && qRows.length === 0) {
+    // 119：D2 语义句"被送去判定过 ⇒ 视为可见" ⇒ queue-only 会话不再 404。
     return error(c, 404, `session not found: ${sessionKey}`);
   }
-  const times = [...evRows.map((x) => x.created_at), ...stRows.map((x) => x.created_at)];
+  const times = [
+    ...evRows.map((x) => x.created_at),
+    ...stRows.map((x) => x.created_at),
+    ...qRows.map((x) => x.created_at),
+  ];
   const queuePending = r.queue.listByStatus("pending", COUNT_LIMIT);
   const queueFailed = r.queue.listByStatus("failed", COUNT_LIMIT);
-  const counts = countsOf(sessionKey, evRows, stRows, jds, queuePending, queueFailed);
+  const counts = countsOf(sessionKey, evRows, stRows, jds, queuePending, queueFailed, qRows);
 
   const unitEvents = evRows
     .filter((e) => e.event_type === "decision_unit.created")
@@ -308,7 +345,8 @@ function handleSessionDetail(c: Context, config: ProxyConfig): Response {
   return ok(c, {
     session: {
       session_key: sessionKey,
-      space_id: evRows[0]?.space_id ?? stRows[0]?.space_id ?? "_default",
+      // 119 · A′：派生链加 queue（与列表端点同款口径；无事件会话不被派生成 _default）。
+      space_id: evRows[0]?.space_id ?? stRows[0]?.space_id ?? qRows[0]?.space_id ?? "_default",
       first_event_at: times.length > 0 ? Math.min(...times) : 0,
       last_event_at: times.length > 0 ? Math.max(...times) : 0,
       // 版本链快照（60 spec §3）：只是本会话 fetched 窗口内的观测（DR-6a：不回查当前存储）。
@@ -342,7 +380,14 @@ function handleAuditCandidates(c: Context, config: ProxyConfig): Response {
   const spaceId = (c.req.query("space_id") ?? "").trim() || "_default";
 
   const r = repos();
-  const keys = [...new Set([...r.events.distinctSessionKeys(0), ...r.status.distinctSessionKeys(0)])];
+  // 119 · A′：池端点 `handleAuditPool` 只需并入 queue keys（T2：space 过滤用 jd 行自身，无需派生链）。
+  const keys = [
+    ...new Set([
+      ...r.events.distinctSessionKeys(0),
+      ...r.status.distinctSessionKeys(0),
+      ...r.queue.distinctSessionKeys(0),
+    ]),
+  ];
   const candidates: Array<Record<string, unknown>> = [];
   let unconfirmedCount = 0;
   for (const key of keys) {

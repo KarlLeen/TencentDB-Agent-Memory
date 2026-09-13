@@ -170,7 +170,11 @@ export function buildAuditPool(opts: { spaceId?: string } = {}): AuditPoolResult
   );
 
   const sessions = [
-    ...new Set([...events.distinctSessionKeys(0), ...status.distinctSessionKeys(0)]),
+    ...new Set([
+      ...events.distinctSessionKeys(0),
+      ...status.distinctSessionKeys(0),
+      ...queue.distinctSessionKeys(0), // 119 · A′：可见性来源并入 queue（70 spec §1 D2 语义句）
+    ]),
   ].sort();
   const items: AuditPoolItem[] = [];
 

@@ -76,6 +76,12 @@ class CountingQueueRepo implements AttributionJudgeQueueRepo {
   latestByUnit(): JudgeQueueRow | null {
     return null;
   }
+  distinctSessionKeys(): string[] {
+    return [];
+  }
+  listBySession(): JudgeQueueRow[] {
+    return [];
+  }
 }
 
 let eventRepo: FakeEventRepo;
