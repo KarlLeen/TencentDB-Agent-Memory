@@ -142,6 +142,29 @@ describe('146 · C1 阶段词表：单一落点 + validated/contributed 不进�
   });
 });
 
+describe('150 · C1 档位/文案单一落点（源级；R3 钉）', () => {
+  it('档位表与文案 key 只在 why-applicable.ts；页面其余文件不得再写一份', () => {
+    const read = (rel: string): string => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
+    const src = stripComments(read('web/src/pages/AttributionReceiptPage/utils/why-applicable.ts'));
+    for (const key of [
+      'attribution.receipt.why.citedExact',
+      'attribution.receipt.why.candidate',
+      'attribution.receipt.why.injectedOnly',
+    ]) {
+      expect(src.includes(key), `档位表（唯一落点）应含 ${key}`).toBe(true);
+    }
+    for (const rel of [
+      'web/src/pages/AttributionReceiptPage/utils/view-model.ts',
+      'web/src/pages/AttributionReceiptPage/index.tsx',
+    ]) {
+      const body = stripComments(read(rel));
+      // 第二份档位表的指纹 = 直接内联 `attribution.receipt.why.*` 文案 key
+      const hits = ['attribution.receipt.why.'].filter((p) => body.includes(p));
+      expect(hits, `${rel} 不得出现第二份档位/文案表`).toEqual([]);
+    }
+  });
+});
+
 describe('131 · C3 补键占位符一致（同名同数；运行时字符串）', () => {
   const KEYS_131 = [
     'memory.detail.cancel',

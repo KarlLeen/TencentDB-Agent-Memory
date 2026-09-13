@@ -1860,6 +1860,12 @@ export const zhCN = {
   'attribution.receipt.changeKind.lint': '静态检查',
   'attribution.receipt.changeKind.build': '构建',
   'attribution.receipt.changeKind.other': '其它',
+  // 150 · 为什么适用于当前任务（档位 + 逐字文案；**唯一定义处** = utils/why-applicable.ts；禁 LLM）
+  'attribution.receipt.asset.why': '为什么适用于当前任务',
+  'attribution.receipt.why.citedExact': '整段逐字命中（覆盖率 {{coverage}}%）',
+  'attribution.receipt.why.citedExactNoCoverage': '整段逐字命中（覆盖率未记录）',
+  'attribution.receipt.why.candidate': '候选但未达确认阈值（作为背景参考）',
+  'attribution.receipt.why.injectedOnly': '作为背景参考注入（未检测到确认引用）',
   'attribution.pool.title': '抽查池',
   'attribution.pool.subtitle': '未筛候选（查询层）；抽查状态仅服务审计、不驱动判定',
   'attribution.pool.category': '类别',

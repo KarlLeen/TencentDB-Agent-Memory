@@ -440,6 +440,61 @@ describe('149 · 变更/结果接线（使用位置 / 对应改动两格；只�
   });
 });
 
+describe('150 · 为什么适用于当前任务（档位 + 禁 LLM + 缺素材不猜）', () => {
+  function mkUnitWithDetail(assetId: string | null, verdict: string, detail: Record<string, unknown>): ReceiptUnit {
+    const base = mkUnit();
+    return { ...base, judgement: { ...base.judgement!, verdict, asset_id: assetId, detail } };
+  }
+
+  function whyOf(assetId: string, injected: boolean, units: ReceiptUnit[]): string {
+    return toAssetView(
+      {
+        asset_id: assetId,
+        asset_type: 'skill',
+        first_seen_version: null,
+        last_seen_version: null,
+        observed_versions: [],
+        injected,
+        used: false,
+        corrected: false,
+        meta: null,
+      },
+      tZh,
+      { units, changes: null },
+    ).whyApplicable;
+  }
+
+  it('档①：confirmed 且指向该资产 ⇒ "整段逐字命中（覆盖率 X%）"（1 位小数）；无覆盖率 ⇒ 如实"未记录"', () => {
+    const units = [mkUnitWithDetail('asset-1', 'confirmed', { citationMetrics: [{ assetId: 'asset-1', coverage: 0.877 }] })];
+    console.log(`150 档① → ${whyOf('asset-1', true, units)}`);
+    expect(whyOf('asset-1', true, units)).toBe('整段逐字命中（覆盖率 87.7%）');
+    expect(whyOf('asset-1', true, [mkUnitWithDetail('asset-1', 'confirmed', {})])).toBe('整段逐字命中（覆盖率未记录）');
+  });
+
+  it('档②：在 citationMetrics（未达裁决档）或 shortlist 溢出面 ⇒ "候选但未达确认阈值"', () => {
+    const units = [mkUnitWithDetail('asset-9', 'refuted', { citationMetrics: [{ assetId: 'asset-2', coverage: 0.9 }] })];
+    expect(whyOf('asset-2', true, units)).toBe('候选但未达确认阈值（作为背景参考）');
+    const units2 = [mkUnitWithDetail('asset-9', 'unconfirmed', { shortlist: { overflowAssetIds: ['asset-3'] } })];
+    expect(whyOf('asset-3', true, units2)).toBe('候选但未达确认阈值（作为背景参考）');
+  });
+
+  it('档③ 仅注入；档④ 素材缺失 ⇒ "未知"（R2：不猜、不"综合判断"兜底）', () => {
+    expect(whyOf('asset-4', true, [])).toBe('作为背景参考注入（未检测到确认引用）');
+    expect(whyOf('asset-5', false, [])).toBe('未知');
+    console.log(`150 档③/④ → ${whyOf('asset-4', true, [])} / ${whyOf('asset-5', false, [])}`);
+  });
+
+  it('R1/R4 钉：全档文案无效果性/因果性措辞；两次调用逐字相同（可复现、非 LLM）', () => {
+    const units = [mkUnitWithDetail('asset-1', 'confirmed', { citationMetrics: [{ assetId: 'asset-1', coverage: 0.877 }] })];
+    const texts = [whyOf('asset-1', true, units), whyOf('asset-4', true, []), whyOf('asset-5', false, [])];
+    const joined = texts.join('\n');
+    for (const w of ['因为', '有效', '重要', '应优先', '效果好']) {
+      expect(joined.includes(w), `不得出现 "${w}"`).toBe(false);
+    }
+    expect(texts[0]).toBe(whyOf('asset-1', true, units));
+  });
+});
+
 describe('146 · 阶段显名（C1；只映射既有载体、不新增事件类型）', () => {
   it('阶段口径行逐字（zh/en）：五阶段、无 validated（R1 钉）', () => {
     console.log(`146 → zh=${stageLine(tZh)}；en=${stageLine(tEn)}`);

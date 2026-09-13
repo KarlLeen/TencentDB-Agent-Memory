@@ -21,6 +21,7 @@ import type {
 } from '@/lib/api/attribution';
 
 import { semanticTypeKey, semanticTypeOf, type SemanticType } from './semantic-type';
+import { whyApplicableOf, type JudgementRef } from './why-applicable';
 import { STAGES, stageLabelKey, stageOfEventType } from './stage-vocabulary';
 
 /** 126 · D1 (i)：翻译函数注入面（i18next `t` 的最小子集；`{{var}}` 插值由 t 侧完成）。 */
@@ -106,6 +107,8 @@ export interface AssetView {
   risks: string[];
   /** `149 · C4`：对应变更/结果摘要串（`null` ⇒ 渲染空态文案"该会话暂无变更锚定"）。 */
   changes: string | null;
+  /** `150 · C3`：为什么适用于当前任务（档位文案；素材缺失 ⇒ "未知"）。 */
+  whyApplicable: string;
   /** 三态（与摘要层**同一事实源** = DTO 旗标）。 */
   injected: boolean;
   used: boolean;
@@ -181,6 +184,18 @@ export function toAssetView(a: ReceiptAsset, t: TranslateFn, ctx: AssetViewConte
       : ctx.changes && ctx.changes.total > 0
         ? [t(USAGE_NONE_FOR_ASSET_KEY, { total: ctx.changes.total })]
         : [];
+  // 150 · C1/C3：为什么适用于当前任务（素材 = 既有 judgement；缺 ⇒ "未知"，不猜）
+  const judgements: JudgementRef[] = [];
+  for (const u of ctx.units) {
+    const j = u.judgement;
+    if (!j) continue;
+    judgements.push({ verdict: j.verdict, assetId: j.asset_id, detail: j.detail });
+  }
+  const whyApplicable = whyApplicableOf(
+    { assetId: a.asset_id, injected: a.injected, judgements },
+    t,
+    t('attribution.receipt.unknown'),
+  );
   return {
     asset_id: a.asset_id,
     versions: [...a.observed_versions],
@@ -195,6 +210,7 @@ export function toAssetView(a: ReceiptAsset, t: TranslateFn, ctx: AssetViewConte
     usageLocations,
     risks: a.corrected ? [t(RISK_VERSION_DRIFT_KEY)] : [],
     changes: changeSummaryText(ctx.changes, t), // 149 · C4：本会话变更/结果摘要（null ⇒ 空态文案）
+    whyApplicable, // 150 · C1/C3：为什么适用于当前任务（档位文案）
     injected: a.injected,
     used: a.used,
     corrected: a.corrected,

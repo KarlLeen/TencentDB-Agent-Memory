@@ -1902,6 +1902,12 @@ export const enUS = {
   'attribution.receipt.changeKind.lint': 'lint',
   'attribution.receipt.changeKind.build': 'build',
   'attribution.receipt.changeKind.other': 'other',
+  // 150 · why applicable to the current task (tiers + exact copy; single definition = utils/why-applicable.ts)
+  'attribution.receipt.asset.why': 'Why applicable to this task',
+  'attribution.receipt.why.citedExact': 'Exact whole-span match (coverage {{coverage}}%)',
+  'attribution.receipt.why.citedExactNoCoverage': 'Exact whole-span match (coverage not recorded)',
+  'attribution.receipt.why.candidate': 'Candidate below the confirmation threshold (background reference)',
+  'attribution.receipt.why.injectedOnly': 'Injected as background reference (no confirmed citation detected)',
   'attribution.pool.title': 'Audit Pool',
   'attribution.pool.subtitle': 'Unfiltered candidates (query layer); review status serves audit only and never drives judgement',
   'attribution.pool.category': 'Category',

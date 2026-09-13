@@ -208,6 +208,10 @@ export function AttributionReceiptPage() {
                       <div>
                         {t('attribution.receipt.asset.source')}: {a.source ?? missingValue}
                       </div>
+                      {/* 150 · C3：为什么适用于当前任务（档位文案；素材缺失 ⇒ "未知"） */}
+                      <div>
+                        {t('attribution.receipt.asset.why')}: {a.whyApplicable}
+                      </div>
                       <div>
                         {t('attribution.receipt.asset.verification')}: {t('attribution.receipt.verification.pending')}
                       </div>

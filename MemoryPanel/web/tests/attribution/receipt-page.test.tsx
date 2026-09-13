@@ -373,6 +373,63 @@ describe('144 · 回执页资产展开层（字段 / 缺值"未知" / 留位列�
   });
 });
 
+describe('150 · 回执页"为什么适用于当前任务"栏', () => {
+  beforeAll(() => {
+    changeLanguage('zh-CN');
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    changeLanguage('zh-CN');
+  });
+
+  it('C3：confirmed 命中 ⇒ 档①；素材缺失 ⇒ "未知"（同行渲染，缺值不猜）', async () => {
+    const base = mkReceipt(); // 其 unit：judgement asset_id=asset-1 / verdict=confirmed / detail={rationaleRef:'r'}
+    const dto: ReceiptDto = {
+      ...base,
+      session: {
+        ...base.session,
+        assets: [
+          {
+            asset_id: 'asset-1',
+            asset_type: 'skill',
+            first_seen_version: null,
+            last_seen_version: null,
+            observed_versions: [],
+            injected: true,
+            used: true,
+            corrected: false,
+            meta: null,
+          },
+          {
+            asset_id: 'asset-2',
+            asset_type: 'skill',
+            first_seen_version: null,
+            last_seen_version: null,
+            observed_versions: [],
+            injected: false,
+            used: false,
+            corrected: false,
+            meta: null,
+          },
+        ],
+      },
+    };
+    vi.spyOn(attributionApi, 'sessions').mockResolvedValue({ sessions: [mkSession()], truncated: false });
+    vi.spyOn(attributionApi, 'receipt').mockResolvedValue(dto);
+    const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+    try {
+      const text = container.textContent ?? '';
+      const i = text.indexOf('为什么适用于当前任务');
+      console.log(`150 片段=${text.slice(i, i + 80)}`);
+      expect(text).toContain('为什么适用于当前任务: 整段逐字命中（覆盖率未记录）');
+      expect(text).toContain('为什么适用于当前任务: 未知');
+      expect(text).not.toContain('已验证');
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('146 · 回执页阶段显名（阶段口径行 + 状态事件后缀）', () => {
   beforeAll(() => {
     changeLanguage('zh-CN');

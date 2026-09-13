@@ -265,3 +265,24 @@ L1 只**追加** `asset_corrected` 行；used/judgement 行零改写；会话枚
 | **谁能写** | **任务六**（经验回流 / 候选资产生成）——由"新资产生成"流程写；本线（任务三/四）**无写口、不实现** |
 | **写什么** | `asset_contributed`（原资产 ⇒ 贡献）关联事件：`source_asset_id` + `new_asset_id` + 生成依据（**回指**，不复制正文） |
 | **本线现状** | 事件白名单 **fail-closed**（`asset_used` / `asset_corrected` 之外一律拒写）⇒ 该事件**物理上写不进**（`R3` 钉） |
+
+## 6 "为什么适用于当前任务"档位（`150`；**表体唯一定义处 = 展示层代码**）
+
+题目 Q2 要求系统能回答"资产**为什么**适用于当前任务"（`148 §3 C`）。回答**只用已有素材**
+（回执 DTO 的 `units[].judgement`：`verdict` / `asset_id` / `detail.citationMetrics[]` /
+`detail.shortlist.overflowAssetIds`）—— **零新增拉取、零写路径、不改判定口径**。
+
+档位表（**唯一定义处** = `MemoryPanel/web/src/pages/AttributionReceiptPage/utils/why-applicable.ts`；
+`R3`：写第二份 ⇒ 红；**本 spec 不复制表体**）：
+
+- **已经引用命中**：该 unit `verdict === 'confirmed'` 且 `asset_id` === 该资产
+  ⇒ "整段逐字命中（覆盖率 X%）"（覆盖率取自 `citationMetrics`；缺 ⇒ 如实"未记录"，**不写 0**）；
+- **候选但未达阈**：出现在 `citationMetrics` 或 `shortlist.overflowAssetIds`
+  ⇒ "候选但未达确认阈值（作为背景参考）"；
+- **仅注入**：仅 `injection.hook.done`
+  ⇒ "作为背景参考注入（未检测到确认引用）"；
+- **素材缺失** ⇒ "**未知**"（**不得猜**、不得"综合判断"式兜底）。
+
+两条红线（`R1`/`R4` 钉）：文案**不得**出现效果性/因果性措辞（"因为该资产有效/重要/应优先"）——
+与 `145 · C2`、红线一同源；**禁 LLM**（模板 + 变量 ⇒ 可复现、可测试）。
+**不新造阈值**：档① 的"达裁决档"= 既有 `verdict === 'confirmed'`（文本重合只是**筛选信号**，红线一）。
