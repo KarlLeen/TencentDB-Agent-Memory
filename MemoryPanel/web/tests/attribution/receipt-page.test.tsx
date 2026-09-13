@@ -307,4 +307,70 @@ describe('145 · 空资产会话：摘要仍渲染中性句（防"整卡消失"�
   });
 });
 
+describe('144 · 回执页资产展开层（字段 / 缺值"未知" / 留位列位）', () => {
+  beforeAll(() => {
+    changeLanguage('zh-CN');
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    changeLanguage('zh-CN');
+  });
+
+  function mkReceiptWithMeta(): ReceiptDto {
+    const base = mkReceipt();
+    return {
+      ...base,
+      session: {
+        ...base.session,
+        assets: [
+          {
+            asset_id: 'asset-A',
+            asset_type: 'llm_wiki',
+            first_seen_version: null,
+            last_seen_version: null,
+            observed_versions: [],
+            injected: true,
+            used: false,
+            corrected: false,
+            meta: { name: '知识库资产', asset_type: 'llm_wiki', updated_at_ms: 1700000000000 },
+          },
+          {
+            asset_id: 'asset-B',
+            asset_type: null,
+            first_seen_version: null,
+            last_seen_version: null,
+            observed_versions: [],
+            injected: true,
+            used: false,
+            corrected: false,
+            meta: null,
+          },
+        ],
+      },
+    };
+  }
+
+  it('C2/C3/C4：名称/类型/更新时间/验证状态渲染；缺值 ⇒ "—"（不得 0/空串）；两格留位列位 + 空态文案', async () => {
+    vi.spyOn(attributionApi, 'sessions').mockResolvedValue({ sessions: [mkSession()], truncated: false });
+    vi.spyOn(attributionApi, 'receipt').mockResolvedValue(mkReceiptWithMeta());
+    const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+    try {
+      const text = container.textContent ?? '';
+      const i = text.indexOf('资产版本链');
+      console.log(`144 片段=${text.slice(i, i + 240)}`);
+      expect(text).toContain('名称: 知识库资产'); // meta 有 ⇒ 真值
+      expect(text).toContain('名称: —'); // meta 缺 ⇒ "—" + tooltip（不得空串）
+      expect(text).toContain('更新时间: —');
+      expect(text).toContain('产品知识'); // 语义类（映射）
+      expect(text).toContain('llm_wiki'); // 技术类原值保留
+      expect(text).toContain('验证状态: 待验证（未定义验证器）'); // 143 未落地（红线二）
+      expect(text).toContain('本次使用位置: 该会话暂无变更锚定'); // C4：留列位 + 空态文案
+      expect(text).toContain('对应代码修改 / 决策 / 测试: 该会话暂无变更锚定');
+      expect(text).not.toContain('已验证');
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 

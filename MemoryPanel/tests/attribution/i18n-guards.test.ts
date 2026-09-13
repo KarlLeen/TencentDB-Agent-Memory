@@ -88,6 +88,27 @@ describe('131 · C2 全命名空间 key 集合相等（126·C4 的同型升级�
   });
 });
 
+describe('144 · C1 映射表单一落点（源级；R3 钉）', () => {
+  const TECH_CLASSES = ['skill', 'code_graph', 'llm_wiki', 'chat_memory'] as const;
+
+  it('技术类→语义类映射只在 semantic-type.ts；页面其余文件不得再写一份', () => {
+    const read = (rel: string): string => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
+    const mapBody = stripComments(read('web/src/pages/AttributionReceiptPage/utils/semantic-type.ts'));
+    for (const tech of TECH_CLASSES) {
+      expect(mapBody.includes(`${tech}:`), `映射表（唯一落点）应含 ${tech}`).toBe(true);
+    }
+    // 第二份表的指纹 = 页面其余文件里出现**技术类名**（映射关系的输入侧）⇒ 红。
+    for (const rel of [
+      'web/src/pages/AttributionReceiptPage/utils/view-model.ts',
+      'web/src/pages/AttributionReceiptPage/index.tsx',
+    ]) {
+      const body = stripComments(read(rel));
+      const hits = TECH_CLASSES.filter((t) => body.includes(t));
+      expect(hits, `${rel} 不得出现第二份映射表（命中：${hits.join(',')}）`).toEqual([]);
+    }
+  });
+});
+
 describe('131 · C3 补键占位符一致（同名同数；运行时字符串）', () => {
   const KEYS_131 = [
     'memory.detail.cancel',

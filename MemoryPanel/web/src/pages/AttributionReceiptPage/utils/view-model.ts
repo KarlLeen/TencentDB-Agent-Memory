@@ -71,10 +71,71 @@ export interface OverflowView {
   text: string;
 }
 
+/**
+ * `144 · C2` 资产展开层（**新增并列字段**；`observed_versions` 语义不变）。
+ *
+ * 缺值一律 `null` / `[]` ⇒ 渲染层用"未知"（`—` + tooltip），**不得**用 `0` / 空串冒充（`R4`）。
+ * `usageLocations`/`changes` 两格依赖 `142`（变更锚定）⇒ 本单**只留列位 + 空态文案**（`C4`）。
+ */
+export interface AssetView {
+  asset_id: string;
+  /** 版本链（60 spec §3：本会话 fetched 窗口内的观测；未 fetched ⇒ `[]`）。 */
+  versions: number[];
+  /** 名称（BFF 只读富化；缺 ⇒ `null`）。 */
+  name: string | null;
+  /** 技术类原值（**不得**改写；行内缺 ⇒ 用元数据兜底）。 */
+  assetType: string | null;
+  /** 语义类（`./semantic-type` 映射结果；映射不到 ⇒ `other`，**不猜**）。 */
+  semanticType: SemanticType;
+  /** 语义类标签（i18n 已译）。 */
+  semanticLabel: string;
+  /** 版本展示串（`observed_versions.join('→')`；空 ⇒ `null`）。 */
+  version: string | null;
+  /** 元数据更新时间（ms；缺 ⇒ `null`）。 */
+  updatedAt: number | null;
+  /** 验证状态：`143` 未落地 ⇒ 固定 `pending`（未定义验证器）；**不得**拿 meta.status 冒充。 */
+  verificationStatus: 'pending';
+  /** 来源：当前无数据源 ⇒ `null`（渲染"未知"；不臆造文档/代码位置）。 */
+  source: string | null;
+  /** 本次使用位置：依赖 `142` ⇒ 恒 `[]`（留列位 + 空态文案）。 */
+  usageLocations: string[];
+  /** 风险：当前唯一可诚实派生 = 版本漂移（`corrected` ⇒ 一条）；其余待 `142`/`143`。 */
+  risks: string[];
+  /** 三态（与摘要层**同一事实源** = DTO 旗标）。 */
+  injected: boolean;
+  used: boolean;
+  corrected: boolean;
+}
+
+/** 资产风险文案（i18n key；当前唯一可派生项 = 版本漂移）。 */
+const RISK_VERSION_DRIFT_KEY = 'attribution.receipt.risk.versionDrift';
+
+export function toAssetView(a: ReceiptAsset, t: TranslateFn): AssetView {
+  const assetType = a.asset_type ?? a.meta?.asset_type ?? null;
+  const semanticType = semanticTypeOf(assetType);
+  return {
+    asset_id: a.asset_id,
+    versions: [...a.observed_versions],
+    name: a.meta?.name ?? null,
+    assetType,
+    semanticType,
+    semanticLabel: t(semanticTypeKey(semanticType)),
+    version: a.observed_versions.length > 0 ? a.observed_versions.join('→') : null,
+    updatedAt: a.meta?.updated_at_ms ?? null,
+    verificationStatus: 'pending',
+    source: null,
+    usageLocations: [],
+    risks: a.corrected ? [t(RISK_VERSION_DRIFT_KEY)] : [],
+    injected: a.injected,
+    used: a.used,
+    corrected: a.corrected,
+  };
+}
+
 export interface ReceiptView {
   session_key: string;
   space_id: string;
-  assets: Array<{ asset_id: string; versions: number[] }>;
+  assets: AssetView[];
   counts: ReceiptDto['counts'];
   overflow: OverflowView;
   /** `145`：摘要层（卡片式，位于计数行之上）。 */
@@ -269,7 +330,7 @@ export function toReceiptView(dto: ReceiptDto, t: TranslateFn): ReceiptView {
   return {
     session_key: dto.session.session_key,
     space_id: dto.session.space_id,
-    assets: dto.session.assets.map((a) => ({ asset_id: a.asset_id, versions: a.observed_versions })),
+    assets: dto.session.assets.map((a) => toAssetView(a, t)), // 144 · C2：展开层字段（并列新增）
     counts: dto.counts,
     overflow: toOverflowView(dto.overflow.pending, t),
     summary: toAppliedSummary(dto, t), // 145 · C1：摘要层（计数行之上）

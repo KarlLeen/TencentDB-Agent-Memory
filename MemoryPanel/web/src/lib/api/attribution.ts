@@ -49,6 +49,9 @@ export interface ReceiptAsset {
   used: boolean;
   /** 本会话内是否有 `asset_corrected` 状态行。 */
   corrected: boolean;
+  /** `144 · C3`：BFF **只读**富化（`asset/get`）；失败/缺值 ⇒ `null`（渲染"未知"，不得用 0/空串冒充）。
+   *  ⚠️ 只含名称/类型/更新时间——**不含验证状态**（内核 `status` 是生命周期状态，语义不同，不得冒充）。 */
+  meta?: { name: string | null; asset_type: string | null; updated_at_ms: number | null } | null;
 }
 
 export interface JudgementDetail {

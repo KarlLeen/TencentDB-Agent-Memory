@@ -9,6 +9,7 @@ import {
   TOMBSTONE_RATIONALE_REF,
   overflowText,
   toAppliedSummary,
+  toAssetView,
   toReceiptView,
   toUnitView,
 } from '@/pages/AttributionReceiptPage/utils/view-model';
@@ -328,5 +329,74 @@ describe('145 · 摘要层 + 三档效果状态（C1/C2/C3；红线一/二）', 
     expect(s.title).toBe('2 team assets applied in this session');
     expect(s.effect.text).toBe('1 used; 1 background only, effect pending verification');
     expect(s.effectNote).toBe('Effect evaluation (controlled comparison) is covered by Task 5');
+  });
+});
+
+describe('144 · 展开层字段（C2/C3/C4；缺值一律 null ⇒ 渲染"未知"，不得冒充）', () => {
+  function mkAsset144(over: Partial<ReceiptAsset> & { asset_id: string }): ReceiptAsset {
+    return {
+      asset_type: 'skill',
+      first_seen_version: 1,
+      last_seen_version: 2,
+      observed_versions: [1, 2],
+      injected: true,
+      used: false,
+      corrected: false,
+      meta: null,
+      ...over,
+    };
+  }
+
+  it('C2：名称/技术类/语义类/版本/更新时间/验证状态/来源/使用位置/风险 全量；observed_versions 语义不变', () => {
+    const a = toAssetView(
+      mkAsset144({
+        asset_id: 'asset-1',
+        asset_type: 'llm_wiki',
+        meta: { name: '知识库资产', asset_type: 'llm_wiki', updated_at_ms: 1700000000000 },
+      }),
+      tZh,
+    );
+    console.log(
+      `144-C2 → ${JSON.stringify({ name: a.name, assetType: a.assetType, semantic: a.semanticLabel, version: a.version, updatedAt: a.updatedAt, verification: a.verificationStatus, source: a.source, usage: a.usageLocations, risks: a.risks })}`,
+    );
+    expect(a.name).toBe('知识库资产');
+    expect(a.assetType).toBe('llm_wiki'); // 保留原值
+    expect(a.semanticType).toBe('productKnowledge'); // 映射结果（144 · C1 单一落点）
+    expect(a.semanticLabel).toBe('产品知识');
+    expect(a.version).toBe('1→2');
+    expect(a.versions).toEqual([1, 2]); // 语义不变（60 spec §3 observed_versions）
+    expect(a.updatedAt).toBe(1700000000000);
+    expect(a.verificationStatus).toBe('pending'); // 143 未落地 ⇒ 固定 pending（不得拿 meta.status 冒充）
+    expect(a.source).toBe(null); // 无数据源 ⇒ 未知
+    expect(a.usageLocations).toEqual([]); // 142 未落地 ⇒ 空（C4 只留列位）
+    expect(a.risks).toEqual([]); // 未 corrected ⇒ 无（未检出）
+  });
+
+  it('C3 缺值：meta 缺席 ⇒ name/updatedAt = null（**不得** 0 / 空串冒充）；未知技术类 ⇒ 其他（不猜）', () => {
+    const a = toAssetView(mkAsset144({ asset_id: 'asset-2', asset_type: null, observed_versions: [], meta: null }), tZh);
+    console.log(
+      `144-C3 → ${JSON.stringify({ name: a.name, updatedAt: a.updatedAt, version: a.version, type: a.assetType, semantic: a.semanticLabel })}`,
+    );
+    expect(a.name).toBe(null);
+    expect(a.updatedAt).toBe(null);
+    expect(a.version).toBe(null);
+    expect(a.assetType).toBe(null);
+    expect(a.semanticLabel).toBe('其他');
+  });
+
+  it('技术类行内缺 ⇒ 用元数据类型兜底（仍走同一映射表；不另写一份）', () => {
+    const a = toAssetView(
+      mkAsset144({ asset_id: 'asset-3', asset_type: null, meta: { name: null, asset_type: 'code_graph', updated_at_ms: null } }),
+      tZh,
+    );
+    expect(a.assetType).toBe('code_graph');
+    expect(a.semanticLabel).toBe('代码知识');
+  });
+
+  it('风险：corrected ⇒ 一条"版本漂移（检测时快照）"；未 corrected ⇒ 空数组（不臆造冲突 / 低置信）', () => {
+    const c = toAssetView(mkAsset144({ asset_id: 'asset-4', corrected: true, used: true }), tZh);
+    console.log(`144-风险 → ${JSON.stringify(c.risks)}`);
+    expect(c.risks).toEqual(['版本漂移（检测时快照）']);
+    expect(toAssetView(mkAsset144({ asset_id: 'asset-5' }), tZh).risks).toEqual([]);
   });
 });

@@ -178,3 +178,50 @@ describe('76 · T3 actor 服务端注入 / T4 无 key 400 / T5 无界拒绝', ()
     expect(fake.calls.length).toBe(0);
   });
 });
+
+describe('144 · C3 回执富化：asset/get 只读（失败 ⇒ meta=null，不影响主体）', () => {
+  it('成功 ⇒ meta={name,asset_type,updated_at_ms}；失败 ⇒ meta=null；生命周期 status 不透传', async () => {
+    const fake = makeFakeProxy();
+    const deps = makeDeps({ proxy: fake.port });
+    const calls: Array<{ action: string; body: unknown }> = [];
+    (deps as unknown as { metaKernel: unknown }).metaKernel = {
+      async invoke(action: string, body: unknown) {
+        calls.push({ action, body });
+        const id = (body as { asset_id: string }).asset_id;
+        if (id === 'asset-ok') {
+          return {
+            code: 0,
+            message: 'ok',
+            data: {
+              asset_id: id,
+              name: '知识库资产',
+              asset_type: 'llm_wiki',
+              status: 'active', // 生命周期状态：**不得**当作验证状态透传
+              updated_at: '2023-11-14T17:13:20.000Z',
+            },
+          };
+        }
+        return { code: 404, message: 'not found', data: null };
+      },
+    };
+    const app = new Hono();
+    registerAttributionRoutes(app, deps);
+    fake.queue.push({
+      code: 0,
+      message: 'ok',
+      data: { session: { session_key: 's1', assets: [{ asset_id: 'asset-ok' }, { asset_id: 'asset-missing' }] }, units: [] },
+    });
+    const r = await postJson(app, '/attribution/receipt', { session_key: 's1' });
+    const e = (await r.json()) as Envelope<{ session: { assets: Array<Record<string, unknown>> } }>;
+    const assets = e.data!.session.assets;
+    console.log(`144-C3 → calls=${JSON.stringify(calls)}；meta=${JSON.stringify(assets.map((a) => a.meta))}`);
+    expect(calls.map((c) => c.action)).toEqual(['asset/get', 'asset/get']);
+    expect(assets[0]!.meta).toEqual({
+      name: '知识库资产',
+      asset_type: 'llm_wiki',
+      updated_at_ms: Date.parse('2023-11-14T17:13:20.000Z'),
+    });
+    expect(assets[1]!.meta).toBe(null); // 失败 ⇒ null（前端渲染"未知"，不得 0/空串冒充）
+    expect(JSON.stringify(e)).not.toContain('"status"'); // 生命周期 status 不得冒充验证状态
+  });
+});

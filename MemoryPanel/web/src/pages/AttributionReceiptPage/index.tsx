@@ -86,6 +86,11 @@ export function AttributionReceiptPage() {
 
   const view: ReceiptView | null = useMemo(() => (receipt ? toReceiptView(receipt, t) : null), [receipt, t]);
 
+  // 144 · C3/C4：缺值统一渲染 = "—" + tooltip"未知"（**不得**用 0 / 空串冒充；`R4` 钉）。
+  const missingValue = (
+    <span title={t('attribution.receipt.unknown')}>{t('attribution.receipt.missingValue')}</span>
+  );
+
   return (
     <Card className="attribution-receipt-page">
       <div style={{ padding: 16 }}>
@@ -165,11 +170,59 @@ export function AttributionReceiptPage() {
             </div>
             {view.assets.length > 0 && (
               <div style={{ margin: '8px 0', fontSize: 12, color: '#666' }}>
-                {t('attribution.receipt.assets')}:
+                <div style={{ marginBottom: 4 }}>{t('attribution.receipt.assets')}:</div>
+                {/* 144 · C2：资产展开层（并列新增字段；缺值 ⇒ "—" + tooltip"未知"）。
+                    C4：使用位置 / 对应改动两格依赖 `142`（变更锚定）⇒ 只留列位 + 空态文案。 */}
                 {view.assets.map((a) => (
-                  <span key={a.asset_id} style={{ marginLeft: 8 }}>
-                    {a.asset_id} [{a.versions.join('→')}]
-                  </span>
+                  <details
+                    key={a.asset_id}
+                    style={{ marginBottom: 4, padding: '4px 8px', border: '1px solid #f0f0f0', borderRadius: 4 }}
+                  >
+                    <summary style={{ cursor: 'pointer' }}>
+                      <span style={{ fontFamily: 'monospace' }}>{a.asset_id}</span>
+                      {' · '}
+                      {a.semanticLabel}
+                      {' · '}
+                      {a.version ?? missingValue}
+                    </summary>
+                    <div style={{ marginTop: 4, lineHeight: 1.7 }}>
+                      <div>
+                        {t('attribution.receipt.asset.name')}: {a.name ?? missingValue}
+                      </div>
+                      <div>
+                        {t('attribution.receipt.asset.semanticType')}: {a.semanticLabel}
+                      </div>
+                      <div>
+                        {t('attribution.receipt.asset.assetType')}: {a.assetType ?? missingValue}
+                      </div>
+                      <div>
+                        {t('attribution.receipt.asset.version')}: {a.version ?? missingValue}
+                      </div>
+                      <div>
+                        {t('attribution.receipt.asset.updatedAt')}:{' '}
+                        {a.updatedAt !== null ? new Date(a.updatedAt).toLocaleString() : missingValue}
+                      </div>
+                      <div>
+                        {t('attribution.receipt.asset.source')}: {a.source ?? missingValue}
+                      </div>
+                      <div>
+                        {t('attribution.receipt.asset.verification')}: {t('attribution.receipt.verification.pending')}
+                      </div>
+                      <div>
+                        {t('attribution.receipt.asset.risks')}:{' '}
+                        {a.risks.length > 0 ? a.risks.join(' · ') : t('attribution.receipt.risk.none')}
+                      </div>
+                      <div>
+                        {t('attribution.receipt.asset.usage')}:{' '}
+                        {a.usageLocations.length > 0
+                          ? a.usageLocations.join(' · ')
+                          : t('attribution.receipt.anchor.none')}
+                      </div>
+                      <div>
+                        {t('attribution.receipt.asset.changes')}: {t('attribution.receipt.anchor.none')}
+                      </div>
+                    </div>
+                  </details>
                 ))}
               </div>
             )}
