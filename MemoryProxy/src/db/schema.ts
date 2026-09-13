@@ -217,10 +217,10 @@ CREATE TABLE IF NOT EXISTS attribution_archive_watermark (
 CREATE TABLE IF NOT EXISTS attribution_judge_queue (
   queue_id         INTEGER PRIMARY KEY,               -- 单调：兼作消费游标（§4.2/§4.6，不另立水位表）
   unit_id          TEXT    NOT NULL,
-  round            INTEGER NOT NULL DEFAULT 0,        -- 0=首次；>0=重判（生产路径留 50 spec）
+  round            INTEGER NOT NULL DEFAULT 0,        -- 0=首次；>0=重判（61 起已生产：--rejudge）
   session_key      TEXT    NOT NULL,
   space_id         TEXT    NOT NULL DEFAULT '_default',
-  trigger          TEXT    NOT NULL DEFAULT 'decision_unit', -- 占位：task_boundary/manual（50 spec）
+  trigger          TEXT    NOT NULL DEFAULT 'decision_unit', -- 三值均在生产（50 spec §16.3）：decision_unit / manual / task_boundary
   payload_json     TEXT    NOT NULL,                  -- 自足最小摘要（worker 只读本行，不回查 v1 表）
   status           TEXT    NOT NULL DEFAULT 'pending', -- pending|processing|done|failed
   attempts         INTEGER NOT NULL DEFAULT 0,
@@ -239,7 +239,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ajq_dedupe ON attribution_judge_queue(unit
 CREATE INDEX IF NOT EXISTS idx_ajq_claim
   ON attribution_judge_queue(status, lease_expires_ms, queue_id);
 
--- 归因判定明细（共享基座冻结此表；status_events / audit 留 50 spec 前定稿，DR-3）。
+-- 归因判定明细（共享基座冻结此表；status_events 已定稿建表（本文件 :274）；attribution_audit 池仍延后 —— 触发见 50 spec §18.1③，DR-3）。
 -- 落点唯一性锚 = (unit_id, round)（索引 idx_ajd_unit_round，见文件末）；确定性主键 judgement_id
 --    仍保留 ⇒ 崩溃重放 / 租约重复判定都不会双记（红线 8）。
 -- ⚠️ 不得改用 UNIQUE(unit_id, asset_id, round) 作锚：asset_id 可空，SQLite 里 NULL 互不相等，

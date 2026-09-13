@@ -26,11 +26,11 @@ export type JudgeQueueStatus = "pending" | "processing" | "done" | "failed";
 export interface JudgeQueueItemInput {
   unitId: string;
   sessionKey: string;
-  /** 0=首次；>0=重判（生产路径留 50 spec）。缺省 0。 */
+  /** 0=首次；>0=重判（61 起已生产：`--rejudge` ⇒ `manual` + `round+1`，见 50 spec §16）。缺省 0。 */
   round?: number;
   /** 缺省 "_default"（与 sessionRowId / v1 事件表口径一致）。 */
   spaceId?: string;
-  /** 占位：本期只写 "decision_unit"（task_boundary / manual 留 50 spec）。 */
+  /** 三值均在生产（50 spec §16.3）：decision_unit（首判缺省）/ manual（--rejudge）/ task_boundary（66 起：runner 边界信号）。 */
   trigger?: string;
   payload: unknown;
 }
