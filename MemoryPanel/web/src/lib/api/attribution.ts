@@ -15,6 +15,9 @@ import type { MetaEnvelope } from './types';
 
 export interface Counts {
   units: number;
+  /** 120 · C1：有 `decision_unit.created` 事件的 unit 去重数（= 行列表的**总体**口径，**不是**本页行数）。
+   *  UI 标注只用"两数之差"（两数皆服务端给 ⇒ 不受分页影响）。 */
+  units_with_created_event: number;
   judged: number;
   unconfirmed: number;
   used: number;

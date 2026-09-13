@@ -115,7 +115,19 @@ export function AttributionReceiptPage() {
         {view && (
           <>
             <div style={{ margin: '8px 0', fontSize: 13, color: '#444' }}>
-              <b>{t('attribution.receipt.units')}</b> {view.counts.units}｜
+              <b>{t('attribution.receipt.units')}</b> {view.counts.units}
+              {/* 120 · C2：口径差标注（**同一行、紧跟其后、单处**）——当且仅当差额 > 0 时渲染；
+                  数字 = units − units_with_created_event（**两个都是服务端给的** ⇒ 不受分页影响，
+                  不许用"本页行数"做减法）。 */}
+              {view.counts.units > view.counts.units_with_created_event && (
+                <>
+                  {' '}
+                  {t('attribution.receipt.unitsUndisplayable', {
+                    count: view.counts.units - view.counts.units_with_created_event,
+                  })}
+                </>
+              )}
+              ｜
               <b>{t('attribution.receipt.judged')}</b> {view.counts.judged}｜
               <b>used</b> {view.counts.used}｜<b>corrected</b> {view.counts.corrected}｜
               <b>pending</b> {view.counts.pending}｜<b>failed</b> {view.counts.failed}

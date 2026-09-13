@@ -650,7 +650,7 @@ describe("119 · A′+C：可见性来源并入 queue（会话级 F3 + 单元级
       });
 
       const app = makeApp();
-      type SessionsBody = { data: { sessions: Array<{ session_key: string; space_id: string; counts: { units: number; judged: number } }> } };
+      type SessionsBody = { data: { sessions: Array<{ session_key: string; space_id: string; counts: { units: number; units_with_created_event: number; judged: number } }> } };
       // ① space-1 可见 sess-119，且**派生 space_id 必须是 space-1**（不是 _default —— 专钉 T1 假绿）
       const r1 = (await (await app.request("/v3/admin/attribution/sessions?space_id=space-1&limit=10")).json()) as SessionsBody;
       const s1 = r1.data.sessions.find((x) => x.session_key === "sess-119");
@@ -660,6 +660,7 @@ describe("119 · A′+C：可见性来源并入 queue（会话级 F3 + 单元级
       const r2 = (await (await app.request("/v3/admin/attribution/sessions?space_id=default&limit=10")).json()) as SessionsBody;
       const s2 = r2.data.sessions.find((x) => x.session_key === "cc-vis-119");
       expect(s2!.counts.units, "Units = 事件∪判定∪队列 去重（119·C）").toBe(3);
+      expect(s2!.counts.units_with_created_event, "120 · C1：有 created 事件的 = 1（仅 u-dc）").toBe(1);
       expect(s2!.counts.judged).toBe(2);
       // ③ 不跨 space 混显
       const r3 = (await (await app.request("/v3/admin/attribution/sessions?space_id=default&limit=100")).json()) as SessionsBody;

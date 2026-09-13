@@ -1038,6 +1038,7 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   （静默降级 ⇒ `[]`，可见性"少而不报错"）。**真库对照（C4 逐格）**：`sessions?space-1` **0→1**（`sess-1`，
   派生 = `space-1`）、`default` **3→3**、`sp-p0` **4→4**、`sp-p0a` **2→2**、`_default` **0→0**；
   回执 `Units`（cc-vis）**2→3**、`Judged` 6→6；**池（`default`）4→4 不变**；**连带（如实补记）**：
-  `pool?space_id=space-1` **0→1**（同源增量 = 恰好 1 个会话）。**R 全演**：R1（关扩源 ⇒ 回 0）/
+  `pool?space_id=space-1` **0→1**（同源增量 = 恰好 1 个会话）。**R1–R4 演示；R5/R6 无演示**
+  （以代码面确认：diff 内写侧 0 / `schema.ts` 0 / space 过滤 0）：R1（关扩源 ⇒ 回 0）/
   R2（只改一处 ⇒ 两页不一致：`sessions`=1、`pool`=0）/ R3（写侧越界 ⇒ name-only 红）/
-  R4（keys 进但不改派生链 ⇒ `space-1` 仍 0 = **假绿被抓**）/ R5·R6（只读侧改动；无回填、无历史行改动）。
+  R4（keys 进但不改派生链 ⇒ `space-1` 仍 0 = **假绿被抓**）。

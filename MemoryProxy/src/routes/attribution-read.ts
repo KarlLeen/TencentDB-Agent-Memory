@@ -92,6 +92,10 @@ function repos(): ReadRepos {
 
 interface Counts {
   units: number;
+  /** 120 · C1：**有 `decision_unit.created` 事件的 unit 去重数**（= 行列表的总体口径，**不是**本页行数）。
+   *  UI 用 `units − units_with_created_event` 标注"仅见于队列/判定、无可展示事件"的差额
+   *  （两数皆服务端给 ⇒ 不受分页影响；`70 spec §1` DTO 同批登记）。 */
+  units_with_created_event: number;
   judged: number;
   unconfirmed: number;
   used: number;
@@ -109,12 +113,18 @@ function countUnits(
   evRows: readonly AttributionEventRowWithRowid[],
   jds: readonly JudgementDetailRow[],
   queueRows: readonly JudgeQueueRow[],
-): number {
+): { units: number; unitsWithCreatedEvent: number } {
   const ids = new Set<string>();
-  for (const e of evRows) if (e.event_type === "decision_unit.created" && e.unit_id) ids.add(e.unit_id);
+  const createdIds = new Set<string>(); // 120 · C1：同一遍扫描顺带产出（不新增第二遍）
+  for (const e of evRows) {
+    if (e.event_type === "decision_unit.created" && e.unit_id) {
+      ids.add(e.unit_id);
+      createdIds.add(e.unit_id);
+    }
+  }
   for (const j of jds) if (j.unit_id) ids.add(j.unit_id);
   for (const q of queueRows) if (q.unit_id) ids.add(q.unit_id);
-  return ids.size;
+  return { units: ids.size, unitsWithCreatedEvent: createdIds.size };
 }
 
 /** 会话计数（列表行与回执共用；queue 两桶由调用方传入避免 N×全表）。 */
@@ -127,8 +137,10 @@ function countsOf(
   queueFailed: readonly JudgeQueueRow[],
   queueRows: readonly JudgeQueueRow[], // 119 · A′：该会话 queue 行（Units 口径 + 展示）
 ): Counts {
+  const u = countUnits(evRows, jds, queueRows); // 120 · C1：一次扫描出两数（units / units_with_created_event）
   return {
-    units: countUnits(evRows, jds, queueRows), // 119 · C：三源并集（不再只看 created 事件）
+    units: u.units, // 119 · C：三源并集（不再只看 created 事件）
+    units_with_created_event: u.unitsWithCreatedEvent,
     judged: jds.length,
     unconfirmed: jds.filter((j) => j.verdict === "unconfirmed").length,
     used: stRows.filter((s) => s.event_type === "asset_used").length,
@@ -380,7 +392,9 @@ function handleAuditCandidates(c: Context, config: ProxyConfig): Response {
   const spaceId = (c.req.query("space_id") ?? "").trim() || "_default";
 
   const r = repos();
-  // 119 · A′：池端点 `handleAuditPool` 只需并入 queue keys（T2：space 过滤用 jd 行自身，无需派生链）。
+  // 119 · A′（120 · C4 复核 P3-① 校正）：**未筛候选端点** `handleAuditCandidates` 只需并入 queue keys
+  // （T2：space 过滤用 jd 行自身，无需派生链）；**真实池端点** = `buildAuditPool`（`attribution/audit-pool.ts`，
+  // `handleAuditPool` 只是它的壳）——两处同批并入 queue（见该文件同款注释）。
   const keys = [
     ...new Set([
       ...r.events.distinctSessionKeys(0),

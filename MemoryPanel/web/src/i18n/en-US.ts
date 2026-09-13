@@ -1811,6 +1811,7 @@ export const enUS = {
   'attribution.receipt.subtitle': 'Per-session decision units: judgements, evidence and status events (granularity = turn)',
   'attribution.receipt.selectSession': 'Select session',
   'attribution.receipt.units': 'Units',
+  'attribution.receipt.unitsUndisplayable': '({{count}} of them appear only in the queue/judgement, with no displayable event)',
   'attribution.receipt.judged': 'Judged',
   'attribution.receipt.turn': 'Turn',
   'attribution.receipt.markers': 'Markers',

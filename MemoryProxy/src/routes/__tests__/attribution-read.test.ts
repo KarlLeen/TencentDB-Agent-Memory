@@ -189,7 +189,7 @@ describe("72 · T1–T5 回执 DTO（形状 / 68 D1 / K2 / 溢出 / 分页）", 
       expect(session.assets).toEqual([
         { asset_id: "asset-72", asset_type: "skill", first_seen_version: 1, last_seen_version: 2, observed_versions: [1, 2] },
       ]);
-      expect(data.counts).toEqual({ units: 2, judged: 2, unconfirmed: 0, used: 1, corrected: 1, pending: 0, failed: 0 });
+      expect(data.counts).toEqual({ units: 2, units_with_created_event: 2, judged: 2, unconfirmed: 0, used: 1, corrected: 1, pending: 0, failed: 0 });
       const units = data.units as Array<Record<string, unknown>>;
       expect(units.length).toBe(2);
       const u1 = units[0]!;

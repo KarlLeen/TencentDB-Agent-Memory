@@ -18,7 +18,7 @@
 
 | 端点 | 参数 | 契约要点 |
 |---|---|---|
-| `GET /v3/admin/attribution/sessions` | `space_id?`（缺省 `_default`）/ `since?`（ms \| ISO8601）/ `limit?`（缺省 100、上限 1000） | **`since` 与 `limit` 至少给一个**（缺则 400，拒绝无界全表扫）；响应 `{sessions:[…], truncated}`；行 = `{session_key, space_id, first_event_at, last_event_at, counts{units,judged,unconfirmed,used,corrected,pending,failed}}` |
+| `GET /v3/admin/attribution/sessions` | `space_id?`（缺省 `_default`）/ `since?`（ms \| ISO8601）/ `limit?`（缺省 100、上限 1000） | **`since` 与 `limit` 至少给一个**（缺则 400，拒绝无界全表扫）；响应 `{sessions:[…], truncated}`；行 = `{session_key, space_id, first_event_at, last_event_at, counts{units,units_with_created_event,judged,unconfirmed,used,corrected,pending,failed}}` |
 | `GET /v3/admin/attribution/sessions/{session_key}` | `limit?`（缺省 100、上限 1000）/ `offset?`（缺省 0） | 回执 DTO（§1.2）；`truncated` = 分页命中；会话不存在 ⇒ 404 |
 | `GET /v3/admin/attribution/audit-candidates` | `space_id?` / `limit?` / `filter?`（**参数位预留**：给值 ⇒ **400**，suspect 判据见 §2） | 未筛候选 = `verdict='unconfirmed'` ∪ queue `failed` ∪ queue `pending`（溢出记账）；响应 `{candidates:[…], counts{unconfirmed,failed,pending}, truncated}` |
 

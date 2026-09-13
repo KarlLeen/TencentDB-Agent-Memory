@@ -49,7 +49,7 @@ function mkSession(): SessionSummary {
     space_id: '_default',
     first_event_at: 1000,
     last_event_at: 1200,
-    counts: { units: 1, judged: 1, unconfirmed: 0, used: 1, corrected: 0, pending: 0, failed: 0 },
+    counts: { units: 1, units_with_created_event: 1, judged: 1, unconfirmed: 0, used: 1, corrected: 0, pending: 0, failed: 0 },
   };
 }
 
@@ -62,7 +62,7 @@ function mkReceipt(): ReceiptDto {
       last_event_at: 1200,
       assets: [],
     },
-    counts: { units: 1, judged: 1, unconfirmed: 0, used: 1, corrected: 0, pending: 0, failed: 0 },
+    counts: { units: 1, units_with_created_event: 1, judged: 1, unconfirmed: 0, used: 1, corrected: 0, pending: 0, failed: 0 },
     overflow: { pending: 0, note: '' },
     units: [
       {
@@ -88,6 +88,21 @@ function mkReceipt(): ReceiptDto {
       },
     ],
     truncated: false,
+  };
+}
+
+/** 120 · 验收互锁用参数化工厂：总额/有事件额/行列表长度/truncated 均可覆写。
+ *  缺省 units_with_created_event = units（相等态 ⇒ 不渲染标注，既有格不受影响）。 */
+function mkReceiptWith(over: { units?: number; uwce?: number; rows?: number; truncated?: boolean }): ReceiptDto {
+  const base = mkReceipt();
+  const units = over.units ?? 1;
+  const rows = over.rows ?? 1;
+  const row0 = base.units[0]!;
+  return {
+    ...base,
+    counts: { ...base.counts, units, units_with_created_event: over.uwce ?? units },
+    units: Array.from({ length: rows }, (_, i) => ({ ...row0, unit_id: `du_render_${i + 1}` })),
+    truncated: over.truncated ?? false,
   };
 }
 
@@ -122,6 +137,71 @@ describe('84 · D1 回执页：首屏空态 / 有数据态（jsdom）', () => {
       expect(text).toContain('轮 1 · 消息 16');
       expect(text).toContain('另有 0 个次要决策未逐一归因');
       expect(text).toContain('du_render_1');
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('120 · 回执页 Units 口径差标注（差值态 / 相等态 / 分页态 / en 双语）', () => {
+  beforeAll(() => {
+    changeLanguage('zh-CN');
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    changeLanguage('zh-CN'); // en 格后复位
+  });
+
+  it('C3① 差额态：units=3 / uwce=2 ⇒ 渲染标注且数字 = 1，且**单处**（恰好一次）', async () => {
+    vi.spyOn(attributionApi, 'sessions').mockResolvedValue({ sessions: [mkSession()], truncated: false });
+    vi.spyOn(attributionApi, 'receipt').mockResolvedValue(mkReceiptWith({ units: 3, uwce: 2, rows: 2 }));
+    const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+    try {
+      const text = container.textContent ?? '';
+      console.log(`120-C3① 差额态片段=${text.slice(text.indexOf('单元'), text.indexOf('单元') + 60)}`);
+      expect(text).toContain('（其中 1 个仅见于队列/判定，无可展示事件）');
+      expect((text.match(/仅见于队列\/判定/g) ?? []).length).toBe(1); // R5 钉"单处"
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('C3② 相等态：units=2 / uwce=2 ⇒ 不渲染任何标注（零噪声）', async () => {
+    vi.spyOn(attributionApi, 'sessions').mockResolvedValue({ sessions: [mkSession()], truncated: false });
+    vi.spyOn(attributionApi, 'receipt').mockResolvedValue(mkReceiptWith({ units: 2, uwce: 2, rows: 2 }));
+    const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+    try {
+      const text = container.textContent ?? '';
+      expect(text).not.toContain('仅见于队列/判定');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('C3③ 分页态：units=3 / uwce=2 / 本页仅 1 行 + truncated=true ⇒ 标注数字**不变 = 1**（不许用行数做减法）', async () => {
+    vi.spyOn(attributionApi, 'sessions').mockResolvedValue({ sessions: [mkSession()], truncated: false });
+    vi.spyOn(attributionApi, 'receipt').mockResolvedValue(mkReceiptWith({ units: 3, uwce: 2, rows: 1, truncated: true }));
+    const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+    try {
+      const text = container.textContent ?? '';
+      // 用"本页行数"算差会得到 3−1=2 ⇒ 与本断言（1）冲突 ⇒ 红。
+      expect(text).toContain('（其中 1 个仅见于队列/判定，无可展示事件）');
+      expect(text).not.toContain('（其中 2 个仅见于队列/判定，无可展示事件）');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('C3-en 双语：切 en-US ⇒ 英文文案（键不缺、无中文残留）', async () => {
+    changeLanguage('en-US');
+    vi.spyOn(attributionApi, 'sessions').mockResolvedValue({ sessions: [mkSession()], truncated: false });
+    vi.spyOn(attributionApi, 'receipt').mockResolvedValue(mkReceiptWith({ units: 3, uwce: 2, rows: 2 }));
+    const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+    try {
+      const text = container.textContent ?? '';
+      console.log(`120-C3-en 片段=${text.slice(text.indexOf('Units'), text.indexOf('Units') + 80)}`);
+      expect(text).toContain('(1 of them appear only in the queue/judgement, with no displayable event)');
+      expect(text).not.toContain('仅见于队列');
     } finally {
       cleanup();
     }

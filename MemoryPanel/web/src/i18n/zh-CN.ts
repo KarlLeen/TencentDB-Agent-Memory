@@ -1786,6 +1786,7 @@ export const zhCN = {
   'attribution.receipt.subtitle': '按会话查看决策单元的判定、证据与状态事件（粒度 = 轮）',
   'attribution.receipt.selectSession': '选择会话',
   'attribution.receipt.units': '单元',
+  'attribution.receipt.unitsUndisplayable': '（其中 {{count}} 个仅见于队列/判定，无可展示事件）',
   'attribution.receipt.judged': '已判定',
   'attribution.receipt.turn': '轮次',
   'attribution.receipt.markers': '标记',
