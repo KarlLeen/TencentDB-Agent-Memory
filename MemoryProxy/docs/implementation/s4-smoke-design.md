@@ -1016,3 +1016,17 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   **比没有更差**（评审摸到的是看不见的开关）。**触发条件**：S8-d = 真实引用正例 ∧ 方案 A 落地；S8-c = S8-d 通过后。
   **重新激活入口**：`方案 A brainstorm → 真实引用正例 → (d)-2 标定 → S8-d 验收 → 开开关`。
   **边界声明落点**：`80 spec §3`「适用范围与冻结边界」五条 + `00-master-spec §7` S8 行验收格。
+- **首批真实影子值 + space 三层口径登记（随单条；2026-09-12，append-only）**：`116` 补跑 4 个
+  `default` unit（mechanical；各 `round=1 enqueued=true` + `claimed=1 completed=1` 零错误）。
+  **首批真实影子值**：cc-vis 三 unit 的 12 个 skill 候选 `shadowBestContiguousRunChars = 1–3`
+  （**噪声级**，与 `109` 真实未读 {2,3} 同量级）、`shadowBestSegCoverage = 0`（合法 0）、
+  `chat_memory` 候选 `segCount=67` / `run=2`；cc-real2 unit 的 13 候选**全部 `segCount=0`**
+  （无片段 ⇒ coverage/run 落 unknown/0）。⇒ **全 < 8 ⇒ `suspect:text_overlap` 不出现** ——
+  **该档的第一个真实校准样本 = run ∈ {1,2,3}**（**不调档、不改判据**，如实记）。
+  **池三读数**：`space_id=default` = **4 条**（4 unit 各 `low_coverage`；latest = **round1** ⇒
+  重判换 impl 后条目类随口径变化）；`space-1` = **0**（`sess-1` 不在池 sessions 源——`111` 观察复现）；
+  登录实例类（`sp-p0`）/缺省 = **0**（预期；见下"三层口径"）。**space 三层口径（登记）**：
+  ①**产品链路** = 实例 id（`sp-p0`/`sp-p0a`，来自 `/:agent/:spaceId`）；②**面板 BFF** = 登录实例兜底
+  （`115` 已修）；③**真库判定行** = **harness 命名**（`default`/`space-1`）—— **要让产品 space 可见
+  ⇒ 需重放/新造"产品会话"的 unit**（写库改既有行 space、或造产品会话，**均不在本单做**）⇒ **触发式登记**。
+  写入面：`judgement_details`/`judge_queue` 各 **6→10**（其余表不变）；dump 指纹 `7290cebd… → 05ba0c40…`。
