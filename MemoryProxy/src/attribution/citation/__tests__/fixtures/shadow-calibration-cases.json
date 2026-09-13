@@ -1,5 +1,5 @@
 {
-  "note": "108 · (d)-1c 影子标定夹具（**可复跑**）：资产片段以【真库块文本行号 + sha256[:16] 指纹】引用，**不放真库正文**；HN1/HN4 消息为作者**合成**（synthetic: true）。一条命令复现：`npx tsx scripts/qa/shadow-calibration.ts`（默认对真库 .backup 副本只读；--record 回填 expected）。",
+  "note": "108 · (d)-1c 影子标定夹具（**可复跑**）：资产片段以【真库块文本行号 + sha256[:16] 指纹】引用，**不放真库正文**；HN1/HN4 消息为作者**合成**（synthetic: true）。一条命令复现：`npx tsx scripts/qa/shadow-calibration.ts`（默认对真库 .backup 副本只读；--record 回填 expected）。 另含顶层 `protocol`（135 · (d)-2 标定协议冻结；放顶层——`--record` 只整替换 `expected`）。",
   "dbSeed": {
     "blockContentId": 10,
     "items": [
@@ -733,5 +733,39 @@
         "separable": false
       }
     ]
+  },
+  "protocol": {
+    "_frozen": "135 · (d)-2 标定协议（2026-09-13 冻结；前置于新维度任何读数）",
+    "_spec": "80 spec §3（触发式登记节，与边界块同处）",
+    "_placementReason": "放顶层而非 expected：脚本 --record 会整替换 expected（:553），放 expected 里会被下次 record 抹掉",
+    "decisionRule": [
+      {
+        "when": "夹具口径 FP=0 ∧ FN=0 且 真实行保留率 ≥ xPercentMin",
+        "then": "采用该判据（confirmed 语义变更与 (d)-2 实现单同批）"
+      },
+      {
+        "when": "仅夹具口径满足（保留率 < xPercentMin）",
+        "then": "维持 C；记入『已证不可用』清单"
+      },
+      {
+        "when": "两口径均不满足",
+        "then": "维持 C；回 103 · D6 重选维度"
+      }
+    ],
+    "xPercentMin": 80,
+    "positivesPaths": {
+      "P-1": "真实筛 ⇒ 可单独定案",
+      "P-2": "人工标注 ⇒ 可单独定案",
+      "P-3": "合成 ⇒ 只能作辅助、不得单独定案"
+    },
+    "dualCriteria": {
+      "fixture": "FP=0 ∧ FN=0（分层报告，不报总平均）",
+      "distribution": "真实行保留率 ≥ xPercentMin"
+    },
+    "newDimensionSameTreatment": "首批必验『改写型反例是否也在该维度产生虚假匹配』（F5：HN3 已在引号跨度轴 spans=2）；首个方向 = 引号/代码跨度",
+    "nMin": 20,
+    "strata": "四类 {injected,fetched} × {正例,反例} 每类 ≥ 5（沿用 50 spec §13.3 结构）",
+    "l2CandidateGate": "只预留读数项，不启用（134 · D5）",
+    "immutable": "不得在数据到齐后修改本表（改即事后凑阈值）"
   }
 }
