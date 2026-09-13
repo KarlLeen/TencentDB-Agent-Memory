@@ -12,6 +12,8 @@
  * 两种 0 可分（同 `137` 落空报告精神）：
  *   · 归档 > 0 而候选 = 0 ⇒ **可见但无引用**（可测的 0）；
  *   · 归档 = 0 ⇒ 候选**不可度量**（`unknown` 哨兵）⇒ **观测面缺口**，不是"没有引用"。
+ * 第三种 0（`140 · C1`）：`sessions` 有行 而 `events` = 0 ⇒ **全暗会话**（整条链没产出）——
+ *   **点名 + 人工判，不自动判红**（无注入匹配的会话可能天然无事件）。
  *
  * 边界（`139 §5`）：**不造正例**、不改任何门槛/判定；只读副本；绝不落正文（输出经 `[privacy]` 闸）。
  */
@@ -39,6 +41,7 @@ function fail(msg: string): never {
 
 interface SessionRow {
   session_key: string;
+  registered: boolean; // 140 · C1：`sessions` 表（会话注册面）有行
   hookDone: number;
   events: number;
   seenRows: number;
@@ -71,7 +74,7 @@ async function main(): Promise<void> {
   const ensure = (k: string): SessionRow => {
     let r = sessions.get(k);
     if (!r) {
-      r = { session_key: k, hookDone: 0, events: 0, seenRows: 0, candNum: 0, candUnk: 0 };
+      r = { session_key: k, registered: false, hookDone: 0, events: 0, seenRows: 0, candNum: 0, candUnk: 0 };
       sessions.set(k, r);
     }
     return r;
@@ -113,16 +116,24 @@ async function main(): Promise<void> {
       else if (typeof v === "number" && Number.isFinite(v)) s.candNum += 1;
     }
   }
+  // ④ 会话注册面（140 · C1）：sessions 表 —— 第三种 0（"全暗会话"）的检出面
+  for (const r of db
+    .prepare("SELECT session_key FROM sessions WHERE session_key IS NOT NULL")
+    .all() as Array<{ session_key: string }>) {
+    ensure(r.session_key).registered = true;
+  }
 
   const all = [...sessions.values()].sort((a, b) => b.hookDone - a.hookDone || b.events - a.events || a.session_key.localeCompare(b.session_key));
   const gaps = all.filter((s) => s.hookDone > 0 && s.seenRows === 0);
   const gapHook = gaps.reduce((a, s) => a + s.hookDone, 0);
   const gapEvents = gaps.reduce((a, s) => a + s.events, 0);
+  // 140 · C1：第三种 0 —— sessions 有行 而 events = 0（点名 + 人工判；**不自动判红**）
+  const dark = all.filter((s) => s.registered && s.events === 0);
 
   const out: string[] = [];
   const pad = (v: string, n: number): string => v + " ".repeat(Math.max(0, n - v.length));
 
-  out.push(`[scan] 会话并集 = ${all.length}（来源：attribution_events ∪ attribution_block_seen ∪ 判定行）`);
+  out.push(`[scan] 会话并集 = ${all.length}（来源：attribution_events ∪ attribution_block_seen ∪ 判定行 ∪ sessions）`);
   out.push("");
   out.push("—— 两侧对账（注入侧 hook.done ↔ 归档侧 block_seen ↔ 判定侧候选）——");
   out.push(`  ${pad("session_key", 34)}${pad("hook.done", 10)}${pad("事件数", 8)}${pad("block_seen", 12)}候选(可测/不可测)`);
@@ -139,6 +150,15 @@ async function main(): Promise<void> {
     for (const s of gaps) out.push(`  · ${s.session_key}（hook.done ${s.hookDone} / 事件 ${s.events}）`);
     out.push(`  ⇒ 共 ${gaps.length} 个会话 / hook.done ${gapHook} / 事件 ${gapEvents}`);
   }
+  out.push("");
+  out.push("—— 第三种 0：**全暗会话**（`sessions` 有行 而 `events` = 0；`140 · C1`）——");
+  if (dark.length === 0) {
+    out.push("  （无 —— 所有已注册会话都有事件）");
+  } else {
+    for (const s of dark) out.push(`  · ${s.session_key}（sessions 已注册 / events 0）`);
+  }
+  out.push("  ⇒ **不自动判红**：无注入匹配的会话（如纯 /health、辅助请求）可能天然无事件 ⇒ **点名 + 人工判**；");
+  out.push("    **不得**把本项当「缺陷」自动报警（`140 · C1`）。");
   out.push("");
   out.push("—— 两种 0 可分（本入口要钉的）——");
   {
@@ -157,6 +177,7 @@ async function main(): Promise<void> {
   const seenTotal = all.reduce((a, s) => a + s.seenRows, 0);
   out.push(
     `[account] 会话=${all.length} | 缺口会话=${gaps.length}（hook.done ${gapHook} / 事件 ${gapEvents}）` +
+      ` | 全暗会话=${dark.length}` +
       ` | 归档行=${seenTotal} | 候选=${candNum + candUnk}（可测 ${candNum} / 不可测 ${candUnk}）`,
   );
 
