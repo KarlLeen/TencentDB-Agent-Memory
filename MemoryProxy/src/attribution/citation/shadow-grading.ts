@@ -13,9 +13,14 @@
  * 与 grading 的关系：**共用**同一 `rarityTable` / 同一 message-tier 检索面 / 同一
  * `assetOwnText` 口径；只加旁路数字，不改既有 `citationMetrics` 条目任何键（C2/C5）。
  *
- * **108（(d)-1c）**：+**逐字连续重合轴**（"最长连续字符重合"——coverage 量词面重合、
+ * **108（(d)-1c）**：+**逐字连续重合轴**（"最长连续字符重合"——coverage 量词重合、
  * 与"是否引用"甚至负相关（改写保 trigram 反而分高），此轴量逐字连续；见 108 报告）
  * +**引号/代码跨度计数**（C4；只记数字）。均可复跑：`npx tsx scripts/qa/shadow-calibration.ts`。
+ *
+ * **121（`116` P3）**：+**资产文本来源** `shadowAssetTextSource: "block" | "none"` ——
+ * 只回答"**有没有可比资产文本**"（D1：测量值与"能不能测量"分离；D2：枚举不给无消费者的精度）。
+ * 它把此前**同形不可分**的两形态拆开：无文本（`"none"`，early-return）vs 有文本但无 ≥ `SHADOW_L_MIN`
+ * 的行（`"block"` + `segCount 0`，107 C3 回退路径）——**不得**用 `segCount === 0` 反推来源（R1）。
  */
 import { createHash } from "node:crypto";
 
@@ -34,6 +39,11 @@ export const SHADOW_L_MIN = 16;
  *  （短资产回退，F-c 补强）。**旧字段 `shadowBestSegCoverage` 语义不改**（join 口径，供两口径对照）。 */
 export interface CandidateShadowMetrics {
   assetId: string;
+  /** **121（`116` P3）**：资产文本来源 —— `"block"` = 该会话有该资产的可比文本（`sessionAssetTexts` 命中且非空）；
+   *  `"none"` = **无可比文本**（early-return，其余覆盖字段全 `"unknown"`/`0`/`null`）。
+   *  与 `shadowWholeAssetCoverage` **正交**：`"block"` + `shadowAssetSegCount === 0` ⇒ **有文本但过短无片段**（107 C3 回退）；
+   *  **禁止**用 `segCount === 0` 反推来源（121 · R1 钉死：那正是"换一种方式继续猜"）。 */
+  shadowAssetTextSource: "block" | "none";
   /** (d2) 主向：资产行级片段 ⊆ 会话消息 */
   shadowAssetSegCount: number;
   /** join 口径（**107 起不改义**，作对照保留）：`gramCoverage(join(消息面), 片段)` 的全段 max。 */
@@ -208,6 +218,7 @@ export function shadowGradeCandidates(input: {
     const rawTexts = assetTexts.get(candidate.assetId);
     const base: CandidateShadowMetrics = {
       assetId: candidate.assetId,
+      shadowAssetTextSource: "none", // 121：默认 = 无可比文本；过了 early-return 改 "block"
       shadowAssetSegCount: 0,
       shadowBestSegCoverage: "unknown",
       shadowBestSegCoveragePerMsg: "unknown",
@@ -223,6 +234,7 @@ export function shadowGradeCandidates(input: {
     };
     // 无资产文本可比 ⇒ 全 unknown/null（不猜；与 grading 的 null 路径同姿势）。
     if (!rawTexts || rawTexts.length === 0) return base;
+    base.shadowAssetTextSource = "block"; // 121：有可比文本（与 segCount 无关——形态 B 也是 "block"）
     const assetText = assetOwnText(rawTexts);
 
     // (d2) 主向：资产行级片段 ⊆ 会话消息（quote = 片段，window = 消息面）。

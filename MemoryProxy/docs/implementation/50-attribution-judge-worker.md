@@ -418,6 +418,12 @@ trigram 拼凑；旧 `shadowBestSegCoverage` = join 口径**不改义**，供对
 **不采用 `(d2)`/A 作判定** —— 依据 `103` F9（三轴不可分且系统性反转）+ F10（**A 没有"舒适档"**：`L_q ≤ 24`
 收进改写/名字提及，`L_q ≥ 32` 丢 <32 的 38.5% / <48 的 52.0% 真实行）；文本重合**降格为筛选信号**
 `suspect:text_overlap`（`max(shadowBestContiguousRunChars) ≥ 8`；`70 spec §2.2`），**只入池提示、不判定**。
+**121 · 影子"来源"字段（`116` P3 同形不可分修复）**：`CandidateShadowMetrics` 增
+`shadowAssetTextSource: "block" | "none"`（**枚举**，只回答"有没有可比资产文本"—— D1 测量值与"能不能测量"分离；
+D2 不给无消费者的字段加精度）：`"none"` = 无文本 early-return（其余覆盖字段全 `unknown`/`0`/`null`）、
+`"block"` = 有文本（**与 `segCount` 无关**：文本过短无 ≥ `SHADOW_L_MIN` 的行也记 `"block"`）。
+⇒ 此前同形的两形态（无文本 vs 有文本但无片段）**从此可分**；`shadowWholeAssetCoverage` 取值域/语义**不动**（方案 B 排除）。
+**禁止**用 `segCount === 0` 反推来源（R1 钉死）；池**不接入**（D4 触发式登记）。
 
 1. **引文归一化命中**：对每个 piece，按 `exact → whitespace → punctuation` 逐级
    `normalizeForMatch(piece文本, level) ⊆ normalizeForMatch(资产文本, level)` 判定；

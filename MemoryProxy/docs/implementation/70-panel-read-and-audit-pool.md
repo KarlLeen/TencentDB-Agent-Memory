@@ -106,6 +106,9 @@
 | `orphan:dead_letter` | queue `status='failed'`（死信：从未得到判定；无判定字段 ⇒ 相应字段 `null`） | queue |
 
 - **硬排除**：`rationaleRef === 'tombstone:result_missing'` ⇒ **不入 `suspect:*`**（避免与"未执行"类重复计数；池页若展示单列）。
+- **来源枚举（`121`）**：影子条目新字段 `shadowAssetTextSource: "block" | "none"`（`CandidateShadowMetrics`）回答
+  "**该会话有没有该资产的可比文本**"——`suspect:text_overlap` **只读** `shadowBestContiguousRunChars`（**不受**该字段影响）；
+  池**不**按它分类（`121` · D4 触发式登记）。**禁止**用 `segCount === 0` 反推来源（`121` · R1）。
 - **`suspect:text_overlap` 的筛选性质（`110` · D6 落地，必须与类名同时理解）**：B（文本重合）**降格为筛选信号**——
   只入池**提示人看**，**不参与判定**（不改 `verdict` / `status` / 阈值 / 真值表）；依据 = `103` F9/F10 + `109`
   （三条文本重合轴均不可分、A **无舒适档**）⇒ 文本重合**不得被拔高成裁决信号**。筛选求"不漏"，与裁决求精度取向相反。

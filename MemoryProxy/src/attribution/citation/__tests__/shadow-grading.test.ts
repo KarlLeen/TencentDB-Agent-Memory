@@ -266,6 +266,36 @@ describe("106 · 影子度量形状与两向语义", () => {
     expect(m.shadowQuotedSpanMaxChars).toBe("js\nconst x = 1;\n".length); // 代码块内容最长
   });
 
+  it("121 · C2②/C2③：来源枚举拆分「无文本(none)」与「有文本但无片段(block+segCount 0)」——同形可分辨", () => {
+    const grade = (assetTexts: Record<string, string[]>, piece: string) =>
+      shadowGradeCandidates({
+        sessionKey: "s",
+        turnSeq: 1,
+        candidates: [cand("A")],
+        source: fakeSource({
+          pieces: [{ turnSeq: 1, tier: "message", content: JSON.stringify(piece) }],
+          assetTexts,
+          table: buildRarityTable(["语料甲", "语料乙"]),
+        }),
+      })[0]!;
+
+    // 形态 A：无资产文本 ⇒ "none"
+    const a = grade({}, "任意消息");
+    expect(a.shadowAssetTextSource).toBe("none");
+    expect(a.shadowAssetSegCount).toBe(0);
+
+    // 形态 B：有文本，但没有任何 ≥ SHADOW_L_MIN 的行 ⇒ "block" + segCount 0（此前与 A 同形）
+    const b = grade({ A: ["短行。", "也短"] }, "任意消息");
+    expect(b.shadowAssetTextSource).toBe("block");
+    expect(b.shadowAssetSegCount).toBe(0);
+    expect(SHADOW_L_MIN > 5).toBe(true); // 上述两行确实都短于阈值（钉子语义）
+
+    // 正常：有文本且 ≥1 片段 ⇒ "block"
+    const c = grade({ A: ["这是一行足够长的资产正文，超过十六个字符。"] }, "任意消息");
+    expect(c.shadowAssetTextSource).toBe("block");
+    expect(c.shadowAssetSegCount).toBeGreaterThanOrEqual(1);
+  });
+
   it("108 · C3 minIdf：全常见 gram 被滤 ⇒ coverage=unknown（与合法 0 严格区分）", () => {
     const seg = "abcdefghij0123456789"; // 20 chars
     const out = (minIdf?: number) =>
@@ -293,6 +323,7 @@ describe("106 · 影子度量形状与两向语义", () => {
     });
     expect(out[0]).toEqual({
       assetId: "ghost",
+      shadowAssetTextSource: "none", // 121 · C2①：无资产文本 ⇒ "none"；其余 13 字段与现状逐字一致
       shadowAssetSegCount: 0,
       shadowBestSegCoverage: "unknown",
       shadowBestSegCoveragePerMsg: "unknown",
@@ -369,10 +400,11 @@ describe("106 · C5 两态键集（worker 组装；兄弟键不改既有条目�
           "ngramTableSha256",
         ].sort(),
       );
-      // 影子条目键 = assetId + 12（106 六 + 107 两 + 108 四：Run×2 / Quoted×2；兄弟键形状）
+      // 影子条目键 = assetId + 13（106 六 + 107 两 + 108 四 + 121 一：Source；兄弟键形状）
       expect(Object.keys(d.citationMetricsShadow![0]!).sort()).toEqual(
         [
           "assetId",
+          "shadowAssetTextSource",
           "shadowAssetSegCount",
           "shadowBestSegCoverage",
           "shadowBestSegCoveragePerMsg",
