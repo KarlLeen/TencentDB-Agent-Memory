@@ -114,6 +114,33 @@ export function AttributionReceiptPage() {
 
         {view && (
           <>
+            {/* 145 · C1：摘要层（卡片式，位于计数行之上）——"本次应用 N 项团队资产" +
+                每项 "语义类：用途短语"（规则模板生成、禁 LLM）+ 三档效果状态（C2）。
+                红线二：`已验证` 档不存在（无独立验证器 ⇒ `asset_validated` 禁写）⇒ 文案
+                只出现"已采用 / 已校正 / 仅作为背景参考，效果待验证"。 */}
+            <div
+              style={{
+                margin: '12px 0 8px',
+                padding: '8px 12px',
+                background: '#fafafa',
+                border: '1px solid #eee',
+                borderRadius: 4,
+                fontSize: 13,
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>{view.summary.title}</div>
+              {view.summary.items.length > 0 && (
+                <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>
+                  {view.summary.items.map((it) => (
+                    <li key={it.asset_id} style={{ marginBottom: 2 }}>
+                      {t('attribution.receipt.summary.item', { label: it.label, purpose: it.purpose })}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div style={{ marginTop: 6, color: '#444' }}>{view.summary.effect.text}</div>
+              <div style={{ marginTop: 2, color: '#888', fontSize: 12 }}>{view.summary.effectNote}</div>
+            </div>
             <div style={{ margin: '8px 0', fontSize: 13, color: '#444' }}>
               <b>{t('attribution.receipt.units')}</b> {view.counts.units}
               {/* 120 · C2：口径差标注（**同一行、紧跟其后、单处**）——当且仅当差额 > 0 时渲染；

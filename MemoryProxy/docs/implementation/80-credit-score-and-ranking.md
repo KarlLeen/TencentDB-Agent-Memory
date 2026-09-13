@@ -160,6 +160,21 @@
 > `scripts/qa/archive-liveness.ts`（一行式存活自检：**无凭据 `POST /v1/messages` 必须 `401`**；
 > `auth.enabled=false` 时**如实报"鉴权未启用"、不判绿**）。
 
+> **回执页"摘要层 + 三档效果状态"落地口径（`145`；2026-09-13）—— 任务四第 10–11 项**：
+> **数据口径**：`session.assets` 自本单起 = **并集**（fetched ∪ injected ∪ used ∪ corrected）+ 并列三态旗标
+> `injected`/`used`/`corrected`（只读派生；版本链三字段语义不变、未 fetched ⇒ `observed_versions: []`，不伪造）。
+> 依据 = 实库只读盘点：**injected 资产集不是 fetched 的子集**（`injection.hook.done` 236 行 / 14 资产 vs
+> `asset_fetched` 17 行 / 9 资产）⇒ 若只扩 fetched 列表，"仅作为背景参考"这一档**永远算不出来**（按 0 报 = 假一格）。
+> **摘要层口径（C1）**：N = **应用过的资产数** = injected ∪ used ∪ corrected；"仅 fetched（看过、未进上下文）"
+> **不算应用**（不进摘要、仍留在资产区）。用途短语 = **规则模板**（`unitKind` ⇒ i18n key；缺 ⇒ generic；
+> 待验证 ⇒"作为背景参考（未检测到确认引用）"），**禁 LLM**（可复现、可测试）。
+> **三档判据（C2，互斥，优先级）**：**已校正**（有 `asset_corrected` 行）> **已采用**（有 `asset_used` 行）>
+> **待验证**（仅 injected、无 used）。**"已验证"档不存在**（`asset_validated` 禁写 = 红线二）——
+> 回执**不会**出现"已验证 / 已生效 / 有效 / 收益"类效果陈述；"**效果评测（对照实验）见任务五**"始终渲染。
+> **自洽（C3）**：N ≡ 已采用 + 已校正 + 待验证（三类互斥且覆盖全部 items；结构性成立）。
+> 反控 `R1`–`R4` 真跑红证据见 `145` 报告；**未做（边界）**：变更锚定（`142`）/ `validated`（`143`）/
+> 展开层字段（`144`）/ 任何效果评测。
+
 ---
 
 ## 4 S8-b · 索引行 + 截断后精排（**已落地**）

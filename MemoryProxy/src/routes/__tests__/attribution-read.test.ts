@@ -186,8 +186,18 @@ describe("72 · T1–T5 回执 DTO（形状 / 68 D1 / K2 / 溢出 / 分页）", 
       const session = data.session as Record<string, unknown>;
       expect(session.session_key).toBe(S);
       expect(session.space_id).toBe(SPACE);
+      // `145`：形状同步——三态旗标并列新增（本 T1 会话：仅 fetched+used+corrected，无注入行）。
       expect(session.assets).toEqual([
-        { asset_id: "asset-72", asset_type: "skill", first_seen_version: 1, last_seen_version: 2, observed_versions: [1, 2] },
+        {
+          asset_id: "asset-72",
+          asset_type: "skill",
+          first_seen_version: 1,
+          last_seen_version: 2,
+          observed_versions: [1, 2],
+          injected: false,
+          used: true,
+          corrected: true,
+        },
       ]);
       expect(data.counts).toEqual({ units: 2, units_with_created_event: 2, judged: 2, unconfirmed: 0, used: 1, corrected: 1, pending: 0, failed: 0 });
       const units = data.units as Array<Record<string, unknown>>;
@@ -302,6 +312,71 @@ describe("72 · T1–T5 回执 DTO（形状 / 68 D1 / K2 / 溢出 / 分页）", 
       };
       expect(r3.code).toBe(0);
       expect(r3.data.units.length).toBe(0);
+    } finally {
+      teardownTempDb();
+    }
+  });
+});
+
+describe("145 · 资产并集与三态旗标（fetched ∪ injected ∪ used ∪ corrected）", () => {
+  it("T-145 并集：注入-only 也进表（版本链空数组不伪造）；三态由事件/状态行派生", async () => {
+    withTempDb();
+    try {
+      const S = "sess-145-a";
+      const app = makeApp(defaultConfig());
+      seedUnitEvent(S, "u-145-a");
+      seedDetail(S, "u-145-a", { verdict: "confirmed", assetId: "asset-a" });
+      seedUsed(S, "u-145-a", "asset-a"); // asset-a：used
+      // asset-a：另加 fetched v1 + 注入行；asset-b：**仅注入**（无 fetched / 无 status）；
+      // 末尾的无资产注入行（asset_id 空，= 空注入分支）**不得**进资产表。
+      getAttributionEventRepo().appendMany([
+        { sessionKey: S, eventType: "asset_fetched", assetId: "asset-a", assetType: "skill", payload: { version: 1 } },
+        { sessionKey: S, eventType: "injection.hook.done", assetId: "asset-a", assetType: "skill", payload: { hookId: "h-145" } },
+        { sessionKey: S, eventType: "injection.hook.done", assetId: "asset-b", assetType: "chat_memory", payload: { hookId: "h-145" } },
+        { sessionKey: S, eventType: "injection.hook.done", payload: { assets: [] } },
+      ]);
+      // asset-c：**仅 status**（无 fetched / 无注入）⇒ 也必须进表（否则回执漏资产）。
+      seedUnitEvent(S, "u-145-c", { msgSeq: 32 });
+      seedDetail(S, "u-145-c", { verdict: "confirmed", assetId: "asset-c" });
+      const usedC = seedUsed(S, "u-145-c", "asset-c");
+      seedCorrected(S, "u-145-c", "asset-c", usedC);
+
+      const res = await app.request(`/v3/admin/attribution/sessions/${S}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { data: { session: { assets: Array<Record<string, unknown>> } } };
+      console.log(`T-145 obs → ${JSON.stringify(body.data.session.assets)}`);
+      expect(body.data.session.assets).toEqual([
+        {
+          asset_id: "asset-a",
+          asset_type: "skill",
+          first_seen_version: 1,
+          last_seen_version: 1,
+          observed_versions: [1],
+          injected: true,
+          used: true,
+          corrected: false,
+        },
+        {
+          asset_id: "asset-b",
+          asset_type: "chat_memory",
+          first_seen_version: null,
+          last_seen_version: null,
+          observed_versions: [],
+          injected: true,
+          used: false,
+          corrected: false,
+        },
+        {
+          asset_id: "asset-c",
+          asset_type: "skill",
+          first_seen_version: null,
+          last_seen_version: null,
+          observed_versions: [],
+          injected: false,
+          used: true,
+          corrected: true,
+        },
+      ]);
     } finally {
       teardownTempDb();
     }

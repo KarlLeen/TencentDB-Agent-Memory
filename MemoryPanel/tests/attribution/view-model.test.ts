@@ -8,10 +8,12 @@ import {
   DETECTED_SNAPSHOT_KEY,
   TOMBSTONE_RATIONALE_REF,
   overflowText,
+  toAppliedSummary,
   toReceiptView,
   toUnitView,
 } from '@/pages/AttributionReceiptPage/utils/view-model';
-import { tZh } from './_helpers/i18n-stub';
+import { semanticTypeOf } from '@/pages/AttributionReceiptPage/utils/semantic-type';
+import { tEn, tZh } from './_helpers/i18n-stub';
 import {
   allowedTransitions,
   canSubmit,
@@ -20,7 +22,7 @@ import {
   toPoolItemView,
   toPoolView,
 } from '@/pages/AuditPoolPage/utils/view-model';
-import type { ReceiptDto, ReceiptUnit } from '@/lib/api/attribution';
+import type { ReceiptAsset, ReceiptDto, ReceiptUnit } from '@/lib/api/attribution';
 
 function mkUnit(over: Partial<ReceiptUnit> = {}): ReceiptUnit {
   return {
@@ -78,7 +80,18 @@ function mkDto(unit: ReceiptUnit, pending = 0): ReceiptDto {
       space_id: '_default',
       first_event_at: 1000,
       last_event_at: 1200,
-      assets: [{ asset_id: 'asset-1', asset_type: 'skill', first_seen_version: 1, last_seen_version: 2, observed_versions: [1, 2] }],
+      assets: [
+        {
+          asset_id: 'asset-1',
+          asset_type: 'skill',
+          first_seen_version: 1,
+          last_seen_version: 2,
+          observed_versions: [1, 2],
+          injected: true, // 145：三态旗标（既有格：asset-1 被 used + corrected ⇒ 摘要 tier=corrected，不破坏既有断言）
+          used: true,
+          corrected: true,
+        },
+      ],
     },
     counts: { units: 1, judged: 1, unconfirmed: 0, used: 1, corrected: 1, pending, failed: 0 },
     overflow: { pending, note: '' },
@@ -201,5 +214,119 @@ describe('77 · T5/T6 池页：服务端状态是唯一真相 + 提交后 reconc
     console.log(`77-T6 → reconciled=${reconciled}（optimistic=dismissed 被服务端覆盖）`);
     expect(reconciled).toBe('confirmed');
     expect(reconciled).not.toBe('dismissed');
+  });
+});
+
+describe('145 · 摘要层 + 三档效果状态（C1/C2/C3；红线一/二）', () => {
+  function mkAsset(over: Partial<ReceiptAsset> & { asset_id: string }): ReceiptAsset {
+    return {
+      asset_type: 'skill',
+      first_seen_version: null,
+      last_seen_version: null,
+      observed_versions: [],
+      injected: true,
+      used: false,
+      corrected: false,
+      ...over,
+    };
+  }
+
+  function mkCitedUnit(unitId: string, unitKind: string, assetId: string): ReceiptUnit {
+    const base = mkUnit();
+    return {
+      ...base,
+      unit_id: unitId,
+      unit_type: unitKind,
+      judgement: { ...base.judgement!, asset_id: assetId, detail: { rationaleRef: 'r-145', unitKind } },
+      status_events: [{ ...base.status_events[0]!, status_id: `se_${unitId}`, asset_id: assetId }],
+    };
+  }
+
+  function mkDtoWith(assets: ReceiptAsset[], units: ReceiptUnit[] = []): ReceiptDto {
+    const base = mkDto(mkUnit());
+    return { ...base, session: { ...base.session, assets }, units };
+  }
+
+  it('C1/C2/C3：三档互斥（已校正 > 已采用 > 待验证）+ N = 三类之和 + 文案逐字；仅 fetched 不算应用', () => {
+    const dto = mkDtoWith(
+      [
+        // A：used + corrected ⇒ 已校正（优先级最高）
+        mkAsset({ asset_id: 'asset-A', asset_type: 'skill', injected: true, used: true, corrected: true }),
+        // B：used ⇒ 已采用
+        mkAsset({ asset_id: 'asset-B', asset_type: 'chat_memory', injected: true, used: true }),
+        // C：仅 injected ⇒ 待验证
+        mkAsset({ asset_id: 'asset-C', asset_type: 'code_graph', injected: true }),
+        // D：仅 fetched（未进上下文）⇒ **不算应用**，不进摘要
+        mkAsset({ asset_id: 'asset-D', asset_type: 'llm_wiki', injected: false, used: false, corrected: false }),
+      ],
+      [
+        mkCitedUnit('u-A', 'key_tool_call', 'asset-A'),
+        mkCitedUnit('u-B', 'restraint', 'asset-B'),
+      ],
+    );
+    const s = toAppliedSummary(dto, tZh);
+    console.log(`145-C1 → ${s.title}；items=${JSON.stringify(s.items.map((i) => [i.label, i.purpose, i.tier]))}；effect=${s.effect.text}；note=${s.effectNote}`);
+    expect(s.title).toBe('本次应用 3 项团队资产');
+    expect(s.items.map((i) => i.asset_id)).toEqual(['asset-A', 'asset-B', 'asset-C']); // D 不进
+    expect(s.items.map((i) => i.tier)).toEqual(['corrected', 'used', 'pending']);
+    expect(s.effect).toMatchObject({ used: 1, corrected: 1, pending: 1, total: 3 });
+    expect(s.effect.total).toBe(s.effect.used + s.effect.corrected + s.effect.pending); // C3 自洽
+    expect(s.effect.text).toBe('1 项已采用；1 项已校正（检测时快照）；1 项仅作为背景参考，效果待验证');
+    expect(s.effectNote).toBe('效果评测（对照实验）见任务五');
+    // 用途短语（规则模板）：A 由 key_tool_call unit 引用；B 由 restraint unit 引用；C 仅注入 ⇒ 背景参考
+    expect(s.items[0]!.purpose).toBe('用于关键工具调用处的决策依据');
+    expect(s.items[1]!.purpose).toBe('用于风险克制处的决策依据');
+    expect(s.items[2]!.purpose).toBe('作为背景参考（未检测到确认引用）');
+  });
+
+  it('C1 兜底：无引用 unit（或 kind 未登记）⇒ generic；不得凭空断言用途', () => {
+    const dto = mkDtoWith([mkAsset({ asset_id: 'asset-X', injected: true, used: true })], []);
+    const s = toAppliedSummary(dto, tZh);
+    console.log(`145-b → purpose=${s.items[0]!.purpose}`);
+    expect(s.items[0]!.purpose).toBe('用于本会话的决策依据');
+  });
+
+  it('红线一/二（R1/R4 钉）：全档文案与摘要**不含**"已验证 / 已生效 / 有效 / 收益"类效果陈述', () => {
+    const s = toAppliedSummary(
+      mkDtoWith([mkAsset({ asset_id: 'asset-1', injected: true }), mkAsset({ asset_id: 'asset-2', injected: true, used: true })]),
+      tZh,
+    );
+    const text = JSON.stringify(s);
+    console.log(`145-红线 → ${s.effect.text}；含"已验证"=${text.includes('已验证')}`);
+    for (const w of ['已验证', '已生效', '有效', '带来收益', '产生了效果']) {
+      expect(text.includes(w), `不得出现 "${w}"`).toBe(false);
+    }
+    expect(s.effect.text).toContain('效果待验证');
+    expect(s.effect.text).not.toContain('已验证');
+  });
+
+  it('C1 映射（144 · C1 单一落点）：四个技术类各有落点；未知/空 ⇒ other（不猜）', () => {
+    expect(semanticTypeOf('skill')).toBe('skill');
+    expect(semanticTypeOf('code_graph')).toBe('codeKnowledge');
+    expect(semanticTypeOf('llm_wiki')).toBe('productKnowledge');
+    expect(semanticTypeOf('chat_memory')).toBe('historicalPlan');
+    expect(semanticTypeOf('bogus')).toBe('other');
+    expect(semanticTypeOf(null)).toBe('other');
+    expect(semanticTypeOf(undefined)).toBe('other');
+    const s = toAppliedSummary(
+      mkDtoWith([
+        mkAsset({ asset_id: 'a', asset_type: 'llm_wiki', injected: true }),
+        mkAsset({ asset_id: 'b', asset_type: null, injected: true }),
+      ]),
+      tZh,
+    );
+    console.log(`145-映射 → ${JSON.stringify(s.items.map((i) => i.label))}`);
+    expect(s.items.map((i) => i.label)).toEqual(['产品知识', '其他']);
+  });
+
+  it('en 侧逐字（键不缺）：title / 三档文案 / note', () => {
+    const s = toAppliedSummary(
+      mkDtoWith([mkAsset({ asset_id: 'asset-1', injected: true, used: true }), mkAsset({ asset_id: 'asset-2', injected: true })]),
+      tEn,
+    );
+    console.log(`145-en → ${s.title}；${s.effect.text}；${s.effectNote}`);
+    expect(s.title).toBe('2 team assets applied in this session');
+    expect(s.effect.text).toBe('1 used; 1 background only, effect pending verification');
+    expect(s.effectNote).toBe('Effect evaluation (controlled comparison) is covered by Task 5');
   });
 });

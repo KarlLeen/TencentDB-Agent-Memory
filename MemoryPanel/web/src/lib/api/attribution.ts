@@ -34,13 +34,21 @@ export interface SessionSummary {
   counts: Counts;
 }
 
-/** 版本链快照（60 spec §3：仅本会话 fetched 窗口内的观测）。 */
+/** 版本链快照（60 spec §3：仅本会话 fetched 窗口内的观测）。
+ *  `145`：列表口径 = **并集**（fetched ∪ injected ∪ used ∪ corrected）；三态旗标为并列新增
+ *  （版本链三字段语义不变；未 fetched 的资产 ⇒ `observed_versions: []`，不伪造）。 */
 export interface ReceiptAsset {
   asset_id: string;
   asset_type: string | null;
   first_seen_version: number | null;
   last_seen_version: number | null;
   observed_versions: number[];
+  /** 本会话内是否进入过 Agent 上下文（`injection.hook.done` 行）。 */
+  injected: boolean;
+  /** 本会话内是否有 `asset_used` 状态行。 */
+  used: boolean;
+  /** 本会话内是否有 `asset_corrected` 状态行。 */
+  corrected: boolean;
 }
 
 export interface JudgementDetail {

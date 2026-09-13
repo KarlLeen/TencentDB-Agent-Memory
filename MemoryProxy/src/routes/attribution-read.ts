@@ -9,6 +9,9 @@
  * ⚠️ C5（K2 粒度=轮）：`turn_seq`/`msg_seq` 原样透传，**不得**合成更细粒度字段。
  * ⚠️ C7（单一真相）：判定内容只在 `judgement.detail`；`status_events[].payload` 只回指。
  * ⚠️ C8：取不到的字段一律 `null` 并在 `missing[]` 点名（不猜、不伪造）。
+ * ⚠️ `145`：`session.assets` = **并集**（fetched ∪ injected ∪ used ∪ corrected）+ 三态旗标
+ * （`injected`/`used`/`corrected`）；版本链三字段语义不变（见 `assetsOf` 头注；并集依据 =
+ * "待验证 = 仅 injected、无 used" 需要注入证据，且实库 injected 资产集非 fetched 子集）。
  */
 import type { Context } from "hono";
 
@@ -150,18 +153,57 @@ function countsOf(
   };
 }
 
-/** 版本链快照（60 spec §3）：本会话 fetched 窗口内的观测（DR-6a：不回查当前存储）。 */
-function assetsOf(evRows: readonly AttributionEventRowWithRowid[]): Array<Record<string, unknown>> {
-  const byAsset = new Map<string, { assetType: string | null; versions: number[] }>();
+/**
+ * 本会话涉及的资产（`145` 起扩为**并集**：fetched ∪ injected ∪ used ∪ corrected）。
+ *
+ * - 版本链三字段（`first_seen_version`/`last_seen_version`/`observed_versions`）语义**不变**
+ *   （60 spec §3：仅本会话 fetched 窗口内的观测；未 fetched 的资产 ⇒ 空数组，**不伪造**）；
+ * - `injected`/`used`/`corrected` = **并列新增**三态布尔（由事件/状态行派生；只读、零新方法）；
+ * - 顺序 = **首见序**（先 `evRows`（fetched / injection），后 status-only）。
+ *
+ * 依据：`145` C2 的"待验证 = 仅 injected、无 used"需要注入证据；实库只读盘点
+ * 证明 injected 资产集**不是** fetched 的子集（injected 14 / fetched 9，见 `145` 报告）。
+ */
+function assetsOf(
+  evRows: readonly AttributionEventRowWithRowid[],
+  stRows: readonly StatusEventRow[],
+): Array<Record<string, unknown>> {
+  interface Acc {
+    assetType: string | null;
+    versions: number[];
+    injected: boolean;
+    used: boolean;
+    corrected: boolean;
+  }
+  const byAsset = new Map<string, Acc>();
+  const ensure = (assetId: string, assetType: string | null): Acc => {
+    let cur = byAsset.get(assetId);
+    if (!cur) {
+      cur = { assetType: assetType ?? null, versions: [], injected: false, used: false, corrected: false };
+      byAsset.set(assetId, cur);
+    } else if (cur.assetType === null && assetType !== null) {
+      cur.assetType = assetType; // 首个非空类型胜出（不改已取值）
+    }
+    return cur;
+  };
   for (const r of evRows) {
-    if (r.event_type !== "asset_fetched") continue;
-    const assetId = r.asset_id;
-    if (!assetId) continue;
-    const v = safeParse(r.payload_json).version;
-    if (typeof v !== "number" || !Number.isFinite(v)) continue; // 取不到省略（不伪造）
-    const cur = byAsset.get(assetId) ?? { assetType: r.asset_type ?? null, versions: [] };
-    if (!cur.versions.includes(v)) cur.versions.push(v); // 首次出现序去重
-    byAsset.set(assetId, cur);
+    if (r.event_type === "asset_fetched") {
+      const assetId = r.asset_id;
+      if (!assetId) continue;
+      const v = safeParse(r.payload_json).version;
+      if (typeof v !== "number" || !Number.isFinite(v)) continue; // 取不到省略（不伪造）
+      const cur = ensure(assetId, r.asset_type ?? null);
+      if (!cur.versions.includes(v)) cur.versions.push(v); // 首次出现序去重
+    } else if (r.event_type === "injection.hook.done" && r.asset_id) {
+      // 注入证据（`injection.attribution-event-observer.ts`：按资产摊行，asset_id 非空才算一行）。
+      ensure(r.asset_id, r.asset_type ?? null).injected = true;
+    }
+  }
+  for (const s of stRows) {
+    if (!s.asset_id) continue; // 状态行无资产（如 channel 级）⇒ 不进资产表
+    const cur = ensure(s.asset_id, s.asset_type ?? null);
+    if (s.event_type === "asset_used") cur.used = true;
+    else if (s.event_type === "asset_corrected") cur.corrected = true;
   }
   return [...byAsset.entries()].map(([assetId, x]) => ({
     asset_id: assetId,
@@ -169,6 +211,9 @@ function assetsOf(evRows: readonly AttributionEventRowWithRowid[]): Array<Record
     first_seen_version: x.versions[0] ?? null,
     last_seen_version: x.versions[x.versions.length - 1] ?? null,
     observed_versions: x.versions,
+    injected: x.injected,
+    used: x.used,
+    corrected: x.corrected,
   }));
 }
 
@@ -361,8 +406,9 @@ function handleSessionDetail(c: Context, config: ProxyConfig): Response {
       space_id: evRows[0]?.space_id ?? stRows[0]?.space_id ?? qRows[0]?.space_id ?? "_default",
       first_event_at: times.length > 0 ? Math.min(...times) : 0,
       last_event_at: times.length > 0 ? Math.max(...times) : 0,
-      // 版本链快照（60 spec §3）：只是本会话 fetched 窗口内的观测（DR-6a：不回查当前存储）。
-      assets: assetsOf(evRows),
+      // 版本链快照（60 spec §3）：只是本会话 fetched 窗口内的观测（DR-6a：不回查当前存储）；
+      // `145` 起并列三态旗标 + 并集（见 `assetsOf`）。
+      assets: assetsOf(evRows, stRows),
     },
     counts,
     overflow: { pending: counts.pending, note: overflowNote(counts.pending) }, // C6：可表达溢出

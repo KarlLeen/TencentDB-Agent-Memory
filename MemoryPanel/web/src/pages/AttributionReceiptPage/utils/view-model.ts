@@ -14,10 +14,13 @@
  * （给定输入 + 给定 t ⇒ 确定输出；三条硬约束仍可在纯 node 层直接断言，不依赖 jsdom）。
  */
 import type {
+  ReceiptAsset,
   ReceiptDto,
   ReceiptStatusEvent,
   ReceiptUnit,
 } from '@/lib/api/attribution';
+
+import { semanticTypeKey, semanticTypeOf, type SemanticType } from './semantic-type';
 
 /** 126 · D1 (i)：翻译函数注入面（i18next `t` 的最小子集；`{{var}}` 插值由 t 侧完成）。 */
 export type TranslateFn = (key: string, opts?: Record<string, string | number>) => string;
@@ -74,8 +77,45 @@ export interface ReceiptView {
   assets: Array<{ asset_id: string; versions: number[] }>;
   counts: ReceiptDto['counts'];
   overflow: OverflowView;
+  /** `145`：摘要层（卡片式，位于计数行之上）。 */
+  summary: AppliedSummaryView;
   units: UnitView[];
   truncated: boolean;
+}
+
+/** `145 · C2` 三档效果状态（**互斥**；"已验证"档不存在——`143` 未落地前禁写，红线二）。 */
+export type EffectTier = 'used' | 'corrected' | 'pending';
+
+/** 摘要层单项："语义类：用途短语"。 */
+export interface SummaryItemView {
+  asset_id: string;
+  semanticType: SemanticType;
+  /** 语义类标签（i18n 已译；映射见 `./semantic-type`）。 */
+  label: string;
+  /** 用途短语（**规则模板生成**、非 LLM —— 可复现、可测试）。 */
+  purpose: string;
+  tier: EffectTier;
+}
+
+/** 三档效果状态（计数 + 文案）。 */
+export interface EffectStatusView {
+  used: number;
+  corrected: number;
+  pending: number;
+  /** = used + corrected + pending（**结构性自洽**；`C3`）。 */
+  total: number;
+  /** 非零档才出现；全零 ⇒ 中性句。 */
+  text: string;
+}
+
+/** `145 · C1` 摘要层视图。 */
+export interface AppliedSummaryView {
+  /** "本次应用 N 项团队资产"。 */
+  title: string;
+  items: SummaryItemView[];
+  effect: EffectStatusView;
+  /** 红线 3：总是写明的"效果评测见任务五"。 */
+  effectNote: string;
 }
 
 /** 30 spec 原文口径（zh 资源逐字保留；126 起经注入的 `t` 取值）。 */
@@ -85,6 +125,85 @@ export function overflowText(pending: number, t: TranslateFn): string {
 
 export function toOverflowView(pending: number, t: TranslateFn): OverflowView {
   return { pending, text: overflowText(pending, t) };
+}
+
+/** 用途短语规则表（`145 · C1`，**逐字写死**）：unitKind → i18n key。
+ *  取值来源 = 判定 `detail.unitKind`（优先）⇒ `unit.unit_type`（缺省）⇒ generic。 */
+const PURPOSE_BY_UNIT_KIND: Readonly<Record<string, string>> = {
+  code_change: 'attribution.receipt.purpose.codeChange',
+  key_tool_call: 'attribution.receipt.purpose.keyToolCall',
+  restraint: 'attribution.receipt.purpose.restraint',
+};
+const PURPOSE_GENERIC_KEY = 'attribution.receipt.purpose.generic';
+/** 待验证（仅 injected、无 used）：**不得**写"已生效 / 已被引用"类措辞。 */
+const PURPOSE_BACKGROUND_KEY = 'attribution.receipt.purpose.background';
+
+/** 最早引用该资产的 unit 的 unitKind（判据 = 该 unit 的 status_events 含此资产的 used/corrected 行）。 */
+function citedUnitKind(assetId: string, units: readonly ReceiptUnit[]): string {
+  for (const u of units) {
+    const cited = u.status_events.some(
+      (e) => e.asset_id === assetId && (e.event_type === 'asset_used' || e.event_type === 'asset_corrected'),
+    );
+    if (!cited) continue;
+    const kind = u.judgement?.detail?.unitKind;
+    if (typeof kind === 'string' && kind.length > 0) return kind;
+    return u.unit_type ?? '';
+  }
+  return '';
+}
+
+function purposeOf(assetId: string, tier: EffectTier, units: readonly ReceiptUnit[], t: TranslateFn): string {
+  if (tier === 'pending') return t(PURPOSE_BACKGROUND_KEY);
+  const kind = citedUnitKind(assetId, units);
+  return t(PURPOSE_BY_UNIT_KIND[kind] ?? PURPOSE_GENERIC_KEY);
+}
+
+/** 资产级三档判据（`145 · C2`，**互斥**，优先级：已校正 > 已采用 > 待验证＝仅 injected、无 used）。 */
+export function effectTierOf(a: ReceiptAsset): EffectTier {
+  if (a.corrected) return 'corrected';
+  if (a.used) return 'used';
+  return 'pending';
+}
+
+/** 三档文案（非零档才出现；全零 ⇒ 中性句；**永不**出现"已验证"）。 */
+export function effectText(used: number, corrected: number, pending: number, t: TranslateFn): string {
+  const parts: string[] = [];
+  if (used > 0) parts.push(t('attribution.receipt.effect.used', { n: used }));
+  if (corrected > 0) parts.push(t('attribution.receipt.effect.corrected', { n: corrected }));
+  if (pending > 0) parts.push(t('attribution.receipt.effect.pending', { n: pending }));
+  return parts.length > 0 ? parts.join(t('attribution.receipt.effect.separator')) : t('attribution.receipt.effect.none');
+}
+
+/** `145 · C1/C3`：摘要层 —— 口径 = **应用过的资产**（injected ∪ used ∪ corrected）；
+ *  "仅 fetched（看过但没进上下文）"**不算应用**，不进摘要（但仍留在资产区）。 */
+export function toAppliedSummary(dto: ReceiptDto, t: TranslateFn): AppliedSummaryView {
+  const applied = dto.session.assets.filter((a) => a.injected || a.used || a.corrected);
+  const items: SummaryItemView[] = applied.map((a) => {
+    const tier = effectTierOf(a);
+    const semanticType = semanticTypeOf(a.asset_type);
+    return {
+      asset_id: a.asset_id,
+      semanticType,
+      label: t(semanticTypeKey(semanticType)),
+      purpose: purposeOf(a.asset_id, tier, dto.units, t),
+      tier,
+    };
+  });
+  const used = items.filter((i) => i.tier === 'used').length;
+  const corrected = items.filter((i) => i.tier === 'corrected').length;
+  const pending = items.filter((i) => i.tier === 'pending').length;
+  return {
+    title: t('attribution.receipt.summary.title', { n: items.length }),
+    items,
+    effect: {
+      used,
+      corrected,
+      pending,
+      total: items.length, // C3：三类互斥且覆盖 items ⇒ N ≡ used + corrected + pending
+      text: effectText(used, corrected, pending, t),
+    },
+    effectNote: t('attribution.receipt.effect.note'),
+  };
 }
 
 /** corrected 事件 → 展示视图（68 D1：只暴露检测时快照 + 检测时间）。 */
@@ -153,6 +272,7 @@ export function toReceiptView(dto: ReceiptDto, t: TranslateFn): ReceiptView {
     assets: dto.session.assets.map((a) => ({ asset_id: a.asset_id, versions: a.observed_versions })),
     counts: dto.counts,
     overflow: toOverflowView(dto.overflow.pending, t),
+    summary: toAppliedSummary(dto, t), // 145 · C1：摘要层（计数行之上）
     units: dto.units.map((u) => toUnitView(u, t)),
     truncated: dto.truncated,
   };

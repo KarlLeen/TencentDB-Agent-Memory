@@ -223,3 +223,88 @@ describe('120 · 回执页 Units 口径差标注（差值态 / 相等态 / 分�
     }
   });
 });
+
+describe('145 · 回执页摘要层 + 三档效果状态（jsdom）', () => {
+  beforeAll(() => {
+    changeLanguage('zh-CN');
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    changeLanguage('zh-CN');
+  });
+
+  function mkReceiptWithApplied(): ReceiptDto {
+    const base = mkReceipt();
+    return {
+      ...base,
+      session: {
+        ...base.session,
+        assets: [
+          {
+            asset_id: 'asset-A',
+            asset_type: 'skill',
+            first_seen_version: 1,
+            last_seen_version: 1,
+            observed_versions: [1],
+            injected: true,
+            used: true,
+            corrected: false,
+          },
+          {
+            asset_id: 'asset-B',
+            asset_type: 'code_graph',
+            first_seen_version: null,
+            last_seen_version: null,
+            observed_versions: [],
+            injected: true,
+            used: false,
+            corrected: false,
+          },
+        ],
+      },
+    };
+  }
+
+  it('C1/C2：摘要标题 + 每项"语义类：用途短语" + 三档效果 + "效果评测见任务五"；不出现"已验证"', async () => {
+    vi.spyOn(attributionApi, 'sessions').mockResolvedValue({ sessions: [mkSession()], truncated: false });
+    vi.spyOn(attributionApi, 'receipt').mockResolvedValue(mkReceiptWithApplied());
+    const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+    try {
+      const text = container.textContent ?? '';
+      const i = text.indexOf('本次应用');
+      console.log(`145 摘要片段=${text.slice(i, i + 140)}`);
+      expect(text).toContain('本次应用 2 项团队资产');
+      expect(text).toContain('Skill：用于本会话的决策依据');
+      expect(text).toContain('代码知识：作为背景参考（未检测到确认引用）');
+      expect(text).toContain('1 项已采用；1 项仅作为背景参考，效果待验证');
+      expect(text).toContain('效果评测（对照实验）见任务五');
+      expect(text).not.toContain('已验证'); // 红线二：无验证器 ⇒ 该档不得出现
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('145 · 空资产会话：摘要仍渲染中性句（防"整卡消失"回归）', () => {
+  beforeAll(() => {
+    changeLanguage('zh-CN');
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('占位：空资产会话的摘要中性句（防"空资产 ⇒ 整卡消失"回归）', async () => {
+    vi.spyOn(attributionApi, 'sessions').mockResolvedValue({ sessions: [mkSession()], truncated: false });
+    vi.spyOn(attributionApi, 'receipt').mockResolvedValue(mkReceipt());
+    const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+    try {
+      const text = container.textContent ?? '';
+      expect(text).toContain('本次应用 0 项团队资产');
+      expect(text).toContain('本会话暂无已采用或已校正的资产');
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+
