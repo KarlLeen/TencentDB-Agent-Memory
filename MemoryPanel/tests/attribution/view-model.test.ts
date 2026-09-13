@@ -8,6 +8,7 @@ import {
   DETECTED_SNAPSHOT_KEY,
   TOMBSTONE_RATIONALE_REF,
   overflowText,
+  stageLine,
   toAppliedSummary,
   toAssetView,
   toReceiptView,
@@ -398,5 +399,27 @@ describe('144 · 展开层字段（C2/C3/C4；缺值一律 null ⇒ 渲染"未�
     console.log(`144-风险 → ${JSON.stringify(c.risks)}`);
     expect(c.risks).toEqual(['版本漂移（检测时快照）']);
     expect(toAssetView(mkAsset144({ asset_id: 'asset-5' }), tZh).risks).toEqual([]);
+  });
+});
+
+describe('146 · 阶段显名（C1；只映射既有载体、不新增事件类型）', () => {
+  it('阶段口径行逐字（zh/en）：五阶段、无 validated（R1 钉）', () => {
+    console.log(`146 → zh=${stageLine(tZh)}；en=${stageLine(tEn)}`);
+    expect(stageLine(tZh)).toBe('阶段口径：已召回 → 已入选 → 已注入 → 已采用 → 已校正');
+    expect(stageLine(tEn)).toBe('Stage vocabulary: recalled → selected → injected → used → corrected');
+    expect(stageLine(tZh)).not.toContain('已验证'); // R1：143 前不得出现
+  });
+
+  it('used/corrected 事件带显名；未知事件型不带（不猜）', () => {
+    const view = toReceiptView(mkDto(mkUnit()), tZh);
+    const labels = view.units[0]!.status_events.map((e) => e.stageLabel);
+    console.log(`146 → stages=${view.stages.text}；labels=${JSON.stringify(labels)}`);
+    expect(view.stages.text).toBe('阶段口径：已召回 → 已入选 → 已注入 → 已采用 → 已校正');
+    expect(labels).toEqual(['已采用', '已校正']);
+    const weird = toUnitView(
+      mkUnit({ status_events: [{ ...mkUnit().status_events[0]!, event_type: 'weird.event' }] }),
+      tZh,
+    );
+    expect(weird.status_events[0]!.stageLabel).toBe(undefined);
   });
 });

@@ -8,6 +8,8 @@
  * R2 corrected 改 used 行 ⇒ V2 红；R3 无信号也产 task_boundary ⇒ 负向格红。
  */
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -260,5 +262,55 @@ describe("66 · 单元 A：L1 版本漂移（golden + 窗口外反例 + V2 + 幂
     } finally {
       teardownTempDb();
     }
+  });
+});
+
+describe("146 · L2/L3 = 触发式（不实现）+ L3 必不产（行为格 + 文本锚）", () => {
+  it("行为格：\"取不到\"与\"单版本无法判定\"两种不确定态 ⇒ **0 条 corrected**（必不产）", () => {
+    withTempDb();
+    try {
+      const S = "sess-146-l3";
+      // 60 spec §2.3 反例：不确定 ≠ 确定不存在 ⇒ 必不产（只有明确 404 / ACL 明确拒绝 才可产）。
+      // 本线**无 L3 生产者**；此格钉住两条"不确定"路径的行为：
+      //   ① asset-v：fetched 行**无 version**（取不到 ⇒ 连扫描都不进）；
+      //   ② asset-u：只有**单版本**（无法判定漂移 ⇒ 跳过，不猜）。
+      getAttributionEventRepo().appendMany([
+        { sessionKey: S, eventType: "asset_fetched", assetId: "asset-v", assetType: "skill", payload: {} },
+        { sessionKey: S, eventType: "asset_fetched", assetId: "asset-u", assetType: "skill", payload: { version: 1 } },
+      ]);
+      for (const [unitId, assetId] of [["u-146-l3v", "asset-v"], ["u-146-l3u", "asset-u"]] as const) {
+        getAttributionStatusEventsRepo().insertIdempotent({
+          unitId,
+          sessionKey: S,
+          assetId,
+          assetType: "skill",
+          round: 0,
+          outcome: null,
+          payload: { judgement_id: `jd_${unitId}` },
+        });
+      }
+      const out = applyVersionDriftCorrections(S);
+      console.log(`146 必不产 → ${JSON.stringify(out)}`);
+      expect(out.correctedInserted).toBe(0);
+      expect(out.correctedDuplicate).toBe(0);
+      expect(out.assetsSkippedNoVersion).toBe(1); // asset-u（单版本）；asset-v 取不到 ⇒ 不进扫描
+      expect(statusRows(S).length).toBe(2); // 只有两条 used 行（零 corrected）
+      expect(statusRows(S).every((r) => r.event_type !== STATUS_EVENT_TYPE_ASSET_CORRECTED)).toBe(true);
+    } finally {
+      teardownTempDb();
+    }
+  });
+
+  it("文本锚：60 spec §2.4 已登记 L2/L3 触发条件 + 必不产清单（R2 钉：放宽 ⇒ 红）", () => {
+    const doc = readFileSync(
+      fileURLToPath(new URL("../../../docs/implementation/60-corrected-rules.md", import.meta.url)),
+      "utf8",
+    );
+    console.log(`146 spec 锚 → 必不产=${doc.includes("必不产清单（不得放宽）")}；L2 触发=${doc.includes("提取绑定落地那一单")}`);
+    expect(doc).toContain("`146` 裁定：L2 / L3 = **触发式登记**");
+    expect(doc).toContain("**提取绑定落地那一单**"); // L2 触发条件
+    expect(doc).toContain("**离线圈**"); // L3 触发时机
+    expect(doc).toContain("必不产清单（不得放宽）"); // R2 锚点
+    expect(doc).toContain("网络错误 / 超时 / 5xx / ACL 服务不可用 ⇒ **不产事件**");
   });
 });

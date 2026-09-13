@@ -242,3 +242,26 @@ L1 只**追加** `asset_corrected` 行；used/judgement 行零改写；会话枚
 
 带 join 后、**10k units + 1k reviews** 合成夹具、真 handler 路径（含 request 解析），`limit=50`，N=20：
 **P50 = 52.2ms / P95 = 65.3ms / max = 75.2ms**（阈值 500ms **未超** ⇒ **不立物化单**）；`counts_by_category` 随 `review_status=` 过滤**不变**（= 10000，口径实证）。
+
+## 5 阶段显名与 `contributed` 接口登记（`146`；**只映射 / 只登记，零代码路径**）
+
+### 5.1 阶段词表（C1；**表体唯一定义处 = 展示层代码**）
+
+任务三的阶段词表 ↔ 既有载体的映射，**唯一定义处**（`R4`：写第二份 ⇒ 红）：
+
+    MemoryPanel/web/src/pages/AttributionReceiptPage/utils/stage-vocabulary.ts
+
+- 五阶段（**已实现**）：`recalled` / `selected` / `injected` / `used` / `corrected` —— 载体分别是
+  `detail_json.shortlist`（+ `citationMetrics[]`）／同表入选结果／`injection.hook.done`／`asset_used`／
+  `asset_corrected`；**本 spec 不复制表体**（避免"文档与代码各一份"）。
+- **`validated` 不登记**：无生产者且制度性禁写（`asset_validated` fail-closed；`143` 落地前**不得**出现，`R1`）。
+- **只映射、不新增事件类型**：不得新增 `asset_recalled` / `asset_selected` 这类事件（`130 §0` 方向：
+  一处定义、其余引用；避免"多处独立断言同一事实"）。
+
+### 5.2 `contributed` 接口登记（C3；**跨任务六，本线不实现**）
+
+| 项 | 登记 |
+|---|---|
+| **谁能写** | **任务六**（经验回流 / 候选资产生成）——由"新资产生成"流程写；本线（任务三/四）**无写口、不实现** |
+| **写什么** | `asset_contributed`（原资产 ⇒ 贡献）关联事件：`source_asset_id` + `new_asset_id` + 生成依据（**回指**，不复制正文） |
+| **本线现状** | 事件白名单 **fail-closed**（`asset_used` / `asset_corrected` 之外一律拒写）⇒ 该事件**物理上写不进**（`R3` 钉） |

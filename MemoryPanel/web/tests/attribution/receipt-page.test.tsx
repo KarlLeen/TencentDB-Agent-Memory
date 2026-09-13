@@ -373,4 +373,66 @@ describe('144 · 回执页资产展开层（字段 / 缺值"未知" / 留位列�
   });
 });
 
+describe('146 · 回执页阶段显名（阶段口径行 + 状态事件后缀）', () => {
+  beforeAll(() => {
+    changeLanguage('zh-CN');
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    changeLanguage('zh-CN');
+  });
+
+  function mkReceiptWithEvents(): ReceiptDto {
+    const base = mkReceipt();
+    return {
+      ...base,
+      units: [
+        {
+          ...base.units[0]!,
+          status_events: [
+            {
+              status_id: 'se_stage_a',
+              event_type: 'asset_used',
+              asset_id: 'asset-1',
+              asset_type: 'skill',
+              round: 0,
+              outcome: null,
+              created_at: 1000,
+              payload: {},
+            },
+            {
+              status_id: 'se_stage_b',
+              event_type: 'weird.event',
+              asset_id: 'asset-1',
+              asset_type: 'skill',
+              round: 0,
+              outcome: null,
+              created_at: 1000,
+              payload: {},
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('C1：阶段口径行逐字 + asset_used 带"（已采用）"；未知事件型无后缀（不猜）', async () => {
+    vi.spyOn(attributionApi, 'sessions').mockResolvedValue({ sessions: [mkSession()], truncated: false });
+    vi.spyOn(attributionApi, 'receipt').mockResolvedValue(mkReceiptWithEvents());
+    const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+    try {
+      const text = container.textContent ?? '';
+      const i = text.indexOf('阶段口径');
+      console.log(`146 片段=${text.slice(i, i + 120)}`);
+      expect(text).toContain('阶段口径：已召回 → 已入选 → 已注入 → 已采用 → 已校正');
+      expect(text).toContain('asset_used（已采用）');
+      expect(text).toContain('weird.event');
+      expect(text).not.toContain('weird.event（'); // 未知事件型 ⇒ 无显名后缀
+      expect(text).not.toContain('已验证'); // R1 钉：143 前不得出现
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 

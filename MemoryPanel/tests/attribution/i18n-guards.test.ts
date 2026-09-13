@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 
 import { enUS } from '@/i18n/en-US';
 import { zhCN } from '@/i18n/zh-CN';
+import { STAGES, stageOfEventType } from '@/pages/AttributionReceiptPage/utils/stage-vocabulary';
 
 const PAGES = [
   'web/src/pages/AttributionReceiptPage/index.tsx',
@@ -105,6 +106,38 @@ describe('144 · C1 映射表单一落点（源级；R3 钉）', () => {
       const body = stripComments(read(rel));
       const hits = TECH_CLASSES.filter((t) => body.includes(t));
       expect(hits, `${rel} 不得出现第二份映射表（命中：${hits.join(',')}）`).toEqual([]);
+    }
+  });
+});
+
+describe('146 · C1 阶段词表：单一落点 + validated/contributed 不进表（R1/R3/R4）', () => {
+  it('词表 = 5 个已实现阶段；validated 不提前映射、contributed 跨任务六（均不认）', () => {
+    const ids = STAGES.map((s) => s.id as string);
+    console.log(`146 词表 → ${JSON.stringify(ids)}`);
+    expect(ids).toEqual(['recalled', 'selected', 'injected', 'used', 'corrected']);
+    expect(ids).not.toContain('validated'); // R1：无生产者，`143` 前不得出现
+    expect(ids).not.toContain('contributed'); // R3：跨任务六，接口登记见 70 spec
+    expect(stageOfEventType('asset_used')).toBe('used');
+    expect(stageOfEventType('asset_corrected')).toBe('corrected');
+    expect(stageOfEventType('injection.hook.done')).toBe('injected');
+    expect(stageOfEventType('asset_validated')).toBe(null); // 不认（无生产者）
+    expect(stageOfEventType('asset_contributed')).toBe(null);
+    expect(stageOfEventType('unknown.event')).toBe(null); // 不猜
+  });
+
+  it('源级：载体映射只在 stage-vocabulary.ts；页面其余文件不得再写一份（R4 代码半）', () => {
+    const read = (rel: string): string => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
+    const vocab = stripComments(read('web/src/pages/AttributionReceiptPage/utils/stage-vocabulary.ts'));
+    for (const carrier of ['detail_json.shortlist', 'injection.hook.done']) {
+      expect(vocab.includes(carrier), `词表（唯一落点）应含载体 ${carrier}`).toBe(true);
+    }
+    for (const rel of [
+      'web/src/pages/AttributionReceiptPage/utils/view-model.ts',
+      'web/src/pages/AttributionReceiptPage/index.tsx',
+    ]) {
+      const body = stripComments(read(rel));
+      const hits = ['detail_json.shortlist', 'injection.hook.done'].filter((c) => body.includes(c));
+      expect(hits, `${rel} 不得出现第二份阶段-载体映射（命中：${hits.join(',')}）`).toEqual([]);
     }
   });
 });

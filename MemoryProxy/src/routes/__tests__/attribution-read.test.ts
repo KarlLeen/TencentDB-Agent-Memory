@@ -11,6 +11,9 @@
  * 断言 = payload 键 ⊆ **链接字段白名单**（59 的 used 七键 + corrected 键）且**不含**
  * `detail`/`rationaleRef`/`citationMetrics` 等判定内容键。
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -492,6 +495,48 @@ describe("72 · T6–T10 缺即 null / 单一真相 / 无界拒绝 / 只读 / �
       const openApp = makeApp(defaultConfig()); // apiKey 空 ⇒ 公开（既有语义）
       const open = await openApp.request("/v3/admin/attribution/sessions?limit=5");
       expect(open.status).toBe(200);
+    } finally {
+      teardownTempDb();
+    }
+  });
+});
+
+describe("146 · 阶段显名（70 spec 锚）+ contributed / validated fail-closed", () => {
+  it("70 spec §5：指向代码唯一落点、**不复制**阶段表体（R4 文档半；contributed 接口已登记）", () => {
+    const doc = readFileSync(
+      fileURLToPath(new URL("../../../docs/implementation/70-panel-read-and-audit-pool.md", import.meta.url)),
+      "utf8",
+    );
+    const rows = [...doc.matchAll(/^\|\s*`?(recalled|selected|injected|used|corrected)`?\s*\|/gm)].map((m) => m[1]);
+    console.log(`146 70spec → 指针=${doc.includes("stage-vocabulary.ts")}；表体行命中=${JSON.stringify(rows)}`);
+    expect(doc).toContain("stage-vocabulary.ts"); // 唯一定义处指针（表体在代码里）
+    expect(rows, `70 spec 不得复制阶段表体（命中：${rows.join(",")}）`).toEqual([]);
+    expect(doc).toContain("`contributed` 接口登记"); // C3 登记
+    expect(doc).toContain("任务六");
+    expect(doc).toContain("fail-closed");
+  });
+
+  it("运行时 fail-closed：`asset_validated`（R1）/ `asset_contributed`（R3）**写不进**（0 行）", () => {
+    withTempDb();
+    try {
+      const repo = getAttributionStatusEventsRepo();
+      for (const bad of ["asset_validated", "asset_contributed"]) {
+        const res = repo.insertIdempotent({
+          unitId: `u-146-${bad}`,
+          sessionKey: "sess-146-wl",
+          assetId: "asset-a",
+          assetType: "skill",
+          round: 0,
+          eventType: bad,
+          outcome: null,
+          payload: {},
+        });
+        console.log(`146 whitelist → ${bad}: ${JSON.stringify(res)}`);
+        expect(res.kind).toBe("failed");
+      }
+      const n = (getDb()!.prepare("SELECT COUNT(*) AS n FROM attribution_status_events WHERE session_key = ?").get("sess-146-wl") as { n: number }).n;
+      console.log(`146 whitelist → 落行数=${n}`);
+      expect(n).toBe(0);
     } finally {
       teardownTempDb();
     }

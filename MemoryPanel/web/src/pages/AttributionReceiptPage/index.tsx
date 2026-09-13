@@ -164,6 +164,9 @@ export function AttributionReceiptPage() {
               <b>{t('attribution.receipt.used')}</b> {view.counts.used}｜<b>{t('attribution.receipt.corrected')}</b> {view.counts.corrected}｜
               <b>{t('attribution.receipt.pending')}</b> {view.counts.pending}｜<b>{t('attribution.receipt.failed')}</b> {view.counts.failed}
             </div>
+            {/* 146 · C1：阶段口径行（显名；词表唯一定义处 = utils/stage-vocabulary.ts）——
+                只映射既有载体、不新增事件类型；validated / contributed 不进词表。 */}
+            <div style={{ margin: '4px 0 8px', fontSize: 12, color: '#999' }}>{view.stages.text}</div>
             {/* 溢出记账（30 spec 原文口径；C6） */}
             <div style={{ margin: '8px 0', color: view.overflow.pending > 0 ? '#b45309' : '#888' }}>
               {view.overflow.text}
@@ -259,6 +262,12 @@ export function AttributionReceiptPage() {
                       {u.status_events.map((ev) => (
                         <div key={ev.status_id}>
                           {ev.event_type}
+                          {/* 146 · C1：阶段显名（未知事件型 ⇒ 不渲染后缀） */}
+                          {ev.stageLabel !== undefined && (
+                            <span style={{ color: '#888', marginLeft: 4 }}>
+                              {t('attribution.receipt.stage.tag', { label: ev.stageLabel })}
+                            </span>
+                          )}
                           {ev.corrected && (
                             <span style={{ color: '#b45309', marginLeft: 6 }}>
                               {/* 68 D1：检测时间 + "检测时快照"标注（禁止"当前版本"字样） */}

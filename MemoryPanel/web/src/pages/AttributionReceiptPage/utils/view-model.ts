@@ -21,6 +21,7 @@ import type {
 } from '@/lib/api/attribution';
 
 import { semanticTypeKey, semanticTypeOf, type SemanticType } from './semantic-type';
+import { STAGES, stageLabelKey, stageOfEventType } from './stage-vocabulary';
 
 /** 126 · D1 (i)：翻译函数注入面（i18next `t` 的最小子集；`{{var}}` 插值由 t 侧完成）。 */
 export type TranslateFn = (key: string, opts?: Record<string, string | number>) => string;
@@ -45,6 +46,8 @@ export interface StatusEventView {
   created_at: number;
   /** corrected 才有。 */
   corrected?: CorrectedView;
+  /** `146 · C1`：阶段显名（词表见 `./stage-vocabulary`；无对应 ⇒ 缺省不渲染）。 */
+  stageLabel?: string;
 }
 
 export interface UnitView {
@@ -140,6 +143,8 @@ export interface ReceiptView {
   overflow: OverflowView;
   /** `145`：摘要层（卡片式，位于计数行之上）。 */
   summary: AppliedSummaryView;
+  /** `146 · C1`：阶段口径行（显名；词表见 `./stage-vocabulary`）。 */
+  stages: { text: string };
   units: UnitView[];
   truncated: boolean;
 }
@@ -182,6 +187,11 @@ export interface AppliedSummaryView {
 /** 30 spec 原文口径（zh 资源逐字保留；126 起经注入的 `t` 取值）。 */
 export function overflowText(pending: number, t: TranslateFn): string {
   return t('attribution.receipt.overflow', { pending });
+}
+
+/** `146 · C1`：阶段口径行（"显名"；词表唯一定义处 = `./stage-vocabulary`，**不新增事件**）。 */
+export function stageLine(t: TranslateFn): string {
+  return t('attribution.receipt.stage.line', { chain: STAGES.map((s) => t(s.labelKey)).join(' → ') });
 }
 
 export function toOverflowView(pending: number, t: TranslateFn): OverflowView {
@@ -291,6 +301,9 @@ function toStatusEventView(ev: ReceiptStatusEvent, t: TranslateFn): StatusEventV
     created_at: ev.created_at,
   };
   if (corrected) base.corrected = corrected;
+  // 146 · C1：阶段显名（映射层；未知事件型 ⇒ 不渲染后缀，不猜）。
+  const stage = stageOfEventType(ev.event_type);
+  if (stage !== null) base.stageLabel = t(stageLabelKey(stage));
   return base;
 }
 
@@ -334,6 +347,7 @@ export function toReceiptView(dto: ReceiptDto, t: TranslateFn): ReceiptView {
     counts: dto.counts,
     overflow: toOverflowView(dto.overflow.pending, t),
     summary: toAppliedSummary(dto, t), // 145 · C1：摘要层（计数行之上）
+    stages: { text: stageLine(t) }, // 146 · C1：阶段口径行
     units: dto.units.map((u) => toUnitView(u, t)),
     truncated: dto.truncated,
   };
