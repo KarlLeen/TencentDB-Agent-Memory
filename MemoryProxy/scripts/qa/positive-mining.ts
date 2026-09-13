@@ -190,15 +190,13 @@ async function main(): Promise<void> {
         : `⇒ 判定：疑似「挖取口径坏了」（总数=${totalScored} / 可取数=${runs.length} ⇒ 查形状/键名）`,
     );
   }
-  // 对账表征（137 · C4 落地）：`max(runNorm)` 并列两形态（**同一 double**）——
-  //   `toFixed(16)` = 与 `136 §1` / C4 冻结格同表征（16 位小数）；
-  //   最短往返（`String()`）= 唯一能精确往返到该 double 的形式。
-  //   ⇒ 防"1-ulp 表征差被误读成真库漂移"（137 对账中实际发生过一次原地核查）。
+  // 对账表征（137 · C4；138 对调主副）：主字段 = 最短往返（对 double 单射 ⇒ 末位漂移必显形，且 = 冻结格形态）；
+  //   副字段 = toFixed(16)（人读用，非单射 —— 会把约 19 个相邻 double 压成同一串）。
   const normFixed = maxNorm === null ? "—" : maxNorm.toFixed(16).replace(/0+$/, "").replace(/\.$/, "");
   out.push(
     `[account] 总数=${totalScored} | 弱档(≥${WEAK_MIN_RUN})=${weak.length} | 强档(≥${STRONG_MIN_RUN})=${strong.length}` +
-      ` | run分布=${JSON.stringify(distSorted)} | max(run)=${fmt(maxRun)} | max(runNorm)=${normFixed}` +
-      ` | max(runNorm.exact)=${fmt(maxNorm)} | max(spans)=${fmt(spansMax)} | max(perMsg)=${fmt(perMsgMax)}`,
+      ` | run分布=${JSON.stringify(distSorted)} | max(run)=${fmt(maxRun)} | max(runNorm)=${fmt(maxNorm)}` +
+      ` | max(runNorm.fixed16)=${normFixed} | max(spans)=${fmt(spansMax)} | max(perMsg)=${fmt(perMsgMax)}`,
   );
 
   // ── 隐私闸（108 四道闸同款；被检对象 = 本入口的**输出**整体）──
