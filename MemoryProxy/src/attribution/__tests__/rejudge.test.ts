@@ -189,8 +189,8 @@ describe("61 · T4 trigger 标记（task_boundary 登记但不可达）", () => 
       const triggers = distinct.map((r) => r.trigger);
       console.log(`T4 库内 DISTINCT trigger → ${JSON.stringify(triggers)}`);
       expect(triggers.sort()).toEqual(["decision_unit", "manual"]);
-      expect(triggers, "task_boundary 在生产路径不可达").not.toContain(TRIGGER_TASK_BOUNDARY);
-      // 枚举值本身已登记（存在但禁产）
+      expect(triggers, "rejudge 路径不产 task_boundary（该 trigger 由 runner 的 compaction 分支下发；122 · F2 更正）").not.toContain(TRIGGER_TASK_BOUNDARY);
+      // 枚举值本身已登记（存在且已产：runner compaction 分支 / 122 · F2 更正"禁产"旧表述）
       expect(TRIGGER_TASK_BOUNDARY).toBe("task_boundary");
     } finally {
       teardownTempDb();

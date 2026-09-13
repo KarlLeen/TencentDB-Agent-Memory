@@ -5,18 +5,35 @@
  * **都**从 `UNIT_DEDUPE_ANCHOR` 派生 —— 若有人把任一处改回硬编码（不再经常量），
  * 本文件第一格（`SCHEMA_SQL` 包含常量拼出的索引 SQL）即红。
  */
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { SCHEMA_SQL, UNIT_DEDUPE_ANCHOR, UNIT_DEDUPE_INDEX_SQL, selectUnitDedupeWinners } from "../schema.js";
 
 describe("122 · C0 同源：SCHEMA_SQL 内插的就是常量拼出的索引 DDL", () => {
-  it("包含关系成立（任一处回归硬编码 ⇒ 红）", () => {
+  it("包含关系成立（改了常量 ⇒ SQL 内容跟着变）", () => {
     expect(SCHEMA_SQL).toContain(UNIT_DEDUPE_INDEX_SQL);
     for (const col of UNIT_DEDUPE_ANCHOR.columns) {
       expect(UNIT_DEDUPE_INDEX_SQL).toContain(col);
     }
     expect(UNIT_DEDUPE_INDEX_SQL).toContain(UNIT_DEDUPE_ANCHOR.predicate);
     expect(UNIT_DEDUPE_INDEX_SQL).toContain("attribution_events");
+  });
+
+  it("123 · C1/C3 源文件级：DDL 与入队侧都必须是『派生』而非『文字相同』（运行时不可分 ⇒ 只能源级判）", () => {
+    const schemaSrc = readFileSync(new URL("../schema.ts", import.meta.url), "utf8");
+    // ① 插值在位（SCHEMA_SQL 里引用常量 —— 这一行是"派生"的源级证据）。
+    expect(schemaSrc).toContain("${UNIT_DEDUPE_INDEX_SQL}");
+    // ② 已解析名的**字面** DDL 不得出现 —— 上面的 toContain(SCHEMA_SQL) 在"改回文字相同的硬编码"时
+    //    仍绿（渲染结果逐字相同）；只有源级才能判"是不是派生"。改回硬编码 ⇒ 本行立红。
+    //    ⚠️ 判据必须点名到本锚；**禁止**写成"数 CREATE UNIQUE INDEX 次数"（本文件另有 2 处别的表：
+    //    idx_ajq_dedupe / idx_ajd_unit_round ⇒ 数总数会在无关改动时误红）。
+    expect(schemaSrc).not.toContain("CREATE UNIQUE INDEX IF NOT EXISTS idx_ae_unit_dedupe");
+    // ③ runner 侧："禁止在本文件另写槽位判断"从注释禁令升级为机械守卫（必须经共享模块/函数）。
+    const runnerSrc = readFileSync(new URL("../../decision-units/decision-unit-runner.ts", import.meta.url), "utf8");
+    expect(runnerSrc).toContain("selectUnitDedupeWinners");
+    expect(runnerSrc).toContain('from "../db/schema.js"');
   });
 });
 
