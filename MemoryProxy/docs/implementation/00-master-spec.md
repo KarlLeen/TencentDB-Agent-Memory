@@ -113,7 +113,7 @@ unknown tombstone、vocab 命中矩阵 corpus、开启 checklist / 组合矩阵 
 | v2：attribution judge worker（落地④） | S5 | 新进程 + prompt 版本管理 | **已完成**：`50-*.md`；proxy 门 50 files / 580 passed（judge/worker 单测群 + 六跳 e2e `s5-s7-e2e-smoke.test.ts`） |
 | v2：corrected 三路机器规则 + 版本链快照（§3.2.2） | S6 | 规则层 + 事件消费 | **已完成**：`60-*.md`；`corrected-rules.test.ts` 5 tests + 六跳冒烟跳⑤（真 L1 规则） |
 | v2：回执 + 抽查池两页（落地⑤） | S7 | MemoryPanel（契约 = `70-panel-read-and-audit-pool.md`；docs 编号顺延 60→70） | **已完成**：`70-*.md`；proxy 门 50 files / 580 passed + panel 门 8 files / 31 passed |
-| v3：信用分→排序 / 索引行（§3.4/3.5） | S8 | 排序侧 | — |
+| v3：信用分→排序 / 索引行（§3.4/3.5） | S8 | 排序侧 | 冻结（v3；边界与触发条件见 80 spec §3） |
 | v1.1（二轮评审 R1/R4）：最小观测 + 分级日志 + 水位上限 | S3/S1 | 30 spec §4.10/§5.6；10 spec §5.2/§10 | §6 单测 21 |
 | v1.1（二轮评审 R2）：撕裂窗口 risky 动作 unknown tombstone | S3 | 30 spec §4.4/§4.7 | §6 单测 19/20 |
 | v1.1（二轮评审 BP1）：vocab 命中矩阵 corpus | S3 | 30 spec §5.1/§6 用例 22 | vocab-corpus 51 用例 |

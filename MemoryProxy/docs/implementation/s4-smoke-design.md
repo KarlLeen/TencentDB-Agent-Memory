@@ -1007,3 +1007,12 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   `coverage=1`（104 修复前化石）⇒ 不入 `low_coverage`；cc-real2 行全 `unknown` ⇒ 入。
   写入面：`judgement_details`/`judge_queue` 各 **5→6**，`status_events`/`events`/`sessions` 不变；
   dump 指纹 `f5187c95… → 7290cebd…`（**真库已变——本单声明写入**，与"未触达"类单不同）。
+- **V3（S8）冻结 + 边界声明（随单条；2026-09-12，append-only）**：`114` 落地 `113` 决策备忘**分支 A**——
+  **本次交付物 = 任务三 + 任务四，V2（S4–S7）即其核心基础设施**；V3（S8 信用分→排序）属 roadmap `v3`
+  加分项（不是必答题）。**冻结 ≠ 删除**：S8-a/S8-b 代码与文档保留、`attribution.ranking.enabled` **默认 `false`**
+  （关时零行为回归，`98` 锁）。**依据（实测）**：①`confirmed` 长期稀少是**设计上正确的克制**（D6 = C；
+  三轴不可分、A 无舒适档）；②**L2 场景行结构性接不进信用分**（键空间不同源 ⇒ 即便接通也是空转；`方案 A` 未做）；
+  ③`suspect:text_overlap` 真库 **0 条**（中间地带亦无真实样本）；④"看起来接了线、实际全空转"的排序功能
+  **比没有更差**（评审摸到的是看不见的开关）。**触发条件**：S8-d = 真实引用正例 ∧ 方案 A 落地；S8-c = S8-d 通过后。
+  **重新激活入口**：`方案 A brainstorm → 真实引用正例 → (d)-2 标定 → S8-d 验收 → 开开关`。
+  **边界声明落点**：`80 spec §3`「适用范围与冻结边界」五条 + `00-master-spec §7` S8 行验收格。
