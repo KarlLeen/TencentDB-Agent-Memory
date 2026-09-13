@@ -15,6 +15,7 @@ import {
   __resetDecisionUnitStateForTests,
   runDecisionUnitExtraction,
 } from "../../decision-units/decision-unit-runner.js";
+import { getAttributionWriteCounters } from "../../db/attributionEventRepo.js";
 import { __resetAttributionJudgeQueueRepoForTests } from "../judge-queue-repo.js";
 import { __resetAttributionStatusEventsRepoForTests } from "../status-events-repo.js";
 import { teardownTempDb, withTempDb } from "./_helpers/base-harness.js";
@@ -84,7 +85,25 @@ describe("66 · 单元 B：task_boundary 生产（compaction = 边界信号）",
       console.log(`66 单元B 第一批 → ${JSON.stringify(first)}`);
       expect(first.every((r) => r.trigger === "decision_unit")).toBe(true);
 
-      // 第二批（3 条消息 < 水位 5 ⇒ compacted ⇒ epoch 切换）⇒ 1 单元，trigger=task_boundary
+
+      // 第二批（**编号漂移批**，122 后的现实 task_boundary 构造）：窗口 = 第一批尾部 2 条 + 新一对
+      // （长度 5 < 水位 6 ⇒ compacted；编号从新窗口重算 ⇒ t9 落 (turn1, msg48)，与旧单元 (1,16)/… 不同槽位
+      // ⇒ 不撞 S3 锚）+ 内容新（新 unit_id）⇒ 新单元落库并入队，该批带 trigger=task_boundary。
+      const drift = [m5[4]!, m5[5]!, ...anthropicTurns([{ ask: "改 skl-tb-9.ts", file: "skl-tb-9.ts", id: "tb-9" }])];
+      runDecisionUnitExtraction({
+        config: cfg,
+        protocol: "anthropic",
+        mainDialog: true,
+        hasConversation: true,
+        messages: drift as unknown[],
+        sessionKey: S,
+        spaceId: "sp-tb",
+      });
+      expect(await waitFor(() => queueTriggers(S).length >= 3), "编号漂移批未入队").toBe(true);
+
+      // 第三批（撞锚批）：3 条消息 < 水位（漂移批后水位=5）⇒ 仍 compacted；内容为全新对但**位置与 tb-1 同槽位**
+      // （窗口从 index0 起 ⇒ (1,16)）⇒ appendMany 撞 S3 锚吞该行 ⇒ **不入队**（122 C3①；修复前本格依赖"幽灵入队"）。
+      const conflictsBefore = getAttributionWriteCounters().dedupeConflicts;
       const m3 = anthropicTurns([{ ask: "改 skl-tb-3.ts", file: "skl-tb-3.ts", id: "tb-3" }]);
       runDecisionUnitExtraction({
         config: cfg,
@@ -95,7 +114,11 @@ describe("66 · 单元 B：task_boundary 生产（compaction = 边界信号）",
         sessionKey: S,
         spaceId: "sp-tb",
       });
-      expect(await waitFor(() => queueTriggers(S).length >= 3), "第二批未入队").toBe(true);
+      expect(
+        await waitFor(() => getAttributionWriteCounters().dedupeConflicts > conflictsBefore),
+        "撞锚批未触发 S3 锚（应吞掉同槽位行）",
+      ).toBe(true);
+      expect(queueTriggers(S), "122：被锚吞掉的行不得入队（修复前 = 4，幽灵）").toHaveLength(3);
 
       const all = queueTriggers(S);
       console.log(`66 单元B 全量 → ${JSON.stringify(all)}`);

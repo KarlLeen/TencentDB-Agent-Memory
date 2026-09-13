@@ -155,7 +155,8 @@ const DEFAULT_SPACE_ID = "_default";
 export const TRIGGER_DECISION_UNIT = "decision_unit";
 /** 人工重判（61 开始生产；`--rejudge`）。 */
 export const TRIGGER_MANUAL = "manual";
-/** **只登记枚举值，生产路径禁产**（A7 留给 S6；"不可达"由 61 T4/R3 焊成断言）。 */
+/** **66 起已由生产路径产出**（runner 观测到 compaction/epoch 切换时随批下发；122 · F2 更正：
+ *  旧注释"只登记枚举值，生产路径禁产（A7 留给 S6）"已过期）。 */
 export const TRIGGER_TASK_BOUNDARY = "task_boundary";
 export type JudgeTrigger = typeof TRIGGER_DECISION_UNIT | typeof TRIGGER_MANUAL | typeof TRIGGER_TASK_BOUNDARY;
 

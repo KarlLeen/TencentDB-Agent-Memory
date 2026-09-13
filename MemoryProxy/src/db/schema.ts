@@ -21,6 +21,67 @@
 
 export const SCHEMA_VERSION = 1;
 
+/**
+ * **S3 幂等锚的唯一定义**（`122` · C0 —— 硬性前置，不是建议）：
+ * 索引 DDL（`UNIT_DEDUPE_INDEX_SQL`）与入队侧"同锚胜者唯一化"（`selectUnitDedupeWinners`）
+ * **必须**都从这里派生；**禁止**在别处重写"槽位判断"（逻辑等价也不行 ——
+ * 那是第二份对锚定义的理解，将来索引加字段/改约束就会原样重演、只是换个位置）。
+ */
+export const UNIT_DEDUPE_ANCHOR = {
+  /** 索引列（顺序即 DDL 列序）。 */
+  columns: ["session_key", "turn_seq", "msg_seq"],
+  /** partial index 谓词：非决策事件（msg_seq=NULL）不受约束。 */
+  predicate: "msg_seq IS NOT NULL",
+} as const;
+
+export const UNIT_DEDUPE_INDEX_NAME = "idx_ae_unit_dedupe";
+
+/** 索引 DDL 由锚常量拼出（改常量 ⇒ 索引定义同变；`SCHEMA_SQL` 直接插值本串）。 */
+export const UNIT_DEDUPE_INDEX_SQL =
+  `CREATE UNIQUE INDEX IF NOT EXISTS ${UNIT_DEDUPE_INDEX_NAME}\n` +
+  `  ON attribution_events(${UNIT_DEDUPE_ANCHOR.columns.join(", ")})\n` +
+  `  WHERE ${UNIT_DEDUPE_ANCHOR.predicate};`;
+
+/**
+ * `122` · C0：**锚键的唯一生成源**（行侧）—— `null` = 该行不受锚约束。
+ *
+ * 两层规则与 SQL 对齐：① partial 谓词 `msg_seq IS NOT NULL`（谓词外行不受约束）；
+ * ② SQLite 唯一索引语义：锚值含 NULL 的行**互不相等**（`undefined` 视同 NULL——插入时缺省列即 NULL）。
+ * 入队侧（批内唯一化 / 与落库事实比对）**必须**经本函数，不得另写槽位判断。
+ */
+export function unitDedupeAnchorKey(row: {
+  sessionKey: string;
+  turnSeq?: number | null;
+  msgSeq?: number | null;
+}): string | null {
+  const anchor: (string | number | null | undefined)[] = [row.sessionKey, row.turnSeq, row.msgSeq];
+  if (anchor.some((v) => v === null || v === undefined)) return null;
+  return JSON.stringify(anchor);
+}
+
+/**
+ * `122` · C0：按 S3 锚做**同锚胜者唯一化**（first-wins —— 与唯一索引"首行留、后续跳过"
+ * 的插入语义一致；保持输入顺序）。用于"批内"对与"落库事实合成序列"两类比对。
+ * 入队侧**必须**经本函数，不得另写槽位判断（见 `UNIT_DEDUPE_ANCHOR` 注释）。
+ */
+export function selectUnitDedupeWinners<
+  T extends { sessionKey: string; turnSeq?: number | null; msgSeq?: number | null },
+>(rows: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const row of rows) {
+    const key = unitDedupeAnchorKey(row);
+    if (key === null) {
+      out.push(row); // 谓词外 / NULL 锚：不受唯一约束，照留。
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
@@ -97,9 +158,8 @@ CREATE INDEX IF NOT EXISTS idx_ae_type          ON attribution_events(event_type
 
 -- S3 幂等锚：同一 (session_key, turn_seq, msg_seq) 只允许一条决策单元事件。
 -- partial index（WHERE msg_seq IS NOT NULL）让非决策事件（msg_seq=NULL）不受约束。
-CREATE UNIQUE INDEX IF NOT EXISTS idx_ae_unit_dedupe
-  ON attribution_events(session_key, turn_seq, msg_seq)
-  WHERE msg_seq IS NOT NULL;
+-- 122 · C0：本 DDL 由 UNIT_DEDUPE_ANCHOR 常量拼出（唯一定义）——改常量即改此处，详见该常量注释。
+${UNIT_DEDUPE_INDEX_SQL}
 
 -- ── P0 visible-text archive（docs/implementation/40-visible-text-archive.md §6，命名冻结）──
 -- 档① = 注入渲染 block 全文（含 session-context 合成块）；档② = 消息流增量快照（epoch/compaction

@@ -979,6 +979,13 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   **读数**：连续重合轴 **重叠 [0.596, 0.791]**（HN3 改写 0.791 > 正例-半行 0.596；"改写算不算引用"本身是
   语义待决项）；`n∈{3,4,5,8} × minIdf∈{0,0.5}` 扫描 **全部不可分**（增大 n 不能分开改写与引用）。
   ⇒ 按结论口径明写：**(d2) 路线不能单独定案**（回 `103` D6 重选；不得用"调阈值"掩盖）。
+- **写侧治本：入队集合 = 落库事实（`122`；2026-09-13，append-only）**：根因 = runner 内"两账不同源"——
+  `appendMany` 对 S3 幂等锚（`idx_ae_unit_dedupe`）撞锚行**静默跳过**，而入队用的是 append **前**的原始数组
+  ⇒ 产"有 queue 行、无 created 事件"的**幽灵单元**（`c98a` 类；归属**不是**"绕过 runner 的路径"——`enqueue`
+  唯一调用者就是 runner）。修法（`122` D1 = B-iv）：**锚唯一定义**抽为 `schema.ts` 的 `UNIT_DEDUPE_ANCHOR`
+  （DDL 与入队规则同源派生；禁止第二份槽位判断）+ 入队侧两层过滤（批内首行胜 + 批后锚主剔除）。
+  **读数**：`enqueue-wiring` 真装置（重放撞槽位 ⇒ `appendMany` 吞行）**修复前 enqueued=3、修复后=2**（C3①）；
+  真仓 `dedupeConflicts` 计数格沿用既有两格（`attribution-event-repo.test.ts`）。历史幽灵单元**不回填**（D3）。
 - **影子"来源"字段（`116` P3 修复；2026-09-13，append-only）**：`121` 增
   `shadowAssetTextSource: "block" | "none"`（D1/D2：枚举只答"有没有可比文本"；**不动**既有列取值域）。
   读数（**只读重算**四 unit r1 各 13 条）：`du_9ec7*` ⇒ **13×`none`**（该会话 `block_seen` 零行 —— 116 登记的形态 A）；

@@ -18,6 +18,7 @@
 import { deriveDecisionUnits } from "./decision-unit-extractor.js";
 import type { RestraintPayload, SealedDecisionUnit } from "./types.js";
 import { getAttributionEventRepo } from "../db/attributionEventRepo.js";
+import { selectUnitDedupeWinners, unitDedupeAnchorKey } from "../db/schema.js";
 import type { AttributionEventRepo, NewAttributionEvent } from "../db/attributionEventRepo.js";
 
 /** S3 只新增这一事件类型的写入方（master §3 词汇表不变）。 */
@@ -207,13 +208,34 @@ function maybeEnqueueJudgeQueue(
 ): void {
   if (params.config?.attribution?.judge?.enqueue !== true) return;
   try {
-    const queueUnits = events.flatMap((event, index) => {
+    // 122 · C1（B-iv，同规则、不改 repo 返回）：入队集合必须 = `appendMany` **实际落库**的那一份。
+    // 机制：事件表有 S3 幂等锚（`idx_ae_unit_dedupe`，唯一源见 `schema.ts` 的 `UNIT_DEDUPE_ANCHOR`），
+    // 撞锚行被 appendMany **静默跳过**（F5），而 `events` 是 append **前**的原始数组（F6）——
+    // 不过滤就会把被吞的行入队 ⇒ "有 queue 行、无 created 事件"的**幽灵单元**（F7：c98a 类）。
+    // 两层过滤，规则**全部**经共享锚函数派生（C0 硬性前置：禁止在本文件另写槽位判断）：
+    //   ① 批内同锚 ⇒ 首行胜（与唯一索引插入语义一致）；
+    //   ② 批后读回该会话的**锚主**（落库行）：本批某行的锚已被**别的 unit** 占 ⇒ 该行实际被吞 ⇒ 剔除；
+    //      同 unit 重放（锚主 = 自己）⇒ 保留，由 queue 的 (unit_id, round) 幂等兜底；
+    //      DB 降级（读回空）⇒ 不剔除（保持原行为；此时 appendMany 同为 no-op）。
+    const ownerOfAnchor = new Map<string, string>();
+    for (const row of getAttributionEventRepo().listBySessionWithRowid(params.sessionKey)) {
+      const key = unitDedupeAnchorKey({ sessionKey: row.session_key, turnSeq: row.turn_seq, msgSeq: row.msg_seq });
+      if (key !== null) ownerOfAnchor.set(key, row.unit_id ?? "");
+    }
+    const kindOf = new Map(events.map((event, index) => [event, units[index]?.kind] as const));
+    const landedEvents = selectUnitDedupeWinners(events).filter((event) => {
+      const key = unitDedupeAnchorKey(event);
+      if (key === null) return true; // 谓词外（msg_seq=NULL）：appendMany 不约束它
+      const owner = ownerOfAnchor.get(key);
+      return owner === undefined || owner === (event.unitId ?? "");
+    });
+    const queueUnits = landedEvents.flatMap((event) => {
       const unitId = event.unitId;
       if (typeof unitId !== "string" || unitId.length === 0) return [];
       return [
         {
           unitId,
-          kind: String(units[index]?.kind ?? "unknown"),
+          kind: String(kindOf.get(event) ?? "unknown"),
           turnSeq: event.turnSeq ?? 0,
           msgSeq: event.msgSeq ?? 0,
           payload: event.payload,

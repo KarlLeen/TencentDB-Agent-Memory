@@ -742,11 +742,20 @@ candidates: input.candidates})`。`promptRef` 原样落表（链路不变）；`
 |---|---|---|
 | `decision_unit` | 缺省（行为不变） | `enqueueUnitsForJudge`（首判） |
 | `manual` | **本单开始生产** | `--rejudge` 入口 |
-| `task_boundary` | **S6 起生产**（仅由边界信号） | runner 观测 **epoch 切换**（compaction 水位归零，`decision-unit-runner.ts:136-137`）⇒ 该批入队带此 trigger（60 spec §4/勘正 3 裁定 ②） |
+| `task_boundary` | **`66` 起已生产**（仅由边界信号；`122` 更正：旧记"S6 起"已过期） | runner 观测 **epoch 切换**（compaction 水位归零，`decision-unit-runner.ts:136-137`）⇒ 该批入队带此 trigger（60 spec §4/勘正 3 裁定 ②） |
 
 穷举以 `TRIGGER_*` 常量导出（名：`TRIGGER_DECISION_UNIT` / `TRIGGER_MANUAL` /
 `TRIGGER_TASK_BOUNDARY`；`JudgeTrigger` 联合类型）；未来新增值 = 常量 + 联合类型 + 本节表格同行
 （出现"生产点"列才可生产）。
+
+**122 · 入队集合 = 落库事实（口径句，D4）**：`judge` 队列行**不**逐条对应 `decision_unit.created` 事件 ——
+事件表有 S3 幂等锚（`idx_ae_unit_dedupe`：`(session_key, turn_seq, msg_seq)` 唯一，partial `WHERE msg_seq IS NOT NULL`；
+**唯一定义**见 `src/db/schema.ts` 的 `UNIT_DEDUPE_ANCHOR`，DDL 与入队侧规则**均由它派生**）。
+compaction 重放产生的新单元撞锚时，事件行被 `appendMany` **静默跳过**（`dedupeConflicts` 计数 + info 日志）；
+入队侧经共享锚函数做**两层过滤**（① 批内同锚首行胜；② 批后按"锚主"剔除被吞行——同 unit 重放保留，
+由 queue `(unit_id, round)` 幂等兜底）⇒ **queue 行集合 = 实际落库单元集合**。
+**看到"队列行数 > 事件行数"先查此机制**（`122` F6/F7）；历史幽灵单元（如 `c98a`）按 `119` 口径
+**不回填**、如实标注（`122` D3）。
 
 ### 16.4 C4 · 消费侧"取最新"口径（查询层，不物化）
 

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   AttributionEventRepo,
   AttributionEventRow,
+  AttributionEventRowWithRowid,
   NewAttributionEvent,
 } from "../../db/attributionEventRepo.js";
 import { __resetAttributionEventRepoForTests, setAttributionEventRepo } from "../../db/attributionEventRepo.js";
@@ -22,8 +23,22 @@ import { queueRepo, teardownTempDb, withTempDb } from "./_helpers/base-harness.j
 
 class FakeEventRepo implements AttributionEventRepo {
   readonly events: NewAttributionEvent[] = [];
+  /** 122 · C3①：仿 S3 幂等锚（idx_ae_unit_dedupe）——撞锚行**跳过**并计数（appendMany 的真实行为）。 */
+  skipped = 0;
+  private readonly anchorKeys = new Set<string>();
   appendMany(events: NewAttributionEvent[]): void {
-    this.events.push(...events);
+    for (const e of events) {
+      const anchor: (string | number | null)[] = [e.sessionKey, e.turnSeq ?? null, e.msgSeq ?? null];
+      if (anchor.every((v) => v !== null)) {
+        const key = JSON.stringify(anchor);
+        if (this.anchorKeys.has(key)) {
+          this.skipped += 1;
+          continue;
+        }
+        this.anchorKeys.add(key);
+      }
+      this.events.push(e);
+    }
   }
   append(e: NewAttributionEvent): void {
     this.appendMany([e]);
@@ -34,8 +49,26 @@ class FakeEventRepo implements AttributionEventRepo {
   listByAsset(): AttributionEventRow[] {
     return [];
   }
-  listBySessionWithRowid() {
-    return [];
+  /** 122 · C1：helper 经此读"锚主"（落库事实）——返回当前已落行的全列形状。 */
+  listBySessionWithRowid(sessionKey: string): AttributionEventRowWithRowid[] {
+    return this.events
+      .filter((e) => e.sessionKey === sessionKey)
+      .map((e, i) => ({
+        rowid: i + 1,
+        event_id: `ev-${i}`,
+        space_id: e.spaceId ?? "_default",
+        user_id: e.userId ?? null,
+        agent_source: e.agentSource ?? null,
+        session_key: e.sessionKey,
+        turn_seq: e.turnSeq ?? null,
+        msg_seq: e.msgSeq ?? null,
+        event_type: e.eventType,
+        asset_id: e.assetId ?? null,
+        asset_type: e.assetType ?? null,
+        unit_id: e.unitId ?? null,
+        payload_json: JSON.stringify(e.payload ?? {}),
+        created_at: Date.now(),
+      }));
   }
   distinctSessionKeys() {
     return [];
@@ -200,5 +233,65 @@ describe("T13 触发接线", () => {
     // 落库照旧（这是关键：入队绝不能拖垮 v1 链路）
     expect(eventRepo.events).toHaveLength(1);
     expect(fake.enqueued).toHaveLength(0);
+  });
+});
+
+describe("122 · C3①/C3② 入队集合 = 实际落库的那一份（同锚胜者唯一化）", () => {
+  const uText = (text: string): unknown => ({ role: "user", content: text });
+  const aTool = (id: string, name: string, input: Record<string, unknown>): unknown => ({
+    role: "assistant",
+    content: [{ type: "tool_use", id, name, input }],
+  });
+  const uResult = (id: string): unknown => ({
+    role: "user",
+    content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+  });
+
+  const runMessages = (messages: unknown[]): void => {
+    runDecisionUnitExtraction({
+      config: { ...ENABLED, attribution: { judge: { enqueue: true } } } as never,
+      protocol: "anthropic",
+      mainDialog: true,
+      hasConversation: true,
+      sessionKey: "sess-1",
+      spaceId: "space-1",
+      userId: "user-1",
+      agentSource: "codebuddy",
+      messages,
+    });
+  };
+
+  it("同槽位重放（内容变 ⇒ 新 unit_id）⇒ 撞锚行不得入队；不同槽位不误杀", async () => {
+    const fake = new CountingQueueRepo();
+    setAttributionJudgeQueueRepo(fake);
+
+    // 首跑：两个不同槽位的单元（a.ts / b.ts）⇒ 都应入队（C3② 不误杀）
+    const first = [
+      uText("给 a.ts 加个函数"),
+      aTool("e1", "Edit", { file_path: "a.ts", new_string: "x" }),
+      uResult("e1"),
+      uText("再改 b.ts"),
+      aTool("e2", "Edit", { file_path: "b.ts", new_string: "y" }),
+      uResult("e2"),
+    ];
+    runMessages(first);
+    await waitFor(() => fake.enqueued.length >= 2);
+    expect(fake.enqueued).toHaveLength(2);
+
+    // 第二跑：缩短窗口（len 5 < 水位 6 ⇒ 全量重放）+ a.ts 参数改 "x"→"x2"
+    // ⇒ a.ts 单元内容变（新 unit_id）、位置不变（同槽位）⇒ appendMany 撞锚跳过该行。
+    // 修复前：被跳过的行仍入队（幽灵单元，122 F6）⇒ enqueued 会变 3 ⇒ 红。
+    const replayed = [
+      uText("给 a.ts 加个函数"),
+      aTool("e1", "Edit", { file_path: "a.ts", new_string: "x2" }),
+      uResult("e1"),
+      uText("再改 b.ts"),
+      aTool("e2", "Edit", { file_path: "b.ts", new_string: "y" }),
+    ];
+    runMessages(replayed);
+    await settle();
+
+    expect(eventRepo.skipped, "appendMany 确实吞了撞锚行（锚在工作）").toBeGreaterThan(0);
+    expect(fake.enqueued, "撞锚的新 unit 不得入队（修复前此处为 3）").toHaveLength(2);
   });
 });
