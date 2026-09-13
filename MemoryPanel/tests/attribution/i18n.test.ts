@@ -54,40 +54,8 @@ const NEW_KEYS = [
 ] as const;
 
 describe('76 · T9 i18n：中英键对等 + 本单新键齐全', () => {
-  /**
-   * 既有历史差异（76 实测：en 缺 17 个键——`memory.detail.*` ×14 + `memory.notify.*` ×3，
-   * 属 S7 之前的遗留，**本单不修**、只登记为白名单，防"再新增差异"）。
-   */
-  const KNOWN_ONLY_ZH = new Set([
-    'memory.detail.cancel',
-    'memory.detail.clearSearch',
-    'memory.detail.editTitle',
-    'memory.detail.modeBrowse',
-    'memory.detail.modeSearch',
-    'memory.detail.save',
-    'memory.detail.search',
-    'memory.detail.searchEmpty',
-    'memory.detail.searchPlaceholder',
-    'memory.detail.searchPlaceholderL0',
-    'memory.detail.searchPlaceholderL1',
-    'memory.detail.searchPrompt',
-    'memory.detail.searchResultCount',
-    'memory.detail.searchScore',
-    'memory.notify.editFailed',
-    'memory.notify.editSuccess',
-    'memory.notify.searchFailed',
-  ]);
-
-  it('两字典键差异 ⊆ 已登记白名单（不新增差异；本单新键必两侧齐）', () => {
-    const zh = Object.keys(zhCN).sort();
-    const en = Object.keys(enUS).sort();
-    const onlyZh = zh.filter((k) => !en.includes(k));
-    const onlyEn = en.filter((k) => !zh.includes(k));
-    const unexplainedZh = onlyZh.filter((k) => !KNOWN_ONLY_ZH.has(k));
-    console.log(`T9 → zh=${zh.length} en=${en.length}；未解释差异（zh 独有）=${JSON.stringify(unexplainedZh)}；en 独有=${JSON.stringify(onlyEn)}`);
-    expect(unexplainedZh, 'zh 独有键必须 ⊆ 白名单').toEqual([]);
-    expect(onlyEn, 'en 独有键不允许（新增键必须两侧同批）').toEqual([]);
-  });
+  // 131 · C2：两侧键集合相等（全命名空间）由 tests/attribution/i18n-guards.test.ts 统一守卫
+  // —— 单一出处；本文件不再各自断言同一事实（130 方向）。
 
   it('本单新增键两侧均存在且非空', () => {
     const missingZh = NEW_KEYS.filter((k) => !(k in zhCN) || String((zhCN as Record<string, string>)[k] ?? '').trim() === '');

@@ -100,7 +100,8 @@ describe('131 · C3 补键占位符一致（同名同数；运行时字符串）
     const zh = zhCN as unknown as Record<string, unknown>;
     const en = enUS as unknown as Record<string, unknown>;
     for (const k of KEYS_131) {
-      expect(holders(zh[k]), `${k}: zh 侧应存在`).toBeDefined();
+      expect(typeof zh[k], `${k}: zh 侧应存在`).toBe('string');
+      expect(typeof en[k], `${k}: en 侧应存在`).toBe('string');
       expect(holders(en[k]), `${k}: 占位符集合须与 zh 一致`).toEqual(holders(zh[k]));
     }
   });
