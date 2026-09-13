@@ -857,6 +857,7 @@ compaction 重放产生的新单元撞锚时，事件行被 `appendMany` **静�
 - 证据：`00-master-spec.md:112` 表格行——"v2：**corrected 三路机器规则** + 版本链快照（§3.2.2）| **S6** | 规则层 + 事件消费"（生产者明文不在 S5）。
 - 三条判据：① 无 S5 内生产者（S6）⇒ 已足以判后置；② corrected 的语义/形状依赖 S6 三路规则（未定稿）；③ 读者（版本链/展示）属 S6/S7。
 - 处置：**登记不建**。触发条件 = **S6 的 corrected 三路规则落地时，同批开写口 + 收窄 §14"禁写"断言**。
+> **✅ 触发已命中（2026-09-13 追记）**：规则 = `corrected-rules`（L1，S6 单元 A）；写口 = 同文件；自动接线 = `69 · l1-wiring`（`worker.ts` post-cycle + CLI）；`§14` 断言已按原文要求收窄（本文件 `:556`；变更记录见 §18.4）；**本行保留为当时的决议记录**（`corrected` **存量**仍为 0 —— 见 `:886` 行）。
 
 **② `asset_validated` → 判：后置（S6/S7 依赖，登记不建）**
 - 证据：全仓 grep 仅 **2 处**——`attribution-v2-review.md:104` 的命名初稿（"`event_type` = asset_used / asset_validated / asset_corrected"）+ 本文件的 §17 交办句；**没有任何文档定义它的产生条件**；§14 已将其**禁写**。
@@ -883,7 +884,7 @@ compaction 重放产生的新单元撞锚时，事件行被 `appendMany` **静�
 ### 18.3 对 design `:57` 的显式改期（登记，非静默）
 
 design `:57` 要求 `attribution_status_events` / `attribution_audit` 两张表"50 spec 前定稿"：
-- `status_events`：**已履行**（59 §14 定稿 + 建成，只产 `asset_used`；`validated`/`corrected` 禁写）；
+- `status_events`：**已履行**（59 §14 定稿 + 建成；`asset_used` 缺省 + **`asset_corrected`**（S6 三路规则，`60 spec §5`；写口 `corrected-rules`、自动接线 `69 · l1-wiring`）—— §14 禁写**只余 `validated`**（`validated` 仍禁写），变更记录见 §18.4）；
 - `attribution_audit`：**定稿随本判定延后**——触发条件与 18.1③ 同（S7 展示层 / 抽查需求定稿时同批定稿+建）。
   理由链 = 18.1③ 的三条判据；**本改期在此显式登记**，不留悬空要求。
 
@@ -891,6 +892,7 @@ design `:57` 要求 `attribution_status_events` / `attribution_audit` 两张表"
 
 **保留（不收窄）**：三件全后置 ⇒ 两个事件型仍无生产路径 ⇒ 禁写断言**继续成立**；
 收窄动作**落在各写口真正开启的那一单**（与写口同批、逐条点名）。
+> **✅ 该处置已执行（2026-09-13 追记）**：收窄动作已于 **`66`** 落在写口开启那一单 —— 见本文件 `:556`（§14.1 现状断言）与 §19 的《收窄执行记录（66）》表；**本段保留为当时的处置记录**（`validated` **仍禁写**，`corrected` 已放开）。
 
 ### 18.5 S5 交付对账表（§9 五项 × 交付单元 × commit × 验收锚点）
 
@@ -925,6 +927,7 @@ design `:57` 要求 `attribution_status_events` / `attribution_audit` 两张表"
      （used 沿用三元组 / 新事件型四元组）与 V6 口径改判见 **`60-corrected-rules.md` 勘正 2**；
   4. §14.1 注释"validated/corrected 禁写"→ 放开 corrected（清单见 60 spec §5）；
   5. §18.4 追加一行指向 60 spec §5 的收窄清单（§18.4 原文"收窄落在写口开启那一单"即此单）。
+   - **执行状态（2026-09-13）**：✅ 已执行 —— 见 §18.4 的追记行（`129`）；原"追加一行指向 60 spec §5"的动作**即由该追记行承担**。
 
 ### 收窄执行记录（66 · 2026-09-12；对应 60 spec 勘正 3 ⑥）
 
