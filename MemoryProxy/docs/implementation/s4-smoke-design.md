@@ -995,3 +995,15 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   （`L_q ≤ 24` 收进改写/名字提及；`L_q ≥ 32` 丢 <32 的 38.5% / <48 的 52.0% 真实行；HN3 代价与 `L_q` 无关）。
   入池增量（只报数）：真库 = **0**（5 条判定均**无影子键** ⇒ 该筛选在当前数据上尚无实际条目）；
   夹具语料 ≥8 = **40/80**（其中 **R4 真实未读 0/28**、R2 0/6）。
+- **shadow → 池端到端打通：真库重判一个 unit（随单条；2026-09-12，append-only）**：`111` 用
+  `mechanical`（`--config` 指定；**既有 5 行 = `real:deepseek-chat`，不可复用——如实记录**）重判
+  `du_d984415cbdac`（`--rejudge + --once`；stdout：`round=1 enqueued=true`、`claimed=1 completed=1` 零错误）。
+  **结果：新行含 `citationMetricsShadow`（键在位）但为 `[]`** —— 该 unit **零候选资产**（两轮
+  `candidateCount=0`）⇒ **影子无度量对象**；`suspect:text_overlap` 全库 **0 条**（其余 4 个有候选
+  （`candidateCount=13`）unit 的 round0 行 **无影子键** = 106 前产物）。**首条真实条目未达成**；
+  补跑靶子建议 = 4 个候选=13 的 unit（cc-vis×3 / cc-real2×1），**待点头**（`111` C3 只跑 1 个）。
+  **附带观察（如实）**：①池默认 `spaceId='_default'` 与真库 `'default'/'space-1'` 不匹配（默认调用恒空）；
+  ②`sess-1` 不在池 sessions 源（events∪status）⇒ 该 unit 不进池（先于本单存在）；③cc-vis 3 行
+  `coverage=1`（104 修复前化石）⇒ 不入 `low_coverage`；cc-real2 行全 `unknown` ⇒ 入。
+  写入面：`judgement_details`/`judge_queue` 各 **5→6**，`status_events`/`events`/`sessions` 不变；
+  dump 指纹 `f5187c95… → 7290cebd…`（**真库已变——本单声明写入**，与"未触达"类单不同）。
