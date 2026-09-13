@@ -424,6 +424,8 @@ D2 不给无消费者的字段加精度）：`"none"` = 无文本 early-return�
 `"block"` = 有文本（**与 `segCount` 无关**：文本过短无 ≥ `SHADOW_L_MIN` 的行也记 `"block"`）。
 ⇒ 此前同形的两形态（无文本 vs 有文本但无片段）**从此可分**；`shadowWholeAssetCoverage` 取值域/语义**不动**（方案 B 排除）。
 **禁止**用 `segCount === 0` 反推来源（R1 钉死）；池**不接入**（D4 触发式登记）。
+**121b（时间轴缺键；复核 P3）**：**`121` 之前的存量条目无 `shadowAssetTextSource` 键** ⇒ 消费侧视为"**来源未知**"，
+**不得**默认成 `"none"`/`"block"`（老行读键得 `undefined`，默认 `"none"` = 误判"无可比文本"）。
 
 1. **引文归一化命中**：对每个 piece，按 `exact → whitespace → punctuation` 逐级
    `normalizeForMatch(piece文本, level) ⊆ normalizeForMatch(资产文本, level)` 判定；

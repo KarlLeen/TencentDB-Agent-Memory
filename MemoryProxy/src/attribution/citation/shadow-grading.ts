@@ -42,7 +42,9 @@ export interface CandidateShadowMetrics {
   /** **121（`116` P3）**：资产文本来源 —— `"block"` = 该会话有该资产的可比文本（`sessionAssetTexts` 命中且非空）；
    *  `"none"` = **无可比文本**（early-return，其余覆盖字段全 `"unknown"`/`0`/`null`）。
    *  与 `shadowWholeAssetCoverage` **正交**：`"block"` + `shadowAssetSegCount === 0` ⇒ **有文本但过短无片段**（107 C3 回退）；
-   *  **禁止**用 `segCount === 0` 反推来源（121 · R1 钉死：那正是"换一种方式继续猜"）。 */
+   *  **禁止**用 `segCount === 0` 反推来源（121 · R1 钉死：那正是"换一种方式继续猜"）。
+   *  **121b（时间轴缺键）**：**`121` 之前的存量条目无本键** ⇒ 消费侧视为 **"来源未知"**，
+   *  **不得**默认成 `"none"`/`"block"`（复核 P3：老行读键会得 `undefined`，默认 `"none"` = 误判"无可比文本"）。 */
   shadowAssetTextSource: "block" | "none";
   /** (d2) 主向：资产行级片段 ⊆ 会话消息 */
   shadowAssetSegCount: number;
