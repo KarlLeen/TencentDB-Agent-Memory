@@ -113,8 +113,14 @@ Control 的公开入口统一位于 `/api/v1`：
 - `/api/v1/knowledge/*`：Wiki 和 Code Graph 管理
 - `/api/v1/agent-overview/*`：Agent 资产聚合
 - `/api/v1/agent/*`：Agent 生命周期操作
+- `/api/v1/attribution/*`：归因面（归因回执 / 抽查池的 BFF；契约见 `panel-api-doc.md`）
 
 对接时以 `docs/api/` 下的公开契约和源码中的路由注册为准。未列入公开契约的外部服务接口不属于 Control 的兼容性承诺。
+
+归因面（`/api/v1/attribution/*`）把 context-proxy 的归因判定与抽查池翻给浏览器，服务于
+**归因回执**与**抽查池**这类人类可见的核对流程（"这条判定依据什么 / 是否可疑"的人工复核与状态登记）。
+接口契约与端点清单见 `panel-api-doc.md` §3.13；契约的权威定义在
+`../MemoryProxy/docs/implementation/70-panel-read-and-audit-pool.md`。
 
 ## 容器部署
 
@@ -128,6 +134,7 @@ Control 的公开入口统一位于 `/api/v1`：
 - 实例注册表中的 `api_key` 仅供服务端调用外部服务，不得返回浏览器。
 - `.env`、真实实例注册表、Smoke 环境文件、日志和测试报告不得提交。
 - 文档和示例只能使用 `example.com`、回环地址及明显的占位符。
+- 归因面（`/api/v1/attribution/*`）的服务端凭证口径见 `panel-api-doc.md` §3.13（本 README 不复述）。
 - 提交前运行 `bash scripts/secret-scan.sh --strict`。
 
 如果凭证曾进入 Git 历史，应立即轮换凭证，并在发布仓库前清理历史记录。
@@ -138,4 +145,5 @@ Control 的公开入口统一位于 `/api/v1`：
 - Meta API：`docs/api/meta-api.openapi.yaml`
 - Knowledge API：`docs/api/knowledge-panel-api.md`
 - Chat Memory API：`docs/api/chat-memory.md`
+- 归因面 API：`panel-api-doc.md`
 - Docker：`docker/README.md`
