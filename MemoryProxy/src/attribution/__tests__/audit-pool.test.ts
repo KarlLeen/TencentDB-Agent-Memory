@@ -95,6 +95,20 @@ describe("110 · D6 落地：suspect:text_overlap（筛选信号，不判定）"
     expect(overlapUnits).toEqual([]);
   });
 
+  it("115 · C4③④：给定真实 space 能取到该 space 的条目；缺省 _default 不跨 space（不静默全量）", () => {
+    withTempDb();
+    seed("s-115", "u-sp-p0", 0, { spaceId: "sp-p0", detail: { rationaleRef: "mechanical:test" } });
+    seed("s-115", "u-default", 1, { spaceId: "default", detail: { rationaleRef: "mechanical:test" } });
+    const p0 = buildAuditPool({ spaceId: "sp-p0" });
+    expect(p0.items.some((x) => x.unit_id === "u-sp-p0"), "给定 sp-p0 ⇒ 能取到").toBe(true);
+    expect(p0.items.some((x) => x.unit_id === "u-default"), "不混入其它 space").toBe(false);
+    const dflt = buildAuditPool(); // 缺省 _default
+    expect(
+      dflt.items.filter((x) => x.unit_id === "u-sp-p0" || x.unit_id === "u-default"),
+      "缺省 _default ⇒ 两行都不匹配 ⇒ 空（**不是**返回全部 space 的数据）",
+    ).toEqual([]);
+  });
+
   it("T3 只读：池构建不改 verdict / 不写 status / 判定行不变（筛选不改判定）", () => {
     withTempDb();
     seed("s-110", "u-readonly", 0, { detail: { rationaleRef: "mechanical:test", ...shadow([24]) } });

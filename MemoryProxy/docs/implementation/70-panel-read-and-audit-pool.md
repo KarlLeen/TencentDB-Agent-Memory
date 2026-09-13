@@ -70,7 +70,7 @@
 |---|---|---|
 | C1 | 只读 | 只用既有只读 repo 方法；零写路径（T9 以"四表行数 + 写计数前后不变"证明） |
 | C2 | 鉴权照 `instance-destroy` | `checkAdminAuth`；`apiKey` 空 ⇒ 公开（既有语义） |
-| C3 | `space_id` 过滤 | 缺省 `_default`；**本单不做身份映射/ACL**（S7 后置；响应不得暗示已按用户过滤） |
+| C3 | `space_id` 过滤 | 缺省 `_default`（**仅当调用方显式省略**）；**面板 BFF 侧以登录实例兜底后传入**（`X-Tdai-Service-Id` ⇒ `panelMeta.instanceId`，与其余 12 接口约定一致——`115` 修复"前端按通用约定不传 ⇒ 落 `_default` ⇒ 真库恒空"）；**不做身份映射/ACL**（S7 后置；响应不得暗示已按用户过滤） |
 | C4 | **68 D1（快照≠当前值）** | corrected 必带 `detected_at` + `snapshot.semantics="detected_at_snapshot"`；**禁止**任何 `current_version` 形态字段 |
 | C5 | K2 粒度=轮 | `turn_seq`/`msg_seq` 原样透传；不得合成更细粒度字段 |
 | C6 | 溢出可表达 | `overflow.pending` + 30 spec 原文口径文案（否则被读成"全覆盖"） |

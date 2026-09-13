@@ -14,6 +14,7 @@ import {
   attributionCred,
   readBody,
   respondProxy,
+  spaceIdOf,
 } from './common.js';
 
 export function registerAttributionReceiptRoutes(
@@ -33,7 +34,8 @@ export function registerAttributionReceiptRoutes(
       {
         since: asQueryValue(body.since),
         limit: asQueryValue(body.limit),
-        space_id: asQueryValue(body.space_id),
+        // 115：space 兜底（显式优先；缺省 ⇒ 登录实例 `panelMeta.instanceId`）——不再依赖前端传参。
+        space_id: spaceIdOf(c, body.space_id),
       },
       attributionCred(deps),
     );

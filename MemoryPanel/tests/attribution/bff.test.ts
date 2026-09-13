@@ -81,6 +81,30 @@ describe('76 · T1 BFF 四端点：请求/响应形状逐字段（fake 适配器
   });
 });
 
+describe('115 · T6 space 兜底：BFF 不再依赖前端传参（与其余 12 接口约定一致）', () => {
+  it('T6：sessions/pool 缺省 ⇒ 上游收到登录实例；显式优先；空串也走兜底', async () => {
+    const { app, fake } = makeApp();
+    // 缺省（body 无 space_id）⇒ 兜底 = panelMeta.instanceId（postJson 头 x-tdai-service-id = inst-1）
+    fake.queue.push({ code: 0, message: 'ok', data: { sessions: [], truncated: false } });
+    await postJson(app, '/attribution/sessions', { limit: 5 });
+    expect(fake.calls[0]!.query).toMatchObject({ space_id: 'inst-1' });
+    fake.queue.push({ code: 0, message: 'ok', data: { items: [], counts_by_category: {}, truncated: false } });
+    await postJson(app, '/attribution/pool', { limit: 5 });
+    expect(fake.calls[1]!.query).toMatchObject({ space_id: 'inst-1' });
+    // 显式非空 ⇒ 优先，不被实例覆盖
+    fake.queue.push({ code: 0, message: 'ok', data: { items: [], counts_by_category: {}, truncated: false } });
+    await postJson(app, '/attribution/pool', { limit: 5, space_id: 'sp-x' });
+    expect(fake.calls[2]!.query).toMatchObject({ space_id: 'sp-x' });
+    // 空串 ⇒ 视同缺省（不被空串打穿回 undefined ⇒ _default 恒空）
+    fake.queue.push({ code: 0, message: 'ok', data: { items: [], counts_by_category: {}, truncated: false } });
+    await postJson(app, '/attribution/pool', { limit: 5, space_id: '' });
+    expect(fake.calls[3]!.query).toMatchObject({ space_id: 'inst-1' });
+    console.log(
+      `T6 → 缺省=${String(fake.calls[0]!.query.space_id)} / 显式=${String(fake.calls[2]!.query.space_id)} / 空串=${String(fake.calls[3]!.query.space_id)}`,
+    );
+  });
+});
+
 describe('76 · T2 空态三因：未配置 / 不可达 / 无数据（不许混同）', () => {
   it('fake 侧：三因各自码/文案路径', async () => {
     const { app, fake } = makeApp();

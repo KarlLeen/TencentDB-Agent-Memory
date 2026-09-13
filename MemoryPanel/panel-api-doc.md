@@ -1231,9 +1231,9 @@ KS → Panel 的 S2S 状态回调（ingest/sync 完成或进度更新）。**无
 
 | 接口 | 请求体 | 响应 `data` |
 |---|---|---|
-| `POST /attribution/sessions` | `{ since?, limit, space_id? }`（**`since` 与 `limit` 至少给一个**，缺 ⇒ 400 `UNBOUNDED_QUERY_REJECTED`） | `{ sessions: [{ session_key, space_id, first_event_at, last_event_at, counts{units,judged,unconfirmed,used,corrected,pending,failed} }], truncated }` |
+| `POST /attribution/sessions` | `{ since?, limit, space_id? }`（**`since` 与 `limit` 至少给一个**，缺 ⇒ 400 `UNBOUNDED_QUERY_REJECTED`；`space_id` **可省略**——省略/空 ⇒ 面板按登录实例（`X-Tdai-Service-Id`）兜底，与其他接口约定一致） | `{ sessions: [{ session_key, space_id, first_event_at, last_event_at, counts{units,judged,unconfirmed,used,corrected,pending,failed} }], truncated }` |
 | `POST /attribution/receipt` | `{ session_key, limit?, offset? }`（缺 `session_key` ⇒ 400 `MISSING_SESSION_KEY`） | 回执 DTO：`{ session{…,assets[]}, counts, overflow{pending,note}, units[{unit_id,kind,unit_type,turn_seq,msg_seq,created_at,judgement|null,status_events[],missing[]}], truncated }` |
-| `POST /attribution/pool` | `{ category?, space_id?, limit?, offset? }` | `{ items[{audit_key,unit_id,round,category,categories[],verdict,judge_impl,rationale_ref,session_key,created_at}], counts_by_category, truncated }` |
+| `POST /attribution/pool` | `{ category?, space_id?, limit?, offset? }`（`space_id` **可省略**——省略/空 ⇒ 面板按登录实例（`X-Tdai-Service-Id`）兜底） | `{ items[{audit_key,unit_id,round,category,categories[],verdict,judge_impl,rationale_ref,session_key,created_at}], counts_by_category, truncated }` |
 | `POST /attribution/review` | `{ audit_key, prev_status, status, note? }` | `{ review_id, status, prev_status, kind: "inserted"\|"duplicate" }` |
 
 ### 3.13.2 鉴权与 `actor` 注入（硬）
