@@ -68,7 +68,20 @@ describe('131 · C2 全命名空间 key 集合相等（126·C4 的同型升级�
   it('差集两侧都为空 + 下限断言（防两边同时清空式假绿）', () => {
     const zh = Object.keys(zhCN as unknown as Record<string, unknown>);
     const en = Object.keys(enUS as unknown as Record<string, unknown>);
-    expect(zh.length).toBeGreaterThan(1500); // 下限：现有 ~1547
+    // 131 · C2 / #15：集合相等挡不住"两侧同时删同一个键"（差集仍空）⇒ 用"贴实测的下限"把"双边同删"变成红。
+    // 下限 = 2026-09-13 实测值（现取后必须等于此表；不等 ⇒ 停下报告，不许自行改数）。
+    const FLOORS: Array<[string, number]> = [
+      ['', 1547], // 全命名空间总量
+      ['attribution.', 52],
+      ['memory.detail.', 36],
+      ['memory.notify.', 18],
+      ['memory.', 97],
+    ];
+    for (const [prefix, min] of FLOORS) {
+      const label = prefix === '' ? '全命名空间' : `${prefix} 族`;
+      expect(zh.filter((k) => k.startsWith(prefix)).length, `${label} 下限`).toBeGreaterThanOrEqual(min);
+      expect(en.filter((k) => k.startsWith(prefix)).length, `${label} 下限（en）`).toBeGreaterThanOrEqual(min);
+    }
     const onlyZh = zh.filter((k) => !en.includes(k));
     const onlyEn = en.filter((k) => !zh.includes(k));
     expect({ onlyZh, onlyEn }).toEqual({ onlyZh: [], onlyEn: [] });
