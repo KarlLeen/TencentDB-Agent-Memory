@@ -44,7 +44,7 @@ v1 通过后再铺开，验收门槛不变（每切片：单测 + 真实会话�
 | `InjectionObserver` 三实现 | Noop / Logging / Langfuse | EventObserver 无冲突，保留 |
 | `metadata.source` / `metadata.cacheKey`（block 上已有键） | 日志/缓存 | block 新增资产清单走 `metadata.assets: Array<{assetId, assetType}>`，不占用既有键 |
 
-**v1 事件类型词汇表（`event_type`）**：`injection.pipeline.start|done|error`、`injection.hook.start|done|error`（S2 产生，延续 observer.ts 现有日志命名）；`decision_unit.created`（S3 产生）。**v2 S4 已产生：`asset_fetched`**（bridge 调用"真的取了哪个 skill"的硬档行，`payload.channel='fetched'`；见 `45-bridge-telemetry-sink.md`）。v2 再扩展 `asset_used/validated/corrected` 等状态事件（对齐设计文档状态机）。
+**v1 事件类型词汇表（`event_type`）**：`injection.pipeline.start|done|error`、`injection.hook.start|done|error`（S2 产生，延续 observer.ts 现有日志命名）；`decision_unit.created`（S3 产生）。**v2 S4 已产生：`asset_fetched`**（bridge 调用"真的取了哪个 skill"的硬档行，`payload.channel='fetched'`；见 `45-bridge-telemetry-sink.md`）。v2 再扩展 `asset_used/validated/corrected` 等状态事件（对齐设计文档状态机）。 **`149` 新增：`agent.tool.change`**（变更/结果锚定行；复用 `attribution_events`、**不新建表**；payload **逐字限定 6 键**（`tool`/`kind`/`path_ext`/`path_sha16`/`exit_status`/`units`，**零原文**——路径只留 sha256 前 16 + 扩展名）；锚位 = 独立槽位带 `msg_seq = 10_000_000 + anchor×16 + 事件位`（与决策单元槽位不交，定义处 `src/decision-units/tool-change-records.ts`））。
 
 **真实资产身份契约**：事件里的 `(asset_id, asset_type)` 必须回指资产体系里的真实实体、且能被
 现有 client 回查——`skill` 的 `asset_id === skill_id`；`llm_wiki`/`code_graph` 的

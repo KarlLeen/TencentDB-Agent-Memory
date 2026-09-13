@@ -98,6 +98,18 @@ export interface ReceiptUnit {
   missing: string[];
 }
 
+/** `149`：本会话变更/结果摘要（只读派生；**无原文**——payload 只存元数据；0 行 ⇒ `null`）。 */
+export interface SessionChanges {
+  total: number;
+  by_kind: Record<string, number>;
+  exit_ok: number;
+  exit_error: number;
+  /** 未能锚到任何决策单元的条数（`units: []`）。 */
+  unanchored: number;
+  /** 本会话被锚到的 `unit_id` 列表（去重、排序）。 */
+  units: string[];
+}
+
 export interface ReceiptDto {
   session: {
     session_key: string;
@@ -105,6 +117,8 @@ export interface ReceiptDto {
     first_event_at: number;
     last_event_at: number;
     assets: ReceiptAsset[];
+    /** `149`：变更/结果摘要（缺省/`null` ⇒ 前端保持"暂无变更锚定"空态）。 */
+    changes?: SessionChanges | null;
   };
   counts: Counts;
   overflow: { pending: number; note: string };

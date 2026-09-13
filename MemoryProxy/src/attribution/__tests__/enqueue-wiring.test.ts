@@ -15,6 +15,7 @@ import type {
 } from "../../db/attributionEventRepo.js";
 import { __resetAttributionEventRepoForTests, setAttributionEventRepo } from "../../db/attributionEventRepo.js";
 import { __resetDecisionUnitStateForTests, runDecisionUnitExtraction } from "../../decision-units/decision-unit-runner.js";
+import { EVENT_TYPE_AGENT_TOOL_CHANGE } from "../../decision-units/tool-change-records.js";
 import type { AttributionJudgeQueueRepo, JudgeQueueRow } from "../judge-queue-repo.js";
 import { setAttributionJudgeQueueRepo } from "../judge-queue-repo.js";
 import { queueRepo, teardownTempDb, withTempDb } from "./_helpers/base-harness.js";
@@ -151,6 +152,10 @@ function run(config: unknown): void {
   });
 }
 
+/** `149`：runner 现在**另落**变更行（`agent.tool.change`）⇒ 单元断言只看单元事件（与入队语义无关）。 */
+const unitEvents = (): NewAttributionEvent[] =>
+  eventRepo.events.filter((e) => e.eventType !== EVENT_TYPE_AGENT_TOOL_CHANGE);
+
 const ENABLED = { injection: { decisionUnitExtractor: { enabled: true } } };
 /** 给反面断言一个"会发生的话早该发生了"的窗口。 */
 const settle = async (ms = 80): Promise<void> => {
@@ -172,7 +177,7 @@ afterEach(() => {
 describe("T12 缺省回归（enqueue=false 时零访问）", () => {
   it("决策单元照常落库；队列 0 行；连模块都不加载", async () => {
     run(ENABLED); // 不带 attribution ⇒ 缺省 false
-    expect(eventRepo.events).toHaveLength(1);
+    expect(unitEvents()).toHaveLength(1);
 
     await settle();
     // 真库队列 0 行（零访问的直接证据）
@@ -185,7 +190,7 @@ describe("T12 缺省回归（enqueue=false 时零访问）", () => {
       eventRepo = new FakeEventRepo();
       setAttributionEventRepo(eventRepo);
       run({ ...ENABLED, attribution: { judge: { enqueue: value } } });
-      expect(eventRepo.events).toHaveLength(1);
+      expect(unitEvents()).toHaveLength(1);
     }
     await settle();
     expect(queueRepo().countByStatus()).toEqual({});
@@ -198,12 +203,12 @@ describe("T13 触发接线", () => {
     setAttributionJudgeQueueRepo(fake);
 
     run({ ...ENABLED, attribution: { judge: { enqueue: true } } });
-    expect(eventRepo.events).toHaveLength(1);
+    expect(unitEvents()).toHaveLength(1);
 
     await waitFor(() => fake.enqueued.length > 0);
     expect(fake.enqueued).toHaveLength(1);
     // unit_id 用的是 v1 内容哈希（幂等键的来源），不是别的东西
-    expect(fake.enqueued[0]).toBe(eventRepo.events[0]!.unitId);
+    expect(fake.enqueued[0]).toBe(unitEvents()[0]!.unitId);
   });
 
   it("多单元落库 ⇒ 逐步入队；同单元重放（events 被 appendMany 去重）不重复入队", async () => {
@@ -218,7 +223,7 @@ describe("T13 触发接线", () => {
     run({ ...ENABLED, attribution: { judge: { enqueue: true } } });
     await settle();
     expect(fake.enqueued).toHaveLength(1);
-    expect(eventRepo.events).toHaveLength(1);
+    expect(unitEvents()).toHaveLength(1);
   });
 
   it("入队抛错不影响落库（fire-and-forget）", async () => {
@@ -231,7 +236,7 @@ describe("T13 触发接线", () => {
     await settle();
 
     // 落库照旧（这是关键：入队绝不能拖垮 v1 链路）
-    expect(eventRepo.events).toHaveLength(1);
+    expect(unitEvents()).toHaveLength(1);
     expect(fake.enqueued).toHaveLength(0);
   });
 });

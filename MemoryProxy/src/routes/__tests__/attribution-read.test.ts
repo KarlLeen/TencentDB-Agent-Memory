@@ -501,6 +501,55 @@ describe("72 · T6–T10 缺即 null / 单一真相 / 无界拒绝 / 只读 / �
   });
 });
 
+describe("149 · 变更/结果摘要（session.changes；只读数、无原文）", () => {
+  it("0 行 ⇒ null；有行 ⇒ 计数 + by_kind + exit + units 去重（路径扩展名/哈希值不出现）", async () => {
+    withTempDb();
+    try {
+      const S = "sess-149-changes";
+      const app = makeApp(defaultConfig());
+      seedUnitEvent(S, "u-149");
+
+      const r0 = await app.request(`/v3/admin/attribution/sessions/${S}`);
+      const b0 = (await r0.json()) as { data: { session: { changes: unknown } } };
+      expect(b0.data.session.changes).toBe(null); // 零行 ⇒ null（前端保持空态，不伪造）
+
+      getAttributionEventRepo().appendMany([
+        {
+          sessionKey: S,
+          eventType: "agent.tool.change",
+          turnSeq: 1,
+          msgSeq: 10_000_000 + 16,
+          payload: { tool: "Edit", kind: "edit", path_ext: "ts", path_sha16: "abc123def456", exit_status: "ok", units: ["u-149"] },
+        },
+        {
+          sessionKey: S,
+          eventType: "agent.tool.change",
+          turnSeq: 1,
+          msgSeq: 10_000_001,
+          payload: { tool: "Bash", kind: "run_tests", exit_status: "error", units: [] },
+        },
+      ]);
+      const res = await app.request(`/v3/admin/attribution/sessions/${S}`);
+      const body = (await res.json()) as { data: { session: { changes: Record<string, unknown> } } };
+      const ch = body.data.session.changes;
+      console.log(`149 changes → ${JSON.stringify(ch)}`);
+      expect(ch).toEqual({
+        total: 2,
+        by_kind: { edit: 1, run_tests: 1 },
+        exit_ok: 1,
+        exit_error: 1,
+        unanchored: 1,
+        units: ["u-149"],
+      });
+      const text = JSON.stringify(ch);
+      expect(text).not.toContain("abc123def456"); // 不出哈希值
+      expect(text).not.toContain("path_sha16");
+    } finally {
+      teardownTempDb();
+    }
+  });
+});
+
 describe("146 · 阶段显名（70 spec 锚）+ contributed / validated fail-closed", () => {
   it("70 spec §5：指向代码唯一落点、**不复制**阶段表体（R4 文档半；contributed 接口已登记）", () => {
     const doc = readFileSync(

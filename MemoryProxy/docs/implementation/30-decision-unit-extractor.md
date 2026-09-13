@@ -910,3 +910,30 @@ turn_seq=1，无同链 restraint），同进程重放零新增（`appendMany ski
 跳过，绝不 delete）；本 spec 不引入任何自动清理/过期删除 —— 表只增不删是 v1 契约，
 保留策略（如按天分区归档）是 v2 S5 消费端的话题（10-event-table §9 开放问题）。
 v2 之前若库被冲爆，用档位 1 人工清即可（本地 SQLite、成本近零、崩溃重放可重建）。
+
+## 12. `149` 变更/结果锚定行（`agent.tool.change`；2026-09-13）
+
+**由来**：任务三「`asset → decision → change/outcome`」的最后一段（`142 §5` 已量化：锚定率 97%，只差"工具名"）。
+
+**成因**（`149 · C1`，实读真库 + 代码）：档② `attribution_message_snap` 的 `assistant = 0` **不是**角色过滤
+（`message-increment-archive.ts:235` 明确允许 assistant），而是 `messageTextFingerprint` 只抽 `text` /
+`tool_result.content` ⇒ **纯 `tool_use` 的助手轮**可见文本为空 ⇒ `:238` 跳过；证据 = 该会话四个缺号
+（1/3/6/9）**正是**四个 `code_change` 单元的 `anchorMessageIndex`。⇒ 候选成因②（增量水位跨过）/
+③（归档点只在首请求）**均被排除**（水位 = 11 = 最大 index+1，且记录跨 turn 连续）。
+
+**实现（选路乙：从 canonical 面直接 emit，不依赖档②）** = `src/decision-units/tool-change-records.ts`
+（runner 在单元落库后**另落一批**事件；**零新表、零白名单改动**）：
+
+- **kind 映射（唯一落点）**：`Edit`/`MultiEdit`/`NotebookEdit → edit`；`Write → write`；shell 命令匹配
+  测试/lint/构建 ⇒ `run_tests`/`lint`/`build`；**只读类（Read/Glob/Grep/WebFetch/Task/…）与其它命令
+  ⇒ 不产**；`other` = 枚举**保留位、本线不产**（不得当变更计数）；
+- **payload 逐字 6 键**（`tool` / `kind` / `path_ext` / `path_sha16` / `exit_status` / `units`）：
+  命令原文 / 路径原文 / diff / 工具入参出参**一律不落**；`exit_status` 只取配对 `tool_result` 的
+  `is_error` 归一（`ok`/`error`），**不解析原始退出码**；
+- **锚定**：按 `(turn_seq, msg_seq)`（`msg_seq = anchor×16 + 事件位`）与 `decision_unit` 对齐；唯一锚 ⇒
+  同时落 `unit_id` 列；锚不到 ⇒ `units: []`（**不强行挂**）；
+- **幂等**：独立槽位带 `TOOL_CHANGE_SEQ_BASE = 10_000_000`（与单元槽位不交）⇒ 复用 `idx_ae_unit_dedupe`；
+- **「窗口末条不落」**：工具调用在窗口末条 ⇒ 本轮不落（与 `key_tool_call` 同款纪律：避免先落 `units: []`
+  而此后单元密封却因幂等键冲突永远学不到锚）；
+- **只读回执**（`70 spec` 同批）：`attribution-read` 的 `session.changes` 摘要（`total` / `by_kind` /
+  `exit_ok` / `exit_error` / `unanchored` / `units`）—— **0 行 ⇒ `null`**（前端保持"暂无变更锚定"空态，不伪造）。

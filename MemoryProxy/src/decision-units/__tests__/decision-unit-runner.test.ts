@@ -5,6 +5,8 @@
  * 仿 `idx_ae_unit_dedupe` 语义（同 (session_key, turn_seq, msg_seq) 冲突行跳过），
  * 并预置 `injection.hook.done` 行给 A2 快照读。
  */
+import { createHash } from "node:crypto";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type {
@@ -14,6 +16,13 @@ import type {
 } from "../../db/attributionEventRepo.js";
 import { __resetAttributionEventRepoForTests, setAttributionEventRepo } from "../../db/attributionEventRepo.js";
 import { deriveDecisionUnits } from "../decision-unit-extractor.js";
+import {
+  EVENT_TYPE_AGENT_TOOL_CHANGE,
+  TOOL_CHANGE_SEQ_BASE,
+  classifyToolChange,
+  deriveToolChangeRecords,
+  toolChangePayload,
+} from "../tool-change-records.js";
 import {
   __resetDecisionUnitStateForTests,
   EVENT_TYPE_DECISION_UNIT_CREATED,
@@ -139,6 +148,12 @@ afterEach(() => {
 const unitsOfType = (type: string): NewAttributionEvent[] =>
   repo.events.filter((e) => (e.payload as { unitType?: string }).unitType === type);
 
+/** `149`：runner 现在**另落**变更行（`agent.tool.change`）⇒ 单元断言与变更断言分开计数。 */
+const unitEvents = (): NewAttributionEvent[] =>
+  repo.events.filter((e) => e.eventType === EVENT_TYPE_DECISION_UNIT_CREATED);
+const changeEvents = (): NewAttributionEvent[] =>
+  repo.events.filter((e) => e.eventType === EVENT_TYPE_AGENT_TOOL_CHANGE);
+
 // ── §6 用例 10：游标推进幂等 ────────────────────────────────────────────────────
 
 describe("runner · 游标推进幂等（§6 用例 10）", () => {
@@ -146,21 +161,23 @@ describe("runner · 游标推进幂等（§6 用例 10）", () => {
     const r1: unknown[] = [uText("给 a.ts 加个函数"), aTool("e1", "Edit", { file_path: "a.ts", new_string: "x" }), uResult("e1")];
 
     run({ messages: r1 });
-    expect(repo.events).toHaveLength(1);
-    const first = repo.events[0]!;
+    expect(unitEvents()).toHaveLength(1);
+    expect(changeEvents()).toHaveLength(1); // 149：同轮另落 1 条变更行（agent.tool.change）
+    const first = unitEvents()[0]!;
     expect(first.eventType).toBe(EVENT_TYPE_DECISION_UNIT_CREATED);
     expect((first.payload as { unitType: string }).unitType).toBe("code_change");
 
     // 原样重放（水位线未推进 → 密封边界过滤掉已落单元）→ 不新增
     run({ messages: r1 });
-    expect(repo.events).toHaveLength(1);
+    expect(unitEvents()).toHaveLength(1);
 
     // 进程重启（水位线清零）→ 全窗口重放推导同 1 单元 → fake repo 冲突跳过
     __resetDecisionUnitStateForTests();
     run({ messages: r1 });
-    expect(repo.events).toHaveLength(1);
-    expect(repo.skipped).toBe(1);
-    expect(repo.events[0]!.unitId).toBe(first.unitId);
+    expect(unitEvents()).toHaveLength(1);
+    expect(changeEvents()).toHaveLength(1); // 变更行同样零重复
+    expect(repo.skipped).toBeGreaterThanOrEqual(1);
+    expect(unitEvents()[0]!.unitId).toBe(first.unitId);
   });
 });
 
@@ -219,15 +236,18 @@ describe("runner · compaction 收缩（§6 用例 13）", () => {
 
   it("截成前缀（人类轮次编号不变）→ 重放以同 key 冲突跳过、零重复行", () => {
     run({ messages: r1 });
-    expect(repo.events).toHaveLength(3); // a.ts / b.ts / commit
-    const before = repo.events.map((e) => `${e.turnSeq}/${e.msgSeq}`).sort();
+    expect(unitEvents()).toHaveLength(3); // a.ts / b.ts / commit
+    expect(changeEvents()).toHaveLength(2); // 149：两处 Edit（git commit 非变更类 ⇒ 不产）
+    const before = unitEvents().map((e) => `${e.turnSeq}/${e.msgSeq}`).sort();
+    const beforeChanges = changeEvents().map((e) => `${e.turnSeq}/${e.msgSeq}`).sort();
 
     // 缩短窗口（只截尾部工具循环消息）：len 5 < 水位线 8 → 全量重放
     const prefix = r1.slice(0, 5);
     run({ messages: prefix });
-    expect(repo.events).toHaveLength(3); // 重放单元全部撞 dedupe key → 零增长
+    expect(unitEvents()).toHaveLength(3); // 重放单元全部撞 dedupe key → 零增长
     expect(repo.skipped).toBeGreaterThan(0);
-    expect(repo.events.map((e) => `${e.turnSeq}/${e.msgSeq}`).sort()).toEqual(before);
+    expect(unitEvents().map((e) => `${e.turnSeq}/${e.msgSeq}`).sort()).toEqual(before);
+    expect(changeEvents().map((e) => `${e.turnSeq}/${e.msgSeq}`).sort()).toEqual(beforeChanges); // 变更行零增长
   });
 
   it("截成后缀（turn 编号漂移）→ 尾部单元以新 key 重落为同 unit_id 重复行", () => {
@@ -291,7 +311,8 @@ describe("runner · 行映射（§6 用例 15）", () => {
       uResult("b1"),
     ];
     run({ messages: msgs });
-    expect(repo.events).toHaveLength(2);
+    expect(unitEvents()).toHaveLength(2);
+    expect(changeEvents()).toHaveLength(1); // 149：Edit 1 条（git commit 非变更类）
 
     const code = unitsOfType("code_change")[0]!;
     const key = unitsOfType("key_tool_call")[0]!;
@@ -431,4 +452,99 @@ describe("runner · 观测统计与水位上限（v1.1 R1/R4）", () => {
     }
     expect(getDecisionUnitRunStats().activeWatermarkSessions).toBe(2048);
   }, 30000);
+});
+
+// ── 149 · 变更/结果锚定（agent.tool.change）────────────────────────────────────
+
+describe("149 · 变更/结果锚定：kind 映射 / payload 逐字 / 对齐 / 幂等 / 红线", () => {
+  const changesOf = (r: FakeRepo): NewAttributionEvent[] =>
+    r.events.filter((e) => e.eventType === EVENT_TYPE_AGENT_TOOL_CHANGE);
+
+  it("C3 kind 映射（唯一落点）：五类变更/结果；只读类与 other **不产**（R2/R4）", () => {
+    expect(classifyToolChange("Edit", { file_path: "a.ts" })).toBe("edit");
+    expect(classifyToolChange("MultiEdit", {})).toBe("edit");
+    expect(classifyToolChange("NotebookEdit", { notebook_path: "n.ipynb" })).toBe("edit");
+    expect(classifyToolChange("Write", { file_path: "a.md" })).toBe("write");
+    expect(classifyToolChange("Bash", { command: "npm test" })).toBe("run_tests");
+    expect(classifyToolChange("Bash", { command: "pytest -q" })).toBe("run_tests");
+    expect(classifyToolChange("Bash", { command: "npx eslint src" })).toBe("lint");
+    expect(classifyToolChange("Bash", { command: "npx tsc -b" })).toBe("build");
+    // R2：只读类 / 非变更工具 ⇒ 不产
+    for (const t of ["Read", "Glob", "Grep", "WebFetch", "Task", "TodoWrite"]) {
+      expect(classifyToolChange(t, { file_path: "a.ts" }), `${t} 不得作为变更`).toBeNull();
+    }
+    // 其它 shell 命令 ⇒ 不产（`other` 保留未启用；不得把它当变更计数，R4）
+    expect(classifyToolChange("Bash", { command: "git push origin main" })).toBeNull();
+    expect(classifyToolChange("Bash", { command: "rm -rf tmp" })).toBeNull();
+    console.log("149 kind → 五类 ✓；只读类/其它 shell ⇒ null（不产）");
+  });
+
+  it("C2/C3 集成：Edit ⇒ 1 条；payload 键集合逐字 + 路径只 sha16（R1：不含原文）；units 锚到位", () => {
+    run({
+      messages: [uText("改 a.ts"), aTool("e1", "Edit", { file_path: "a.ts", new_string: "x" }), uResult("e1")],
+    });
+    const changes = changesOf(repo);
+    expect(changes).toHaveLength(1);
+    const ev = changes[0]!;
+    console.log(`149 集成 → payload=${JSON.stringify(ev.payload)} turn=${ev.turnSeq} msg=${ev.msgSeq} unit=${ev.unitId}`);
+    // C3：键集合逐字（tool/kind/path_ext/path_sha16/exit_status/units；配对 tool_result ⇒ exit_status=ok）
+    expect(Object.keys(ev.payload as object).sort()).toEqual(
+      ["exit_status", "kind", "path_ext", "path_sha16", "tool", "units"].sort(),
+    );
+    expect(ev.payload).toMatchObject({ tool: "Edit", kind: "edit", path_ext: "ts", exit_status: "ok" });
+    // 路径只以 sha16 落（可复算）；**原文不得**出现在该事件里（R1 红线）
+    const expectedSha = createHash("sha256").update("a.ts", "utf8").digest("hex").slice(0, 16);
+    expect((ev.payload as { path_sha16: string }).path_sha16).toBe(expectedSha);
+    expect(JSON.stringify(ev)).not.toContain("a.ts");
+    // C4：锚 = 该工具调用所在 (turn, msg)；唯一 unit ⇒ 同时落 unit_id 列
+    const unit = unitsOfType("code_change")[0]!;
+    expect(ev.turnSeq).toBe(1);
+    expect(ev.msgSeq).toBe(TOOL_CHANGE_SEQ_BASE + 1 * 16 + 0); // 独立槽位带
+    expect(ev.unitId).toBe(unit.unitId);
+    expect((ev.payload as { units: string[] }).units).toEqual([unit.unitId]);
+  });
+
+  it("C4：锚不到 ⇒ units: []（R3 不强行挂）；**末条未密封 ⇒ 不落**（半成品纪律）", () => {
+    // 锚不到 ⇒ units: []（纯函数层直接钉：不传 units ⇒ 不强行挂）
+    const recs = deriveToolChangeRecords(
+      [uText("跑测试"), aTool("t1", "Bash", { command: "npm test" }), uResult("t1")],
+      "anthropic",
+    );
+    expect(recs).toHaveLength(1);
+    expect(recs[0]!.units).toEqual([]);
+    expect(recs[0]!.msgSeq).toBe(TOOL_CHANGE_SEQ_BASE + 1 * 16 + 0);
+    console.log(`149 锚不到 → ${JSON.stringify(toolChangePayload(recs[0]!))}`);
+
+    // 末条工具调用（无后续消息 ⇒ 未密封）⇒ **不落**（避免先落 units: [] 而此后永远学不到锚）
+    const repo2 = new FakeRepo();
+    setAttributionEventRepo(repo2);
+    __resetDecisionUnitStateForTests();
+    run({ messages: [uText("改 z.ts"), aTool("e9", "Edit", { file_path: "z.ts", new_string: "x" })] });
+    expect(changesOf(repo2)).toHaveLength(0);
+  });
+
+  it("幂等：原样重放 / 进程重启重放 ⇒ 行数不变（槽带复用 idx_ae_unit_dedupe）", () => {
+    const msgs: unknown[] = [uText("改 a.ts"), aTool("e1", "Edit", { file_path: "a.ts", new_string: "x" }), uResult("e1")];
+    run({ messages: msgs });
+    const before = changesOf(repo).length;
+    run({ messages: msgs }); // 原样重放
+    __resetDecisionUnitStateForTests(); // 进程重启（水位清零 ⇒ 全窗口重放）
+    run({ messages: msgs });
+    console.log(`149 幂等 → 行数=${changesOf(repo).length}（首跑=${before}）skipped=${repo.skipped}`);
+    expect(changesOf(repo)).toHaveLength(before);
+    expect(repo.skipped).toBeGreaterThan(0);
+  });
+
+  it("槽带不交：同一 (turn, anchor) 的**单元行 + 变更行都落**（若共用槽位必被静默冲突）", () => {
+    run({
+      messages: [uText("改 a.ts"), aTool("e1", "Edit", { file_path: "a.ts", new_string: "x" }), uResult("e1")],
+    });
+    const unit = unitsOfType("code_change");
+    const change = changesOf(repo);
+    expect(unit).toHaveLength(1);
+    expect(change).toHaveLength(1);
+    console.log(`149 槽带 → unit.msgSeq=${unit[0]!.msgSeq} change.msgSeq=${change[0]!.msgSeq} skipped=${repo.skipped}`);
+    expect(unit[0]!.msgSeq).not.toBe(change[0]!.msgSeq); // 两族 key 不相等
+    expect(repo.skipped).toBe(0); // 无静默冲突（两行都真落）
+  });
 });

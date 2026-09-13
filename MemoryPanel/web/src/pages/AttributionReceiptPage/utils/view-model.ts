@@ -104,6 +104,8 @@ export interface AssetView {
   usageLocations: string[];
   /** 风险：当前唯一可诚实派生 = 版本漂移（`corrected` ⇒ 一条）；其余待 `142`/`143`。 */
   risks: string[];
+  /** `149 · C4`：对应变更/结果摘要串（`null` ⇒ 渲染空态文案"该会话暂无变更锚定"）。 */
+  changes: string | null;
   /** 三态（与摘要层**同一事实源** = DTO 旗标）。 */
   injected: boolean;
   used: boolean;
@@ -113,9 +115,72 @@ export interface AssetView {
 /** 资产风险文案（i18n key；当前唯一可派生项 = 版本漂移）。 */
 const RISK_VERSION_DRIFT_KEY = 'attribution.receipt.risk.versionDrift';
 
-export function toAssetView(a: ReceiptAsset, t: TranslateFn): AssetView {
+/** `149 · C4`：使用位置（该资产被引用的单元中，带变更/结果锚定的个数）。 */
+const USAGE_ANCHORED_KEY = 'attribution.receipt.usage.anchoredAsset';
+/** `149 · C4`：该资产未匹配到锚定（但本会话确有变更 ⇒ 如实说明"不是没有、是没匹配到它"）。 */
+const USAGE_NONE_FOR_ASSET_KEY = 'attribution.receipt.usage.noneForAsset';
+/** `149 · C4`：对应变更/结果摘要（种类计数 + 成功/失败 + 未锚定）。 */
+const CHANGES_SUMMARY_KEY = 'attribution.receipt.changes.summary';
+/** `149`：kind 标签（edit/write/run_tests/lint/build/other）。 */
+const CHANGE_KIND_LABEL_KEYS: Readonly<Record<string, string>> = {
+  edit: 'attribution.receipt.changeKind.edit',
+  write: 'attribution.receipt.changeKind.write',
+  run_tests: 'attribution.receipt.changeKind.runTests',
+  lint: 'attribution.receipt.changeKind.lint',
+  build: 'attribution.receipt.changeKind.build',
+  other: 'attribution.receipt.changeKind.other',
+};
+
+/** 引用该资产的单元 id（判据 = 该 unit 的 status_events 含此资产的 used/corrected 行）。 */
+export function citedUnitIds(assetId: string, units: readonly ReceiptUnit[]): string[] {
+  const out: string[] = [];
+  for (const u of units) {
+    const cited = u.status_events.some(
+      (e) => e.asset_id === assetId && (e.event_type === 'asset_used' || e.event_type === 'asset_corrected'),
+    );
+    if (cited) out.push(u.unit_id);
+  }
+  return out;
+}
+
+/** `149`：变更/结果摘要 → 展示串（`null` ⇒ 该格保持空态文案）。 */
+export function changeSummaryText(changes: ReceiptDto['session']['changes'], t: TranslateFn): string | null {
+  if (!changes || changes.total === 0) return null;
+  const kinds = Object.entries(changes.by_kind)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([kind, n]) => {
+      const key = CHANGE_KIND_LABEL_KEYS[kind] ?? CHANGE_KIND_LABEL_KEYS['other']!;
+      return `${t(key)} ×${n}`;
+    })
+    .join(' · ');
+  return t(CHANGES_SUMMARY_KEY, {
+    kinds,
+    total: changes.total,
+    ok: changes.exit_ok,
+    error: changes.exit_error,
+    unanchored: changes.unanchored,
+  });
+}
+
+export interface AssetViewContext {
+  units: readonly ReceiptUnit[];
+  changes: ReceiptDto['session']['changes'];
+}
+
+export function toAssetView(a: ReceiptAsset, t: TranslateFn, ctx: AssetViewContext): AssetView {
   const assetType = a.asset_type ?? a.meta?.asset_type ?? null;
   const semanticType = semanticTypeOf(assetType);
+  // 149 · C4：使用位置 = 该资产被引用的单元 ∩ 本会话被锚到的单元（**不猜、不强挂**）。
+  const anchoredUnits =
+    ctx.changes === null || ctx.changes === undefined
+      ? 0
+      : citedUnitIds(a.asset_id, ctx.units).filter((id) => ctx.changes!.units.includes(id)).length;
+  const usageLocations =
+    anchoredUnits > 0
+      ? [t(USAGE_ANCHORED_KEY, { n: anchoredUnits })]
+      : ctx.changes && ctx.changes.total > 0
+        ? [t(USAGE_NONE_FOR_ASSET_KEY, { total: ctx.changes.total })]
+        : [];
   return {
     asset_id: a.asset_id,
     versions: [...a.observed_versions],
@@ -127,8 +192,9 @@ export function toAssetView(a: ReceiptAsset, t: TranslateFn): AssetView {
     updatedAt: a.meta?.updated_at_ms ?? null,
     verificationStatus: 'pending',
     source: null,
-    usageLocations: [],
+    usageLocations,
     risks: a.corrected ? [t(RISK_VERSION_DRIFT_KEY)] : [],
+    changes: changeSummaryText(ctx.changes, t), // 149 · C4：本会话变更/结果摘要（null ⇒ 空态文案）
     injected: a.injected,
     used: a.used,
     corrected: a.corrected,
@@ -343,7 +409,10 @@ export function toReceiptView(dto: ReceiptDto, t: TranslateFn): ReceiptView {
   return {
     session_key: dto.session.session_key,
     space_id: dto.session.space_id,
-    assets: dto.session.assets.map((a) => toAssetView(a, t)), // 144 · C2：展开层字段（并列新增）
+    // 144 · C2 展开层字段（并列新增）+ 149 变更/结果接线（使用位置 / 对应改动两格）
+    assets: dto.session.assets.map((a) =>
+      toAssetView(a, t, { units: dto.units, changes: dto.session.changes ?? null }),
+    ),
     counts: dto.counts,
     overflow: toOverflowView(dto.overflow.pending, t),
     summary: toAppliedSummary(dto, t), // 145 · C1：摘要层（计数行之上）

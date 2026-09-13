@@ -222,7 +222,7 @@ export function AttributionReceiptPage() {
                           : t('attribution.receipt.anchor.none')}
                       </div>
                       <div>
-                        {t('attribution.receipt.asset.changes')}: {t('attribution.receipt.anchor.none')}
+                        {t('attribution.receipt.asset.changes')}: {a.changes ?? t('attribution.receipt.anchor.none')}
                       </div>
                     </div>
                   </details>

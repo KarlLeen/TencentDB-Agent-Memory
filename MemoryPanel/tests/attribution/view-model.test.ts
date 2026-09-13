@@ -292,6 +292,7 @@ describe('145 · 摘要层 + 三档效果状态（C1/C2/C3；红线一/二）', 
     const s = toAppliedSummary(
       mkDtoWith([mkAsset({ asset_id: 'asset-1', injected: true }), mkAsset({ asset_id: 'asset-2', injected: true, used: true })]),
       tZh,
+      { units: [], changes: null },
     );
     const text = JSON.stringify(s);
     console.log(`145-红线 → ${s.effect.text}；含"已验证"=${text.includes('已验证')}`);
@@ -316,6 +317,7 @@ describe('145 · 摘要层 + 三档效果状态（C1/C2/C3；红线一/二）', 
         mkAsset({ asset_id: 'b', asset_type: null, injected: true }),
       ]),
       tZh,
+      { units: [], changes: null },
     );
     console.log(`145-映射 → ${JSON.stringify(s.items.map((i) => i.label))}`);
     expect(s.items.map((i) => i.label)).toEqual(['产品知识', '其他']);
@@ -356,6 +358,7 @@ describe('144 · 展开层字段（C2/C3/C4；缺值一律 null ⇒ 渲染"未�
         meta: { name: '知识库资产', asset_type: 'llm_wiki', updated_at_ms: 1700000000000 },
       }),
       tZh,
+      { units: [], changes: null },
     );
     console.log(
       `144-C2 → ${JSON.stringify({ name: a.name, assetType: a.assetType, semantic: a.semanticLabel, version: a.version, updatedAt: a.updatedAt, verification: a.verificationStatus, source: a.source, usage: a.usageLocations, risks: a.risks })}`,
@@ -374,7 +377,7 @@ describe('144 · 展开层字段（C2/C3/C4；缺值一律 null ⇒ 渲染"未�
   });
 
   it('C3 缺值：meta 缺席 ⇒ name/updatedAt = null（**不得** 0 / 空串冒充）；未知技术类 ⇒ 其他（不猜）', () => {
-    const a = toAssetView(mkAsset144({ asset_id: 'asset-2', asset_type: null, observed_versions: [], meta: null }), tZh);
+    const a = toAssetView(mkAsset144({ asset_id: 'asset-2', asset_type: null, observed_versions: [], meta: null }), tZh, { units: [], changes: null });
     console.log(
       `144-C3 → ${JSON.stringify({ name: a.name, updatedAt: a.updatedAt, version: a.version, type: a.assetType, semantic: a.semanticLabel })}`,
     );
@@ -389,16 +392,51 @@ describe('144 · 展开层字段（C2/C3/C4；缺值一律 null ⇒ 渲染"未�
     const a = toAssetView(
       mkAsset144({ asset_id: 'asset-3', asset_type: null, meta: { name: null, asset_type: 'code_graph', updated_at_ms: null } }),
       tZh,
+      { units: [], changes: null },
     );
     expect(a.assetType).toBe('code_graph');
     expect(a.semanticLabel).toBe('代码知识');
   });
 
   it('风险：corrected ⇒ 一条"版本漂移（检测时快照）"；未 corrected ⇒ 空数组（不臆造冲突 / 低置信）', () => {
-    const c = toAssetView(mkAsset144({ asset_id: 'asset-4', corrected: true, used: true }), tZh);
+    const c = toAssetView(mkAsset144({ asset_id: 'asset-4', corrected: true, used: true }), tZh, { units: [], changes: null });
     console.log(`144-风险 → ${JSON.stringify(c.risks)}`);
     expect(c.risks).toEqual(['版本漂移（检测时快照）']);
-    expect(toAssetView(mkAsset144({ asset_id: 'asset-5' }), tZh).risks).toEqual([]);
+    expect(toAssetView(mkAsset144({ asset_id: 'asset-5' }), tZh, { units: [], changes: null }).risks).toEqual([]);
+  });
+});
+
+describe('149 · 变更/结果接线（使用位置 / 对应改动两格；只报计数与枚举）', () => {
+  it('有变更 ⇒ 使用位置 = 命中锚定单元数；对应改动 = 种类计数（无路径/命令原文）', () => {
+    const base = mkDto(mkUnit());
+    const dto: ReceiptDto = {
+      ...base,
+      session: {
+        ...base.session,
+        changes: { total: 3, by_kind: { edit: 2, run_tests: 1 }, exit_ok: 1, exit_error: 0, unanchored: 1, units: ['du_t6'] },
+      },
+    };
+    const a = toReceiptView(dto, tZh).assets[0]!;
+    console.log(`149 → usage=${JSON.stringify(a.usageLocations)}；changes=${a.changes}`);
+    expect(a.usageLocations).toEqual(['该资产被引用的 1 个决策单元带变更/结果锚定']);
+    expect(a.changes).toBe('代码编辑 ×2 · 跑测试 ×1（共 3 处；成功 1 / 失败 0 / 未锚定 1）');
+  });
+
+  it('无变更（null）⇒ 两格保持空态（不伪造）；会话有变更但该资产未匹配 ⇒ 如实说明', () => {
+    const none = toReceiptView(mkDto(mkUnit()), tZh).assets[0]!;
+    expect(none.usageLocations).toEqual([]);
+    expect(none.changes).toBe(null);
+    const base = mkDto(mkUnit());
+    const dto: ReceiptDto = {
+      ...base,
+      session: {
+        ...base.session,
+        changes: { total: 2, by_kind: { build: 2 }, exit_ok: 0, exit_error: 0, unanchored: 2, units: ['du_other'] },
+      },
+    };
+    const other = toReceiptView(dto, tZh).assets[0]!;
+    console.log(`149 未匹配 → usage=${JSON.stringify(other.usageLocations)}`);
+    expect(other.usageLocations).toEqual(['该资产未匹配到变更/结果锚定（本会话共 2 处）']);
   });
 });
 
@@ -419,6 +457,7 @@ describe('146 · 阶段显名（C1；只映射既有载体、不新增事件类�
     const weird = toUnitView(
       mkUnit({ status_events: [{ ...mkUnit().status_events[0]!, event_type: 'weird.event' }] }),
       tZh,
+      { units: [], changes: null },
     );
     expect(weird.status_events[0]!.stageLabel).toBe(undefined);
   });

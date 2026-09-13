@@ -16,6 +16,11 @@
  * 崩溃重放冲突由 repo 的 `idx_ae_unit_dedupe` 静默跳过兜底。
  */
 import { deriveDecisionUnits } from "./decision-unit-extractor.js";
+import {
+  EVENT_TYPE_AGENT_TOOL_CHANGE,
+  deriveToolChangeRecords,
+  toolChangePayload,
+} from "./tool-change-records.js";
 import type { RestraintPayload, SealedDecisionUnit } from "./types.js";
 import { getAttributionEventRepo } from "../db/attributionEventRepo.js";
 import { selectUnitDedupeWinners, unitDedupeAnchorKey } from "../db/schema.js";
@@ -184,6 +189,41 @@ export function runDecisionUnitExtraction(params: RunDecisionUnitExtractionParam
     // 66 · task_boundary：本次抽取观测到 compaction（= epoch 切换/任务段边界，见下方
     // `compacted` 的既有水位归零语义）⇒ 该批入队带 trigger="task_boundary"（60 spec §4）。
     maybeEnqueueJudgeQueue(params, units, events, compacted);
+  }
+
+  // ── 149 · C2：变更/结果锚定（从 canonical 面直接 emit；**不依赖档②**）──────────────
+  //   对齐 = `(turn_seq, msg_seq)`（与决策单元同一编码）；只读类工具不产（R2）；
+  //   锚不到 ⇒ `units: []`（不强行挂，R3）；payload 逐字限定 6 键（C3，见 `tool-change-records.ts`）；
+  //   幂等 = 独立槽位带（`TOOL_CHANGE_SEQ_BASE`）⇒ 与单元槽位不交 + 复用 `idx_ae_unit_dedupe`。
+  try {
+    const changeRecords = deriveToolChangeRecords(
+      params.messages,
+      params.protocol,
+      units.map((u) => ({ unitId: u.unitId, turnSeq: u.turnSeq, msgSeq: u.msgSeq })),
+      { minIndex }, // 与单元同款增量语义（水位一次回看）
+    );
+    if (changeRecords.length > 0) {
+      getAttributionEventRepo().appendMany(
+        changeRecords.map((r) => ({
+          spaceId: params.spaceId,
+          userId: params.userId ?? undefined,
+          agentSource: params.agentSource,
+          sessionKey: params.sessionKey,
+          turnSeq: r.turnSeq,
+          msgSeq: r.msgSeq,
+          eventType: EVENT_TYPE_AGENT_TOOL_CHANGE,
+          // 唯一锚 ⇒ 落 `unit_id` 列（索引可查）；0 个或多个 ⇒ 只在 payload.units 表达（不猜）。
+          unitId: r.units.length === 1 ? r.units[0] : undefined,
+          payload: toolChangePayload(r),
+        })),
+      );
+    }
+  } catch (err) {
+    // best-effort：变更面失败绝不影响单元落库与入队（与 runner 总纪律一致）。
+    console.warn(
+      `[decision-unit] tool-change emit failed (best-effort) session=${params.sessionKey}:`,
+      err instanceof Error ? err.message : String(err),
+    );
   }
 
   watermarks.set(params.sessionKey, messageCount);

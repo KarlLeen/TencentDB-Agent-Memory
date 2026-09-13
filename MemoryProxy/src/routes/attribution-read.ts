@@ -217,6 +217,38 @@ function assetsOf(
   }));
 }
 
+/**
+ * `149`：变更 / 结果摘要（只读派生；**不含路径 / 命令原文**——`agent.tool.change` 的 payload
+ * 本身就只存元数据）。`0 行 ⇒ null`（前端保持"暂无"空态，不伪造）。
+ */
+function changeSummaryOf(evRows: readonly AttributionEventRowWithRowid[]): Record<string, unknown> | null {
+  const rows = evRows.filter((e) => e.event_type === "agent.tool.change");
+  if (rows.length === 0) return null;
+  const byKind: Record<string, number> = {};
+  let exitOk = 0;
+  let exitError = 0;
+  let unanchored = 0;
+  const units = new Set<string>();
+  for (const r of rows) {
+    const p = safeParse(r.payload_json);
+    const kind = typeof p.kind === "string" && p.kind.length > 0 ? p.kind : "other";
+    byKind[kind] = (byKind[kind] ?? 0) + 1;
+    if (p.exit_status === "ok") exitOk += 1;
+    else if (p.exit_status === "error") exitError += 1;
+    const us = Array.isArray(p.units) ? p.units.filter((x): x is string => typeof x === "string") : [];
+    if (us.length === 0) unanchored += 1;
+    for (const u of us) units.add(u);
+  }
+  return {
+    total: rows.length,
+    by_kind: byKind,
+    exit_ok: exitOk,
+    exit_error: exitError,
+    unanchored,
+    units: [...units].sort(),
+  };
+}
+
 /** 判定 DTO（判定内容只在 detail；列级事实原样透传）。 */
 function judgementDto(jd: JudgementDetailRow): Record<string, unknown> {
   return {
@@ -409,6 +441,8 @@ function handleSessionDetail(c: Context, config: ProxyConfig): Response {
       // 版本链快照（60 spec §3）：只是本会话 fetched 窗口内的观测（DR-6a：不回查当前存储）；
       // `145` 起并列三态旗标 + 并集（见 `assetsOf`）。
       assets: assetsOf(evRows, stRows),
+      // `149`：变更/结果摘要（只读派生；0 行 ⇒ null ⇒ 前端保持"暂无"空态）。
+      changes: changeSummaryOf(evRows),
     },
     counts,
     overflow: { pending: counts.pending, note: overflowNote(counts.pending) }, // C6：可表达溢出
