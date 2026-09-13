@@ -202,3 +202,35 @@ describe('84 · D1 池页：首屏 / 筛选走服务端 / 提交后 reconcile（
     }
   });
 });
+
+
+
+describe('126 · C3② 池页渲染级双向：zh 无英文词表 / en 无 CJK', () => {
+  const POOL_WORDS = ['All categories', 'All statuses', 'Refresh', 'Categories', 'Target', 'Submit'] as const;
+
+  it('zh 渲染：不出现英文控件词', async () => {
+    vi.spyOn(attributionApi, 'pool').mockResolvedValue(mkPool());
+    const { container, cleanup } = await renderAndFlush(<AuditPoolPage />);
+    try {
+      const text = container.textContent ?? '';
+      for (const w of POOL_WORDS) {
+        expect(text.includes(w), `zh 渲染不得出现 "${w}"`).toBe(false);
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('en 渲染：不出现 CJK', async () => {
+    changeLanguage('en-US');
+    vi.spyOn(attributionApi, 'pool').mockResolvedValue(mkPool());
+    const { container, cleanup } = await renderAndFlush(<AuditPoolPage />);
+    try {
+      const text = container.textContent ?? '';
+      expect(/[\u4e00-\u9fff]/.test(text), 'en 渲染不得出现 CJK').toBe(false);
+    } finally {
+      cleanup();
+      changeLanguage('zh-CN');
+    }
+  });
+});

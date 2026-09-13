@@ -5,12 +5,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  DETECTED_SNAPSHOT_LABEL,
+  DETECTED_SNAPSHOT_KEY,
   TOMBSTONE_RATIONALE_REF,
   overflowText,
   toReceiptView,
   toUnitView,
 } from '@/pages/AttributionReceiptPage/utils/view-model';
+import { tZh } from './_helpers/i18n-stub';
 import {
   allowedTransitions,
   canSubmit,
@@ -88,12 +89,12 @@ function mkDto(unit: ReceiptUnit, pending = 0): ReceiptDto {
 
 describe('76 · T6 68 D1：corrected 显示检测时间 + "检测时快照"；禁止"当前版本"', () => {
   it('corrected 视图：detected_at 透传、含标注、全输出不含"当前版本"', () => {
-    const view = toReceiptView(mkDto(mkUnit()));
+    const view = toReceiptView(mkDto(mkUnit()), tZh);
     const text = JSON.stringify(view);
     const corrected = view.units[0]!.status_events.find((e) => e.corrected)!.corrected!;
     console.log(`T6 → detected_at=${corrected.detected_at} note=${corrected.note}；含"当前版本"=${text.includes('当前版本')}`);
     expect(corrected.detected_at).toBe(1200);
-    expect(corrected.note).toContain(DETECTED_SNAPSHOT_LABEL);
+    expect(corrected.note).toContain(tZh(DETECTED_SNAPSHOT_KEY));
     expect(text).not.toContain('当前版本'); // 68 D1 硬断言
     // 版本字段只作为**快照**出现（anchored/latest 都在 snapshot 语义里）
     expect(corrected.anchored_version).toBe(1);
@@ -101,7 +102,7 @@ describe('76 · T6 68 D1：corrected 显示检测时间 + "检测时快照"；�
   });
 
   it('K2：turn/msg 原样透传（turnLabel 只是文案，不改变粒度字段）', () => {
-    const u = toUnitView(mkUnit({ turn_seq: 7, msg_seq: 112 }));
+    const u = toUnitView(mkUnit({ turn_seq: 7, msg_seq: 112 }), tZh);
     console.log(`T6b → turn=${u.turn_seq} msg=${u.msg_seq} label=${u.turnLabel}`);
     expect(u.turn_seq).toBe(7);
     expect(u.msg_seq).toBe(112);
@@ -110,10 +111,10 @@ describe('76 · T6 68 D1：corrected 显示检测时间 + "检测时快照"；�
 
 describe('76 · T7 溢出文案 + tombstone 单列不进 suspect', () => {
   it('overflow：30 spec 原文口径逐字', () => {
-    const view = toReceiptView(mkDto(mkUnit(), 3));
+    const view = toReceiptView(mkDto(mkUnit(), 3), tZh);
     console.log(`T7 → ${view.overflow.text}`);
     expect(view.overflow.text).toContain('另有 3 个次要决策未逐一归因');
-    expect(overflowText(0)).toBe('另有 0 个次要决策未逐一归因（top-N 闸门；保持 pending，下轮 FIFO 优先）');
+    expect(overflowText(0, tZh)).toBe('另有 0 个次要决策未逐一归因（top-N 闸门；保持 pending，下轮 FIFO 优先）');
   });
 
   it('tombstone ⇒ unexecuted=true 且 suspectFlags 空', () => {
@@ -122,7 +123,7 @@ describe('76 · T7 溢出文案 + tombstone 单列不进 suspect', () => {
       judgement: { ...mkUnit().judgement!, verdict: 'unconfirmed', detail: { rationaleRef: TOMBSTONE_RATIONALE_REF } },
       status_events: [],
     });
-    const view = toReceiptView(mkDto(tomb));
+    const view = toReceiptView(mkDto(tomb), tZh);
     const u = view.units[0]!;
     console.log(`T7b → unexecuted=${u.unexecuted} suspectFlags=${JSON.stringify(u.suspectFlags)}`);
     expect(u.unexecuted).toBe(true);

@@ -84,7 +84,7 @@ export function AttributionReceiptPage() {
     };
   }, [selected]);
 
-  const view: ReceiptView | null = useMemo(() => (receipt ? toReceiptView(receipt) : null), [receipt]);
+  const view: ReceiptView | null = useMemo(() => (receipt ? toReceiptView(receipt, t) : null), [receipt, t]);
 
   return (
     <Card className="attribution-receipt-page">
@@ -129,8 +129,8 @@ export function AttributionReceiptPage() {
               )}
               ｜
               <b>{t('attribution.receipt.judged')}</b> {view.counts.judged}｜
-              <b>used</b> {view.counts.used}｜<b>corrected</b> {view.counts.corrected}｜
-              <b>pending</b> {view.counts.pending}｜<b>failed</b> {view.counts.failed}
+              <b>{t('attribution.receipt.used')}</b> {view.counts.used}｜<b>{t('attribution.receipt.corrected')}</b> {view.counts.corrected}｜
+              <b>{t('attribution.receipt.pending')}</b> {view.counts.pending}｜<b>{t('attribution.receipt.failed')}</b> {view.counts.failed}
             </div>
             {/* 溢出记账（30 spec 原文口径；C6） */}
             <div style={{ margin: '8px 0', color: view.overflow.pending > 0 ? '#b45309' : '#888' }}>
@@ -149,9 +149,9 @@ export function AttributionReceiptPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 8 }}>
               <thead>
                 <tr style={{ textAlign: 'left', borderBottom: '1px solid #eee' }}>
-                  <th style={{ padding: 6 }}>unit</th>
+                  <th style={{ padding: 6 }}>{t('attribution.receipt.unit')}</th>
                   <th style={{ padding: 6 }}>{t('attribution.receipt.turn')}</th>
-                  <th style={{ padding: 6 }}>verdict</th>
+                  <th style={{ padding: 6 }}>{t('attribution.receipt.verdict')}</th>
                   <th style={{ padding: 6 }}>{t('attribution.receipt.markers')}</th>
                   <th style={{ padding: 6 }}>{t('attribution.receipt.events')}</th>
                 </tr>
@@ -171,7 +171,7 @@ export function AttributionReceiptPage() {
                       ))}
                       {u.missing.length > 0 && (
                         <span style={{ color: '#999' }}>
-                          missing: {u.missing.join(',')}
+                          {t('attribution.receipt.missing')}: {u.missing.join(',')}
                         </span>
                       )}
                     </td>

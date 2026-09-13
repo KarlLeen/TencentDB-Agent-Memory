@@ -15,6 +15,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { changeLanguage } from '@/i18n/index';
 import { attributionApi, type ReceiptDto, type SessionSummary } from '@/lib/api/attribution';
 import { AttributionReceiptPage } from '@/pages/AttributionReceiptPage';
+import { EN_UI_WORDS } from '../../../tests/attribution/_helpers/labels';
 
 // React 18 的手写测试（无 @testing-library）须显式声明 act 环境，否则 act() 退化为 no-op 并刷警告。
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -187,6 +188,21 @@ describe('120 · 回执页 Units 口径差标注（差值态 / 相等态 / 分�
       // 用"本页行数"算差会得到 3−1=2 ⇒ 与本断言（1）冲突 ⇒ 红。
       expect(text).toContain('（其中 1 个仅见于队列/判定，无可展示事件）');
       expect(text).not.toContain('（其中 2 个仅见于队列/判定，无可展示事件）');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('126 · C3② zh 渲染：不出现英文 UI 词表（Units/Judged/used/…）', async () => {
+    vi.spyOn(attributionApi, 'sessions').mockResolvedValue({ sessions: [mkSession()], truncated: false });
+    vi.spyOn(attributionApi, 'receipt').mockResolvedValue(mkReceiptWith({ units: 3, uwce: 2, rows: 2 }));
+    const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+    try {
+      const text = container.textContent ?? '';
+      console.log(`126-C3②-zh 片段=${text.slice(text.indexOf('单元'), text.indexOf('单元') + 90)}`);
+      for (const w of EN_UI_WORDS) {
+        expect(new RegExp(`\\b${w}\\b`).test(text), `zh 渲染不得出现 "${w}"`).toBe(false);
+      }
     } finally {
       cleanup();
     }
