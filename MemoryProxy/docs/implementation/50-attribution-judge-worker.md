@@ -414,6 +414,10 @@ trigram 拼凑；旧 `shadowBestSegCoverage` = join 口径**不改义**，供对
 +2 = 句式片段，**记忆污染如实登记**）⇒ `L_q ≤ 23` 全中、**24 起归零**；R-3 = [8,12,5,16,23,16]；
 正例（整行/半行）在所有 `L_q ≤ 48` 均 3/3+3/3（FN 0）；**HN3 在 `L_q ≤ 24` 全中**（改写被算引用 = 已知代价）。
 ⇒ **台阶在 `L_q=24`** ⇒ **A 可用区间 `L_q ∈ {24, 32, 48}`**（供 `103` D6 拍板；**不得**同时承诺"改写不被算引用"）。
+**110 · D6 落地（C + B 筛选）**：`confirmed` 语义 = "**整段逐字**"级（高精度低召回；见 `80 spec §3`）；
+**不采用 `(d2)`/A 作判定** —— 依据 `103` F9（三轴不可分且系统性反转）+ F10（**A 没有"舒适档"**：`L_q ≤ 24`
+收进改写/名字提及，`L_q ≥ 32` 丢 <32 的 38.5% / <48 的 52.0% 真实行）；文本重合**降格为筛选信号**
+`suspect:text_overlap`（`max(shadowBestContiguousRunChars) ≥ 8`；`70 spec §2.2`），**只入池提示、不判定**。
 
 1. **引文归一化命中**：对每个 piece，按 `exact → whitespace → punctuation` 逐级
    `normalizeForMatch(piece文本, level) ⊆ normalizeForMatch(资产文本, level)` 判定；

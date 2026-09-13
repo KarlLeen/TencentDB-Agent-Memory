@@ -987,3 +987,11 @@ export const KNOWN_DRIFT: readonly KnownDrift[] = [
   ⇒ **台阶 = `L_q` 24** ⇒ **A 可用区间 `{24, 32, 48}`**（供 `103` D6 拍板）。夹具
   `d6-falsification-cases.json`（语料冻结指纹 `5b0f9d37…`）；入口同 `scripts/qa/shadow-calibration.ts`
   （本单另含 **C0**：harness 副本 `.db/-wal/-shm` 三件套退出即清）。
+- **D6 落地：C 为默认 + B 降格为筛选信号（随单条；2026-09-12，append-only）**：`110` 落地 `103` D6 拍板——
+  `confirmed` 仅代表"**整段逐字**"级高置信引用（`80 spec §3` 语义声明；**零行为改动**）；新增池类
+  `suspect:text_overlap`（`verdict='unconfirmed'` 且 `max(shadowBestContiguousRunChars) ≥ 8`：真实"未读过"
+  run ∈ {2,3} ⇒ 档位远高于噪声；夹具正例 ≥ 81、HN3 runNorm 0.791 ⇒ 专捞"有重合不达判定"的中间地带；
+  **筛选不判定**——不改 `verdict`/`status`/阈值/真值表）。**被否决的 A 的理由 = 没有"舒适档"**
+  （`L_q ≤ 24` 收进改写/名字提及；`L_q ≥ 32` 丢 <32 的 38.5% / <48 的 52.0% 真实行；HN3 代价与 `L_q` 无关）。
+  入池增量（只报数）：真库 = **0**（5 条判定均**无影子键** ⇒ 该筛选在当前数据上尚无实际条目）；
+  夹具语料 ≥8 = **40/80**（其中 **R4 真实未读 0/28**、R2 0/6）。

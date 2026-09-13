@@ -95,12 +95,16 @@
 | `suspect:low_coverage` | `verdict='unconfirmed'` **且**（`citationMetrics` 缺失/空 **或** `max(数值 coverage)` < `T_COV=0.5`；`"unknown"` 视作不满足阈值） | citationMetrics |
 | `suspect:no_metrics` | `verdict='unconfirmed'` **且** `rationaleRef === 'mechanical:no-metrics'` | rationaleRef |
 | `suspect:malformed` | `rationaleRef` 以 **`malformed:`** 开头（真 provider 解析畸形 ⇒ 明确可疑） | rationaleRef |
+| `suspect:text_overlap` | `verdict='unconfirmed'` **且** `citationMetricsShadow` 的 `max(shadowBestContiguousRunChars) ≥ 8`（**筛选档**，`110` · D6 落地；缺失/非数字 ⇒ 不入） | citationMetricsShadow（兄弟键，同一 `detail_json`） |
 | `disagreement:flip` | 同 `unit_id` 存在 **≥2 个 round**，且 verdict 集合大小 **> 1**（重判翻转；挂在 **latest round** 行上） | 多轮 judgement |
 | `disagreement:corrected` | 该 `(unit, round)` 的 used 资产存在 `asset_corrected` 行（同 session 域） | status 事件 |
 | `orphan:dead_letter` | queue `status='failed'`（死信：从未得到判定；无判定字段 ⇒ 相应字段 `null`） | queue |
 
 - **硬排除**：`rationaleRef === 'tombstone:result_missing'` ⇒ **不入 `suspect:*`**（避免与"未执行"类重复计数；池页若展示单列）。
-- **定义句（逐字）**：**`unconfirmed_suspect` = 上表 `suspect:*` 四类的并集**；**不许**引入任何需要人判或随机数的判据。
+- **`suspect:text_overlap` 的筛选性质（`110` · D6 落地，必须与类名同时理解）**：B（文本重合）**降格为筛选信号**——
+  只入池**提示人看**，**不参与判定**（不改 `verdict` / `status` / 阈值 / 真值表）；依据 = `103` F9/F10 + `109`
+  （三条文本重合轴均不可分、A **无舒适档**）⇒ 文本重合**不得被拔高成裁决信号**。筛选求"不漏"，与裁决求精度取向相反。
+- **定义句（逐字）**：**`unconfirmed_suspect` = 上表 `suspect:*` 五类的并集**（`truncated` / `low_coverage` / `no_metrics` / `malformed` / **`text_overlap`（筛选性质）**）；**不许**引入任何需要人判或随机数的判据。
 - 一个单元可多命中 ⇒ `categories: string[]`（不许只留一个而丢信息）。
 
 ### 2.3 池查询（C3；只读）

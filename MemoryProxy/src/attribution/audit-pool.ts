@@ -3,8 +3,13 @@
  *
  * - **全部机械可复算、零新增字段**（建在已落库的键上）；
  * - **只读**：本模块不写任何行（写口在 `audit-reviews-repo.ts`）；
- * - 定义句（逐字，70 spec §2.2）：**`unconfirmed_suspect` = `suspect:*` 四类的并集**；
+ * - 定义句（逐字，70 spec §2.2）：**`unconfirmed_suspect` = `suspect:*` 五类的并集**
+ *   （`truncated` / `low_coverage` / `no_metrics` / `malformed` / **`text_overlap`（筛选性质）**）；
  *   不许引入任何需要人判或随机数的判据。**禁 `Math.random()`**（抽样若需要 ⇒ 确定性哈希）。
+ *
+ * **110 · D6 落地**：新增 `suspect:text_overlap` —— **B 降格为筛选信号**（入池提示，不判定）。
+ * 依据 `109`（FP/FN 曲线）：真实"未读过"消息 run ∈ {2,3} ⇒ 档位（≥ 8）远高于真实噪声；
+ * 构造正例 ≥ 81、HN3 runNorm 0.791 ⇒ 专捞"有文本重合但不达判定"的中间地带。
  */
 import { createHash } from "node:crypto";
 
@@ -22,11 +27,19 @@ const COUNT_LIMIT = 100_000;
 /** 低覆盖阈值（口径照 74 工单 F4④：T_COV=0.5；"unknown" 视作不满足阈值）。 */
 export const T_COV = 0.5;
 
+/**
+ * `suspect:text_overlap` 筛选档（**110 · D6 落地**；默认档 = 8）。
+ * `109` 实测：真实"未读过"消息逐字连续重合 run ∈ {2,3} ⇒ ≥ 8 远高于真实噪声；
+ * **筛选信号与裁决信号取向相反**：裁决求精度，筛选求不漏 —— 宁多叫人看一眼。
+ */
+export const TEXT_OVERLAP_RUN_MIN = 8;
+
 export const AUDIT_CATEGORIES = [
   "suspect:truncated",
   "suspect:low_coverage",
   "suspect:no_metrics",
   "suspect:malformed",
+  "suspect:text_overlap",
   "disagreement:flip",
   "disagreement:corrected",
   "orphan:dead_letter",
@@ -119,6 +132,27 @@ function latestOf(rounds: readonly JudgementDetailRow[]): JudgementDetailRow {
 }
 
 /**
+ * **110 · D6 落地** —— `suspect:text_overlap`（**筛选信号，不参与判定**）：
+ * `citationMetricsShadow`（**兄弟键，同一 `detail_json` 内**）中
+ * `max(shadowBestContiguousRunChars) ≥ TEXT_OVERLAP_RUN_MIN`。
+ * 缺失 / 非数组 / 无数字 ⇒ `false`（**无影子 ≠ 达档**——防"所有 unconfirmed 都被拉进池"）。
+ */
+function isTextOverlap(jd: JudgementDetailRow): boolean {
+  const d = safeParse(jd.detail_json);
+  const m = d.citationMetricsShadow;
+  if (!Array.isArray(m)) return false;
+  const runs = m
+    .map((x) =>
+      x !== null && typeof x === "object"
+        ? (x as Record<string, unknown>).shadowBestContiguousRunChars
+        : undefined,
+    )
+    .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (runs.length === 0) return false;
+  return Math.max(...runs) >= TEXT_OVERLAP_RUN_MIN;
+}
+
+/**
  * 构建池（跨会话；space 过滤在调用方或此处按行 space_id 判）。
  * `spaceId` 缺省 `_default`（与 S7-a C3 一致）。
  */
@@ -201,6 +235,8 @@ export function buildAuditPool(opts: { spaceId?: string } = {}): AuditPoolResult
         if (typeof rationaleRef === "string" && rationaleRef.startsWith("malformed:")) {
           categories.push("suspect:malformed");
         }
+        // 110 · D6 落地：文本重合筛选档（入池提示，不判定；同受 unconfirmed + tombstone 前提约束）。
+        if (isTextOverlap(latest)) categories.push("suspect:text_overlap");
       }
       // disagreement:flip —— 不看 verdict（tombstone 不排除：硬排除仅 suspect 系）。
       if (rounds.length >= 2 && new Set(rounds.map((r) => r.verdict)).size > 1) {
