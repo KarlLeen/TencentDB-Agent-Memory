@@ -89,20 +89,37 @@
 
 `https://43.156.131.187:8443/`（BasicAuth，账号 `teacher`）→ `#/attribution` 看回执页，`#/audit` 看人工抽查池。回执页里展开任意已采用资产，能看到「归因链」三行。
 
-### 5.2 本地从零部署（6 步，Docker 容器栈）
+### 5.2 本地从零部署（7 步，Docker 容器栈）
 
-> 完整指南见仓库 `deploy/ATTRIBUTION-DEPLOYMENT.md`（含验证清单 + 默认值与代价）。下面是可以照做的精简版。
+> 完整指南见仓库 `deploy/ATTRIBUTION-DEPLOYMENT.md`。下面是可以照做的精简版。
 
 **前置依赖**：Docker（容器栈用）、可出网的 LLM 端点（DeepSeek 或任意 OpenAI 兼容端点，需 key）。
 
-**第 1 步 · 起三件套**
+**第 1 步 · 构建镜像（关键！官方 latest 不含归因链）**
+
+⚠️ Docker Hub 的官方 `agentmemory/*:latest` 是**旧版**（不含归因链，其库连 `attribution_events` 表都没有）。**必须用 `feature/attribution-v2` 源码本地构建 proxy 和面板镜像**，否则跑起来看不到任何归因回执：
+
+```bash
+git clone https://github.com/KarlLeen/TencentDB-Agent-Memory.git
+cd TencentDB-Agent-Memory && git checkout feature/attribution-v2
+
+# proxy 镜像（含抽取 + 判定 + worker）
+cd MemoryProxy && docker build -t agentmemory/memory-proxy:latest .
+
+# 面板镜像（含回执页 + 抽查池）
+cd ../deploy/panel-knowledge-combined && IMAGE_TAG=latest ./build.sh
+```
+
+（`memory-core` 用官方 latest 即可，归因链核心不涉及它；`start-all.sh` 会复用本地已构建的 `:latest`。）
+
+**第 2 步 · 起三件套**
 
 ```bash
 cd TencentDB-Agent-Memory/deploy/global-images
 ./start-all.sh      # 交互式：填两组 LLM → 拉起 memory-core(8420) + memory-hub(8125) + proxy(8096)
 ```
 
-**第 2 步 · 开归因四键 + 选判官**（编辑 proxy 的 `config.yaml`，改完 `docker restart tdai-proxy`）
+**第 3 步 · 开归因四键 + 选判官**（编辑 proxy 的 `config.yaml`，改完 `docker restart tdai-proxy`）
 
 ```yaml
 injection:
@@ -122,7 +139,7 @@ attribution:
 
 （`provider: mechanical` 零费用但只认「整段逐字引用」，几乎判不出 used；要看到「已采用」，必须用 `real` 配 LLM。）
 
-**第 3 步 · 起判官 worker（独立进程，容器栈不会自动拉起它）**
+**第 4 步 · 起判官 worker（独立进程，容器栈不会自动拉起它）**
 
 ```bash
 docker exec -d -w /app tdai-proxy npm run worker:attribution
@@ -131,21 +148,21 @@ docker exec -d -w /app tdai-proxy npm run worker:attribution
 
 ⚠️ proxy 和 worker 是两个进程，只起 proxy 的话，决策单元会入队但永远没人判定。
 
-**第 4 步 · 配面板凭证**（给 `tdai-memory-hub` 容器加两个环境变量后重启）
+**第 5 步 · 配面板凭证**（给 `tdai-memory-hub` 容器加两个环境变量后重启）
 
 | 变量 | 值 |
 |---|---|
 | `ATTRIBUTION_PROXY_BASE_URL` | `http://host.docker.internal:8096`（面板容器内 `127.0.0.1` 指自己，不通） |
 | `ATTRIBUTION_PROXY_ADMIN_KEY` | proxy `admin.apiKey` 的值（缺省为空 ⇒ 面板 fail-closed 显示 unavailable） |
 
-**第 5 步 · 造一条真实数据**（回执页不会凭空有内容）
+**第 6 步 · 造一条真实数据**（回执页不会凭空有内容）
 
 1. 面板 `http://localhost:8125` → 资产管理 → 新建一条 **Skill**，内容用可公开约定（如「本项目 commit 必须 DCO 签名：`git commit -s`」）；
 2. 让 coding agent 把 API base 指向 proxy（`http://localhost:8096`），做一件会触发该资产的任务（如「把改动提交成 git commit」）；
 3. worker 消费后查判定（verdict 应为 confirmed）：
    `docker exec tdai-proxy sh -lc 'sqlite3 /data/tdai-memory-proxy/proxy.db "SELECT verdict, asset_id FROM attribution_judgement_details ORDER BY created_at DESC LIMIT 5;"'`
 
-**第 6 步 · 验收清单**（四条可复跑）
+**第 7 步 · 验收清单**（四条可复跑）
 
 ```bash
 docker exec tdai-proxy sh -lc 'grep -cE "attributionEvents|decisionUnitExtractor|visibleArchive|enqueue" /data/config.yaml'   # ① 四键 = 4 处命中
