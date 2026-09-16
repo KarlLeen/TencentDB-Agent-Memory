@@ -89,37 +89,33 @@
 
 `https://43.156.131.187:8443/`（BasicAuth，账号 `teacher`）→ `#/attribution` 看回执页，`#/audit` 看人工抽查池。回执页里展开任意已采用资产，能看到「归因链」三行。
 
-### 5.2 本地从零部署（7 步，Docker 容器栈）
+### 5.2 源码直跑（推荐，跟报告作者本地完全一致）
 
-> 完整指南见仓库 `deploy/ATTRIBUTION-DEPLOYMENT.md`。下面是可以照做的精简版。
+> 报告作者的本地环境就是这套：**proxy 和 worker 用源码直跑**（直接跑 `feature/attribution-v2` 最新代码，不用构建镜像），**内核/面板用 Docker**。照下面做，跑出来的效果和本报告所有案例、截图一致。
 
-**前置依赖**：Docker（容器栈用）、可出网的 LLM 端点（DeepSeek 或任意 OpenAI 兼容端点，需 key）。
+**前置依赖**：Node ≥ 20、Docker（内核/面板用）、可出网的 LLM 端点（DeepSeek 或任意 OpenAI 兼容端点，需 key）。
 
-**第 1 步 · 构建镜像（关键！官方 latest 不含归因链）**
-
-⚠️ Docker Hub 的官方 `agentmemory/*:latest` 是**旧版**（不含归因链，其库连 `attribution_events` 表都没有）。**必须用 `feature/attribution-v2` 源码本地构建 proxy 和面板镜像**，否则跑起来看不到任何归因回执：
+**第 1 步 · clone + 装依赖**
 
 ```bash
 git clone https://github.com/KarlLeen/TencentDB-Agent-Memory.git
 cd TencentDB-Agent-Memory && git checkout feature/attribution-v2
-
-# proxy 镜像（含抽取 + 判定 + worker）
-cd MemoryProxy && docker build -t agentmemory/memory-proxy:latest .
-
-# 面板镜像（含回执页 + 抽查池）
-cd ../deploy/panel-knowledge-combined && IMAGE_TAG=latest ./build.sh
+cd MemoryProxy && npm install
 ```
 
-（`memory-core` 用官方 latest 即可，归因链核心不涉及它；`start-all.sh` 会复用本地已构建的 `:latest`。）
-
-**第 2 步 · 起三件套**
+**第 2 步 · 起内核 + 面板（Docker，不起 proxy）**
 
 ```bash
-cd TencentDB-Agent-Memory/deploy/global-images
-./start-all.sh      # 交互式：填两组 LLM → 拉起 memory-core(8420) + memory-hub(8125) + proxy(8096)
+cd ../deploy/global-images
+./start-memory-core.sh      # 内核 8420（session-init + 资产数据面）
+./start-memory-hub.sh       # 面板 8125（回执页 / 抽查池）
 ```
 
-**第 3 步 · 开归因四键 + 选判官**（编辑 proxy 的 `config.yaml`，改完 `docker restart tdai-proxy`）
+（proxy 不在这里起——下一步用源码直跑，直接跑最新代码，不用构建镜像，也不会有「官方 latest 不含归因链」的坑。）
+
+**第 3 步 · 写 proxy 配置 + 起 proxy（源码直跑）**
+
+写 `MemoryProxy/config.yaml`（归因四键 + real 判官；基础段照 `config.example.yaml` 填）：
 
 ```yaml
 injection:
@@ -137,41 +133,62 @@ attribution:
       model: "deepseek-chat"
 ```
 
+```bash
+cd MemoryProxy
+export PROXY_DB_PATH="$HOME/.tdai-memory-proxy/proxy.db"   # proxy 与 worker 必须同库
+npm run start:config     # = node --import tsx/esm src/index.ts --config config.yaml
+```
+
 （`provider: mechanical` 零费用但只认「整段逐字引用」，几乎判不出 used；要看到「已采用」，必须用 `real` 配 LLM。）
 
-**第 4 步 · 起判官 worker（独立进程，容器栈不会自动拉起它）**
+**第 4 步 · 起判官 worker（源码直跑，独立进程）**
 
 ```bash
-docker exec -d -w /app tdai-proxy npm run worker:attribution
-# 或源码部署：cd MemoryProxy && npm run worker:attribution
+cd MemoryProxy
+export PROXY_DB_PATH="$HOME/.tdai-memory-proxy/proxy.db"   # 与 proxy 同一个库
+npm run worker:attribution    # 常驻轮询判定队列
 ```
 
 ⚠️ proxy 和 worker 是两个进程，只起 proxy 的话，决策单元会入队但永远没人判定。
 
-**第 5 步 · 配面板凭证**（给 `tdai-memory-hub` 容器加两个环境变量后重启）
+**第 5 步 · 配面板凭证**（面板要读 proxy 的归因数据）
+
+给面板容器 `tdai-memory-hub` 加两个环境变量后重启：
 
 | 变量 | 值 |
 |---|---|
-| `ATTRIBUTION_PROXY_BASE_URL` | `http://host.docker.internal:8096`（面板容器内 `127.0.0.1` 指自己，不通） |
+| `ATTRIBUTION_PROXY_BASE_URL` | `http://host.docker.internal:<proxy端口>`（指向**源码 proxy 的端口**；面板容器内 `127.0.0.1` 指自己，不通） |
 | `ATTRIBUTION_PROXY_ADMIN_KEY` | proxy `admin.apiKey` 的值（缺省为空 ⇒ 面板 fail-closed 显示 unavailable） |
 
 **第 6 步 · 造一条真实数据**（回执页不会凭空有内容）
 
 1. 面板 `http://localhost:8125` → 资产管理 → 新建一条 **Skill**，内容用可公开约定（如「本项目 commit 必须 DCO 签名：`git commit -s`」）；
-2. 让 coding agent 把 API base 指向 proxy（`http://localhost:8096`），做一件会触发该资产的任务（如「把改动提交成 git commit」）；
+2. 让 coding agent 把 API base 指向源码 proxy，做一件会触发该资产的任务（如「把改动提交成 git commit」）；
 3. worker 消费后查判定（verdict 应为 confirmed）：
-   `docker exec tdai-proxy sh -lc 'sqlite3 /data/tdai-memory-proxy/proxy.db "SELECT verdict, asset_id FROM attribution_judgement_details ORDER BY created_at DESC LIMIT 5;"'`
+   `sqlite3 "$HOME/.tdai-memory-proxy/proxy.db" "SELECT verdict, asset_id FROM attribution_judgement_details ORDER BY created_at DESC LIMIT 5;"`
 
-**第 7 步 · 验收清单**（四条可复跑）
+**第 7 步 · 验收清单**
 
 ```bash
-docker exec tdai-proxy sh -lc 'grep -cE "attributionEvents|decisionUnitExtractor|visibleArchive|enqueue" /data/config.yaml'   # ① 四键 = 4 处命中
-docker exec tdai-proxy ps aux | grep worker:attribution                                                                         # ② worker 在跑
-docker exec tdai-proxy sh -lc 'sqlite3 /data/tdai-memory-proxy/proxy.db "SELECT COUNT(*) FROM attribution_judgement_details;"'   # ③ 有判定行
-curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8125/health                                                           # ④ 面板 200
+curl -s http://127.0.0.1:<proxy端口>/health                                      # ① proxy ok
+ps aux | grep worker:attribution                                                  # ② worker 在跑
+sqlite3 "$HOME/.tdai-memory-proxy/proxy.db" "SELECT event_type, COUNT(*) FROM attribution_events GROUP BY 1"   # ③ 四类事件非零
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8125/health             # ④ 面板 200
 ```
 
-### 5.3 复现「pytest → grep → diff 读出验证 SOP」这条
+### 5.3 Docker 容器栈（备选，一键起）
+
+想用纯 Docker 一键起三件套也行，但注意**必须先用源码本地构建 proxy + 面板镜像**（官方 `agentmemory/*:latest` 不含归因链）：
+
+```bash
+cd MemoryProxy && docker build -t agentmemory/memory-proxy:latest .
+cd ../deploy/panel-knowledge-combined && IMAGE_TAG=latest ./build.sh
+cd ../deploy/global-images && ./start-all.sh
+```
+
+完整说明见仓库 `deploy/ATTRIBUTION-DEPLOYMENT.md`。
+
+### 5.4 复现「pytest → grep → diff 读出验证 SOP」这条
 
 1. 造一个资产正文教「三步验证 SOP：跑 pytest → grep 提取失败 → diff 对比基线」（落 `injection.hook.done` + 可见正文归档 `block_text`/`block_seen`）；
 2. 会话里跑 pytest（决策单元）+ grep/diff（辅助命令，自动落 `tool_call.observed`，命令原文不截断）；
