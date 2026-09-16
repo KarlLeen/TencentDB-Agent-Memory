@@ -169,6 +169,35 @@ describe("60 · T1b 请求形状（C6）+ T4a 超时 / 包装畸形（C5）", ()
     }
   });
 
+  it("v2：候选资产正文 + 机械锚点度量被喂进 prompt（语义对照输入）", async () => {
+    const stub = await startStubLlm(() => GOOD);
+    try {
+      const input = baseInput();
+      input.candidateAssetTexts = [{ assetId: "asset-a", text: "零回归验证必须 diff 失败列表" }];
+      input.citationMetrics = [
+        {
+          assetId: "asset-a",
+          matchLevel: "exact",
+          matchedTier: "message",
+          coverage: 1,
+          coverageDistinct: 10,
+          coverageCovered: 10,
+          exclusionCount: 0,
+          ngramTableSha256: "deadbeef",
+        },
+      ];
+      await stub.judge.judge(input);
+      const content = (stub.requests[0]!.body.messages as Array<{ content: string }>)[0]!.content;
+      console.log(`T1b-v2 观测 → content 含 asset_texts=${content.includes("asset_texts")} citation_metrics=${content.includes("citation_metrics")}`);
+      expect(content).toContain("asset_texts");
+      expect(content).toContain("零回归验证必须 diff 失败列表");
+      expect(content).toContain("citation_metrics");
+      expect(content).toContain("matchLevel");
+    } finally {
+      await stub.close();
+    }
+  });
+
   it("超时（delay > timeoutMs）⇒ throw（走既有 fail 路径，不 hang）", async () => {
     const stub = await startStubLlm(() => GOOD, { delayMs: 400 });
     try {

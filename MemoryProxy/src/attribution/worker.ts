@@ -26,7 +26,12 @@ import {
   extractVisibleAssetCandidates,
   type EvidenceSupplyProvider,
 } from "./evidence-supply.js";
-import { gradeCandidates, shortlistCandidates, type CandidateCitationMetrics } from "./citation/grading.js";
+import {
+  assetOwnText,
+  gradeCandidates,
+  shortlistCandidates,
+  type CandidateCitationMetrics,
+} from "./citation/grading.js";
 import { shadowGradeCandidates } from "./citation/shadow-grading.js";
 import { getCitationSourceProvider, type CitationSourceProvider } from "./citation/source.js";
 import { createJudge, JudgeConfigError, validateJudgeConfig, type CreateJudgeDeps } from "./judge/create-judge.js";
@@ -169,6 +174,12 @@ export function extractJudgeCandidates(unitPayload: unknown): JudgeCandidate[] {
 /** 62 · top-N 成本闸门缺省值（30 spec 口径："top-N（如 30）是送裁判的每轮上限"）。 */
 export const DEFAULT_TOP_N_PER_CYCLE = 30;
 
+/**
+ * 喂给 real 判官的**每候选资产正文**上限（字符数）。截断防 LLM 成本失控；
+ * 代价 = 超出部分不参与语义对照（real 判官只见前 N 字符，如实登记）。
+ */
+export const ASSET_TEXT_MAX_CHARS = 3000;
+
 /** 62 · tombstone 判定的 rationaleRef 标记（审计可辨）。 */
 export const TOMBSTONE_RATIONALE_REF = "tombstone:result_missing";
 
@@ -299,6 +310,19 @@ async function consumeRow(
       })
     : undefined;
 
+  // 候选资产可见正文（real 判官做「决策 ↔ 资产」语义对照用；只取前 K、截断；mock/mechanical 不读）。
+  let candidateAssetTexts: JudgeInput["candidateAssetTexts"];
+  if (deps.citationSource) {
+    const assetTexts = deps.citationSource.sessionAssetTexts(row.session_key);
+    candidateAssetTexts = shortlist.candidates.map((c) => {
+      const texts = assetTexts.get(c.assetId);
+      return {
+        assetId: c.assetId,
+        text: texts && texts.length > 0 ? assetOwnText(texts).slice(0, ASSET_TEXT_MAX_CHARS) : "",
+      };
+    });
+  }
+
   const input: JudgeInput = {
     unitId: row.unit_id,
     sessionKey: row.session_key,
@@ -308,6 +332,8 @@ async function consumeRow(
     promptRef: deps.judge.promptRef,
     // 58 · C0：度量无条件随调用传入（mock 不读 ⇒ 行为不变；mechanical 缺它 ⇒ 全 unconfirmed）
     citationMetrics,
+    // 候选资产正文（real 判官语义对照；缺省不出现，mechanical/mock 零影响）
+    candidateAssetTexts,
   };
 
   /** 失败收束：fail() → 分桶 → error 日志 → 退避。catch 与"落库明确说没落成"共用同一条路径。 */

@@ -9,7 +9,7 @@
  *   - **密钥纪律**：apiKey 只从 config/env 读，绝不落库 / 日志 / payload；请求头之外不出现。
  *   - 超时 = AbortController（不引入新依赖）；网络错误原样 throw ⇒ 既有 fail() 路径。
  */
-import { ATTRIBUTION_JUDGE_PROMPT_V1, buildAttributionJudgePromptRef } from "../prompts/judge-prompt.js";
+import { ATTRIBUTION_JUDGE_PROMPT_V2, buildAttributionJudgePromptRef } from "../prompts/judge-prompt.js";
 import type { Judge, JudgeInput, JudgeVerdict, PromptRef } from "./types.js";
 
 /** 响应文本上限（C3 写死；超限 ⇒ too_large ⇒ unconfirmed）。 */
@@ -108,7 +108,7 @@ interface ChatCompletionResponse {
 
 export class RealProviderJudge implements Judge {
   readonly impl: string;
-  readonly promptRef: PromptRef = buildAttributionJudgePromptRef();
+  readonly promptRef: PromptRef = buildAttributionJudgePromptRef(ATTRIBUTION_JUDGE_PROMPT_V2);
   private readonly opts: Required<RealProviderOptions>;
 
   constructor(opts: RealProviderOptions) {
@@ -136,8 +136,13 @@ export class RealProviderJudge implements Judge {
             {
               role: "user",
               content:
-                `${ATTRIBUTION_JUDGE_PROMPT_V1.text}\n\nINPUT:\n` +
-                JSON.stringify({ unit: input.unit, candidates: input.candidates }),
+                `${ATTRIBUTION_JUDGE_PROMPT_V2.text}\n\nINPUT:\n` +
+                JSON.stringify({
+                  unit: input.unit,
+                  candidates: input.candidates,
+                  ...(input.candidateAssetTexts ? { asset_texts: input.candidateAssetTexts } : {}),
+                  ...(input.citationMetrics ? { citation_metrics: input.citationMetrics } : {}),
+                }),
             },
           ],
         }),

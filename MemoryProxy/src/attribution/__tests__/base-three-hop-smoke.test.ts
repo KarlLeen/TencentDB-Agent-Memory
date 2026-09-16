@@ -55,7 +55,7 @@ import {
   __resetAttributionStatusEventsRepoForTests,
   getAttributionStatusEventsRepo,
 } from "../status-events-repo.js";
-import { ATTRIBUTION_JUDGE_PROMPT_V1, sha256Hex } from "../prompts/judge-prompt.js";
+import { ATTRIBUTION_JUDGE_PROMPT_V1, ATTRIBUTION_JUDGE_PROMPT_V2, sha256Hex } from "../prompts/judge-prompt.js";
 
 // ── fixtures ────────────────────────────────────────────────────────────────────
 
@@ -942,7 +942,7 @@ describe("60 · T5 真 provider e2e（本地 stub LLM + 真 worker 子进程 + �
       expect(jd.judge_impl).toBe("real:stub-model");
       expect(jd.verdict).toBe("confirmed");
       expect(jd.asset_id).toBe("skl-s4-smoke-0001");
-      expect(jd.prompt_sha256).toBe(sha256Hex(ATTRIBUTION_JUDGE_PROMPT_V1.text)); // C6：链路不变
+      expect(jd.prompt_sha256).toBe(sha256Hex(ATTRIBUTION_JUDGE_PROMPT_V2.text)); // real 判官用 v2（喂资产正文 + 度量做语义对照）
       expect(llmReqs.length).toBe(jdRows.length);
       expect(llmReqs[0]!.auth).toBe(`Bearer ${STUB_KEY}`); // 密钥在请求头（传输面）
       const llmMsgs = llmReqs[0]!.body.messages as Array<{ content: string }>;

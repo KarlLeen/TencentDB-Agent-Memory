@@ -49,6 +49,12 @@ export interface JudgeInput {
    * 可选 ⇒ golden / 既有契约不破；mock 不读；`mechanical` 缺它 ⇒ 全 unconfirmed（不猜）。
    */
   citationMetrics?: import("../citation/grading.js").CandidateCitationMetrics[];
+  /**
+   * 候选资产的**可见正文**（截断后；供 real 判官做「决策内容 ↔ 资产正文」语义对照）。
+   * 可选 ⇒ mock / mechanical 不读；缺省（无 citationSource）⇒ 不出现。
+   * ⚠️ real 判官会把本字段发送给 LLM provider ⇒ 只对「可公开」资产启用 real 判官。
+   */
+  candidateAssetTexts?: Array<{ assetId: string; text: string }>;
 }
 
 /**
