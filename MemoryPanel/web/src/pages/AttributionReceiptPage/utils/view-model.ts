@@ -18,6 +18,7 @@ import type {
   ReceiptDto,
   ReceiptStatusEvent,
   ReceiptUnit,
+  ReceiptUnitAction,
 } from '@/lib/api/attribution';
 
 import { semanticTypeKey, semanticTypeOf, type SemanticType } from './semantic-type';
@@ -51,6 +52,23 @@ export interface StatusEventView {
   stageLabel?: string;
 }
 
+/** 单元的具体动作（`decision_unit.created` 只读透传；restraint 等无 tool ⇒ null）。 */
+export interface UnitActionView {
+  tool_name: string | null;
+  param_text: string | null;
+  matched_by: string | null;
+  result_status: string | null;
+}
+
+/** 该资产被引用的判定条目（confirmed 的采用理由 + 单元动作 + 位置）。 */
+export interface AssetAttributionView {
+  verdict: string;
+  rationale: string | null;
+  unit_id: string;
+  turn_label: string;
+  action: UnitActionView | null;
+}
+
 export interface UnitView {
   unit_id: string;
   unit_type: string | null;
@@ -61,6 +79,8 @@ export interface UnitView {
   verdict: string | null;
   judge_impl: string | null;
   rationale_ref: string | null;
+  /** 具体动作（关键工具调用单元才有；restraint 等 ⇒ null）。 */
+  action: UnitActionView | null;
   /** suspect 标记（**tombstone 不进**）。 */
   suspectFlags: string[];
   /** "未执行"标记（tombstone 单列）。 */
@@ -109,6 +129,8 @@ export interface AssetView {
   changes: string | null;
   /** `150 · C3`：为什么适用于当前任务（档位文案；素材缺失 ⇒ "未知"）。 */
   whyApplicable: string;
+  /** 该资产被引用的判定条目（used 资产的归因链；background 资产 ⇒ 空数组）。 */
+  attributions: AssetAttributionView[];
   /** 三态（与摘要层**同一事实源** = DTO 旗标）。 */
   injected: boolean;
   used: boolean;
@@ -118,6 +140,8 @@ export interface AssetView {
 /** 资产风险文案（i18n key；当前唯一可派生项 = 版本漂移）。 */
 const RISK_VERSION_DRIFT_KEY = 'attribution.receipt.risk.versionDrift';
 
+/** `149 · C4`：使用位置——有 confirmed 归因链时，直接显示判定位置（比"未匹配变更锚定"更准确）。 */
+const USAGE_CITED_KEY = 'attribution.receipt.usage.citedAt';
 /** `149 · C4`：使用位置（该资产被引用的单元中，带变更/结果锚定的个数）。 */
 const USAGE_ANCHORED_KEY = 'attribution.receipt.usage.anchoredAsset';
 /** `149 · C4`：该资产未匹配到锚定（但本会话确有变更 ⇒ 如实说明"不是没有、是没匹配到它"）。 */
@@ -142,6 +166,43 @@ export function citedUnitIds(assetId: string, units: readonly ReceiptUnit[]): st
       (e) => e.asset_id === assetId && (e.event_type === 'asset_used' || e.event_type === 'asset_corrected'),
     );
     if (cited) out.push(u.unit_id);
+  }
+  return out;
+}
+
+/** `ReceiptUnitAction` → 视图层动作（纯透传；缺 ⇒ null）。 */
+function toActionView(action: ReceiptUnitAction | null | undefined): UnitActionView | null {
+  if (!action) return null;
+  return {
+    tool_name: action.tool_name,
+    param_text: action.param_text,
+    matched_by: action.matched_by,
+    result_status: action.result_status,
+  };
+}
+
+/**
+ * 该资产被引用的判定条目（判据 = `judgement.asset_id === 该资产`；**confirmed 才有**，
+ * unconfirmed 的 asset_id 为 null ⇒ 不进此表）。带单元动作 + 位置，供"影响链"渲染。
+ */
+export function assetAttributionsOf(
+  assetId: string,
+  units: readonly ReceiptUnit[],
+  t: TranslateFn,
+): AssetAttributionView[] {
+  const out: AssetAttributionView[] = [];
+  for (const u of units) {
+    const j = u.judgement;
+    if (!j || j.asset_id !== assetId) continue;
+    const detail = j.detail ?? {};
+    const rationale = typeof detail['rationaleRef'] === 'string' ? (detail['rationaleRef'] as string) : null;
+    out.push({
+      verdict: j.verdict,
+      rationale,
+      unit_id: u.unit_id,
+      turn_label: t('attribution.receipt.turnLabel', { turn: u.turn_seq, msg: u.msg_seq }),
+      action: toActionView(u.action),
+    });
   }
   return out;
 }
@@ -173,17 +234,28 @@ export interface AssetViewContext {
 export function toAssetView(a: ReceiptAsset, t: TranslateFn, ctx: AssetViewContext): AssetView {
   const assetType = a.asset_type ?? a.meta?.asset_type ?? null;
   const semanticType = semanticTypeOf(assetType);
-  // 149 · C4：使用位置 = 该资产被引用的单元 ∩ 本会话被锚到的单元（**不猜、不强挂**）。
+  // 归因链（judgement.asset_id 指向该资产的 confirmed 判定；used 资产有）。
+  const attributions = assetAttributionsOf(a.asset_id, ctx.units, t);
+  // 149 · C4：使用位置。**优先级**：有 confirmed 归因链 ⇒ 直接显示判定位置（不依赖
+  // agent.tool.change 锚定——key_tool_call 单元本就不算 change，否则 used 资产会误报"未匹配"）；
+  // 否则回落到"被引用单元 ∩ 变更锚定"的计数口径（不猜、不强挂）。
   const anchoredUnits =
     ctx.changes === null || ctx.changes === undefined
       ? 0
       : citedUnitIds(a.asset_id, ctx.units).filter((id) => ctx.changes!.units.includes(id)).length;
   const usageLocations =
-    anchoredUnits > 0
-      ? [t(USAGE_ANCHORED_KEY, { n: anchoredUnits })]
-      : ctx.changes && ctx.changes.total > 0
-        ? [t(USAGE_NONE_FOR_ASSET_KEY, { total: ctx.changes.total })]
-        : [];
+    attributions.length > 0
+      ? attributions.map((at) =>
+          t(USAGE_CITED_KEY, {
+            location: at.turn_label,
+            detail: at.action?.matched_by ?? at.action?.tool_name ?? '—',
+          }),
+        )
+      : anchoredUnits > 0
+        ? [t(USAGE_ANCHORED_KEY, { n: anchoredUnits })]
+        : ctx.changes && ctx.changes.total > 0
+          ? [t(USAGE_NONE_FOR_ASSET_KEY, { total: ctx.changes.total })]
+          : [];
   // 150 · C1/C3：为什么适用于当前任务（素材 = 既有 judgement；缺 ⇒ "未知"，不猜）
   const judgements: JudgementRef[] = [];
   for (const u of ctx.units) {
@@ -211,6 +283,7 @@ export function toAssetView(a: ReceiptAsset, t: TranslateFn, ctx: AssetViewConte
     risks: a.corrected ? [t(RISK_VERSION_DRIFT_KEY)] : [],
     changes: changeSummaryText(ctx.changes, t), // 149 · C4：本会话变更/结果摘要（null ⇒ 空态文案）
     whyApplicable, // 150 · C1/C3：为什么适用于当前任务（档位文案）
+    attributions, // 归因链（used 资产有 confirmed 判定）
     injected: a.injected,
     used: a.used,
     corrected: a.corrected,
@@ -414,6 +487,7 @@ export function toUnitView(unit: ReceiptUnit, t: TranslateFn): UnitView {
     verdict: unit.judgement?.verdict ?? null,
     judge_impl: unit.judgement?.judge_impl ?? null,
     rationale_ref: ref,
+    action: toActionView(unit.action), // 具体动作（关键工具调用单元）
     suspectFlags: suspectFlagsOf(unit),
     unexecuted: ref === TOMBSTONE_RATIONALE_REF,
     status_events: unit.status_events.map((ev) => toStatusEventView(ev, t)),
@@ -422,13 +496,18 @@ export function toUnitView(unit: ReceiptUnit, t: TranslateFn): UnitView {
 }
 
 export function toReceiptView(dto: ReceiptDto, t: TranslateFn): ReceiptView {
+  // 已采用 / 已校正资产置顶（让归因链先被看到；背景参考靠后）。
+  const assets = dto.session.assets
+    .map((a) => toAssetView(a, t, { units: dto.units, changes: dto.session.changes ?? null }))
+    .sort((x, y) => {
+      const rank = (v: AssetView) => (v.corrected ? 0 : v.used ? 1 : 2);
+      return rank(x) - rank(y);
+    });
   return {
     session_key: dto.session.session_key,
     space_id: dto.session.space_id,
     // 144 · C2 展开层字段（并列新增）+ 149 变更/结果接线（使用位置 / 对应改动两格）
-    assets: dto.session.assets.map((a) =>
-      toAssetView(a, t, { units: dto.units, changes: dto.session.changes ?? null }),
-    ),
+    assets,
     counts: dto.counts,
     overflow: toOverflowView(dto.overflow.pending, t),
     summary: toAppliedSummary(dto, t), // 145 · C1：摘要层（计数行之上）

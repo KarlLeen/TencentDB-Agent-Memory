@@ -43,8 +43,9 @@ const FILE_TOOL_KINDS: Readonly<Record<string, ToolChangeKind>> = {
   Write: "write",
 };
 
-/** shell 类工具名（命令串只在**内存里**匹配，原文不落任何地方）。 */
-const SHELL_TOOL_NAMES: ReadonlySet<string> = new Set(["Bash", "Shell", "shell", "run_command"]);
+/** shell 类工具名（命令串只在**内存里**匹配，原文不落任何地方）。
+ *  `execute_command` = CodeBuddy 客户端的 shell 工具名（实测决策单元 payload `toolName`）。 */
+const SHELL_TOOL_NAMES: ReadonlySet<string> = new Set(["Bash", "Shell", "shell", "run_command", "execute_command"]);
 
 /** 命令模式表（顺序即优先级：先测"跑测试"，再 lint，再 build）。 */
 const COMMAND_KIND_PATTERNS: ReadonlyArray<{ kind: ToolChangeKind; re: RegExp }> = [

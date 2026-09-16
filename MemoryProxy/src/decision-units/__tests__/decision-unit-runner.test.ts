@@ -469,6 +469,10 @@ describe("149 · 变更/结果锚定：kind 映射 / payload 逐字 / 对齐 / �
     expect(classifyToolChange("Bash", { command: "pytest -q" })).toBe("run_tests");
     expect(classifyToolChange("Bash", { command: "npx eslint src" })).toBe("lint");
     expect(classifyToolChange("Bash", { command: "npx tsc -b" })).toBe("build");
+    // execute_command = CodeBuddy 客户端的 shell 工具名（同 Bash 归类）
+    expect(classifyToolChange("execute_command", { command: "pytest -q" })).toBe("run_tests");
+    expect(classifyToolChange("execute_command", { command: "npx ruff check ." })).toBe("lint");
+    expect(classifyToolChange("execute_command", { command: "git status" })).toBeNull();
     // R2：只读类 / 非变更工具 ⇒ 不产
     for (const t of ["Read", "Glob", "Grep", "WebFetch", "Task", "TodoWrite"]) {
       expect(classifyToolChange(t, { file_path: "a.ts" }), `${t} 不得作为变更`).toBeNull();

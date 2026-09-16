@@ -262,7 +262,7 @@ describe("72 · T1–T5 回执 DTO（形状 / 68 D1 / K2 / 溢出 / 分页）", 
       expect(unit.turn_seq).toBe(7);
       expect(unit.msg_seq).toBe(112);
       expect(Object.keys(unit).sort()).toEqual(
-        ["created_at", "judgement", "kind", "missing", "msg_seq", "status_events", "turn_seq", "unit_id", "unit_type"].sort(),
+        ["action", "created_at", "judgement", "kind", "missing", "msg_seq", "status_events", "turn_seq", "unit_id", "unit_type"].sort(),
       );
     } finally {
       teardownTempDb();

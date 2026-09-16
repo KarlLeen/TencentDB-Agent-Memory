@@ -19,6 +19,7 @@ export type WhyTier = (typeof WHY_TIERS)[number];
 export const WHY_TIER_KEYS: Readonly<Record<string, string>> = {
   citedExact: 'attribution.receipt.why.citedExact',
   citedExactNoCoverage: 'attribution.receipt.why.citedExactNoCoverage',
+  citedSemantic: 'attribution.receipt.why.citedSemantic',
   candidateBelowThreshold: 'attribution.receipt.why.candidate',
   injectedOnly: 'attribution.receipt.why.injectedOnly',
 };
@@ -38,7 +39,10 @@ export interface WhyInput {
 }
 
 /** `detail.citationMetrics[]` 中该资产的条目（无 ⇒ `null`）。 */
-function citationEntryFor(detail: Record<string, unknown>, assetId: string): { coverage: number | null } | null {
+function citationEntryFor(
+  detail: Record<string, unknown>,
+  assetId: string,
+): { coverage: number | null; matchLevel: string | null } | null {
   const arr = detail['citationMetrics'];
   if (!Array.isArray(arr)) return null;
   for (const item of arr) {
@@ -46,7 +50,11 @@ function citationEntryFor(detail: Record<string, unknown>, assetId: string): { c
     const o = item as Record<string, unknown>;
     if (o['assetId'] !== assetId) continue;
     const cov = o['coverage'];
-    return { coverage: typeof cov === 'number' && Number.isFinite(cov) ? cov : null };
+    const ml = o['matchLevel'];
+    return {
+      coverage: typeof cov === 'number' && Number.isFinite(cov) ? cov : null,
+      matchLevel: typeof ml === 'string' ? ml : null,
+    };
   }
   return null;
 }
@@ -72,12 +80,17 @@ export type TranslateFnLike = (key: string, opts?: Record<string, string | numbe
  * 返回**已译文案**（同一事实一处表达；调用方直接渲染）。
  */
 export function whyApplicableOf(input: WhyInput, t: TranslateFnLike, unknownText: string): string {
-  // ① 已经引用命中：存在 confirmed 判定且指向该资产（覆盖率取自 citationMetrics，缺 ⇒ 如实"未记录"）
+  // ① 已经引用命中：存在 confirmed 判定且指向该资产。区分两种确认来源——
+  //   「整段逐字命中」（mechanical 锚点，matchLevel=exact）与「语义确认」（real LLM，matchLevel=none）。
   for (const j of input.judgements) {
     if (j.verdict !== 'confirmed' || j.assetId !== input.assetId) continue;
-    const cov = citationEntryFor(j.detail, input.assetId)?.coverage ?? null;
-    if (cov === null) return t(WHY_TIER_KEYS.citedExactNoCoverage);
-    return t(WHY_TIER_KEYS.citedExact, { coverage: coveragePercent(cov) });
+    const entry = citationEntryFor(j.detail, input.assetId);
+    const cov = entry?.coverage ?? null;
+    const ml = entry?.matchLevel ?? null;
+    if (ml === 'exact' && cov !== null) return t(WHY_TIER_KEYS.citedExact, { coverage: coveragePercent(cov) });
+    if (ml === 'exact') return t(WHY_TIER_KEYS.citedExactNoCoverage);
+    // 非逐字命中（real LLM 语义确认；matchLevel=none 或缺）⇒ 语义确认档，不冒充"逐字命中"。
+    return t(WHY_TIER_KEYS.citedSemantic);
   }
   // ② 候选但未达阈：出现在 citationMetrics（未达裁决档）或 shortlist 溢出面
   for (const j of input.judgements) {

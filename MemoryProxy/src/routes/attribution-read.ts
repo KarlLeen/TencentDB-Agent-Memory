@@ -299,6 +299,19 @@ function unitDto(e: AttributionEventRowWithRowid, r: ReadRepos): Record<string, 
   if (!jd) missing.push("judgement");
   const ses = r.status.listByUnit(unitId, COUNT_LIMIT);
   if (ses.length === 0) missing.push("status_events");
+  // 具体动作摘要（`decision_unit.created` payload 已含 `toolName`/`toolParamText` 等；
+  // 只读透传、参数文本截断防长命令泄露；restraint 等无 tool 的单元 ⇒ action = null）。
+  const toolName = typeof payload.toolName === "string" ? payload.toolName : null;
+  const paramText = typeof payload.toolParamText === "string" ? payload.toolParamText : null;
+  const action =
+    toolName === null && paramText === null
+      ? null
+      : {
+          tool_name: toolName,
+          param_text: paramText !== null ? paramText.slice(0, 200) : null,
+          matched_by: typeof payload.matchedBy === "string" ? payload.matchedBy : null,
+          result_status: typeof payload.resultStatus === "string" ? payload.resultStatus : null,
+        };
   return {
     unit_id: unitId,
     kind: "decision_unit",
@@ -308,6 +321,7 @@ function unitDto(e: AttributionEventRowWithRowid, r: ReadRepos): Record<string, 
     created_at: e.created_at,
     judgement: jd ? judgementDto(jd) : null, // 无判定 ⇒ null（不伪造）
     status_events: ses.map(statusEventDto),
+    action, // 具体动作（restraint 等无 tool ⇒ null；前端据此展示"影响链"）
     missing,
   };
 }

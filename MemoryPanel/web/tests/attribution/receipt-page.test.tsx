@@ -382,50 +382,76 @@ describe('150 · 回执页"为什么适用于当前任务"栏', () => {
     changeLanguage('zh-CN');
   });
 
-  it('C3：confirmed 命中 ⇒ 档①；素材缺失 ⇒ "未知"（同行渲染，缺值不猜）', async () => {
-    const base = mkReceipt(); // 其 unit：judgement asset_id=asset-1 / verdict=confirmed / detail={rationaleRef:'r'}
-    const dto: ReceiptDto = {
-      ...base,
-      session: {
-        ...base.session,
-        assets: [
-          {
-            asset_id: 'asset-1',
-            asset_type: 'skill',
-            first_seen_version: null,
-            last_seen_version: null,
-            observed_versions: [],
-            injected: true,
-            used: true,
-            corrected: false,
-            meta: null,
-          },
-          {
-            asset_id: 'asset-2',
-            asset_type: 'skill',
-            first_seen_version: null,
-            last_seen_version: null,
-            observed_versions: [],
-            injected: false,
-            used: false,
-            corrected: false,
-            meta: null,
-          },
-        ],
+  it('C3：confirmed 命中 ⇒ 档①（无引文度量 ⇒ 语义确认；有 exact 度量 ⇒ 逐字命中）；素材缺失 ⇒ "未知"', async () => {
+    const base = mkReceipt(); // 其 unit：judgement asset_id=asset-1 / verdict=confirmed / detail={rationaleRef:'r'}（无 citationMetrics）
+    const assets: ReceiptDto['session']['assets'] = [
+      {
+        asset_id: 'asset-1',
+        asset_type: 'skill',
+        first_seen_version: null,
+        last_seen_version: null,
+        observed_versions: [],
+        injected: true,
+        used: true,
+        corrected: false,
+        meta: null,
       },
-    };
+      {
+        asset_id: 'asset-2',
+        asset_type: 'skill',
+        first_seen_version: null,
+        last_seen_version: null,
+        observed_versions: [],
+        injected: false,
+        used: false,
+        corrected: false,
+        meta: null,
+      },
+    ];
+    const dto: ReceiptDto = { ...base, session: { ...base.session, assets } };
     vi.spyOn(attributionApi, 'sessions').mockResolvedValue({ sessions: [mkSession()], truncated: false });
     vi.spyOn(attributionApi, 'receipt').mockResolvedValue(dto);
-    const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
-    try {
-      const text = container.textContent ?? '';
-      const i = text.indexOf('为什么适用于当前任务');
-      console.log(`150 片段=${text.slice(i, i + 80)}`);
-      expect(text).toContain('为什么适用于当前任务: 整段逐字命中（覆盖率未记录）');
-      expect(text).toContain('为什么适用于当前任务: 未知');
-      expect(text).not.toContain('已验证');
-    } finally {
-      cleanup();
+
+    // 场景 A：confirmed 但无 citationMetrics ⇒ 语义确认档（**不得**冒充"逐字命中"）
+    {
+      const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+      try {
+        const text = container.textContent ?? '';
+        const i = text.indexOf('为什么适用于当前任务');
+        console.log(`150 片段A=${text.slice(i, i + 80)}`);
+        expect(text).toContain('为什么适用于当前任务: 判官语义确认（对照资产正文后判定实质遵循）');
+        expect(text).toContain('为什么适用于当前任务: 未知');
+        expect(text).not.toContain('已验证');
+      } finally {
+        cleanup();
+      }
+    }
+
+    // 场景 B：citationMetrics matchLevel=exact 且 coverage=null ⇒ 逐字命中（覆盖率未记录）
+    {
+      const dtoExact: ReceiptDto = {
+        ...dto,
+        units: [
+          {
+            ...dto.units[0]!,
+            judgement: {
+              ...dto.units[0]!.judgement!,
+              detail: {
+                rationaleRef: 'r',
+                citationMetrics: [{ assetId: 'asset-1', matchLevel: 'exact', coverage: null }],
+              },
+            },
+          },
+        ],
+      };
+      vi.mocked(attributionApi.receipt).mockResolvedValue(dtoExact);
+      const { container, cleanup } = await renderAndFlush(<AttributionReceiptPage />);
+      try {
+        const text = container.textContent ?? '';
+        expect(text).toContain('为什么适用于当前任务: 整段逐字命中（覆盖率未记录）');
+      } finally {
+        cleanup();
+      }
     }
   });
 });

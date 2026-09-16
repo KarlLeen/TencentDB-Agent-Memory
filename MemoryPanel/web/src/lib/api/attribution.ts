@@ -86,6 +86,15 @@ export interface ReceiptStatusEvent {
   payload: Record<string, unknown>;
 }
 
+/** 单元的具体动作摘要（`decision_unit.created` payload 只读透传；restraint 等无 tool ⇒ `null`）。 */
+export interface ReceiptUnitAction {
+  tool_name: string | null;
+  /** 截断后的参数文本（≤200 字符）。 */
+  param_text: string | null;
+  matched_by: string | null;
+  result_status: string | null;
+}
+
 export interface ReceiptUnit {
   unit_id: string;
   kind: string;
@@ -95,6 +104,8 @@ export interface ReceiptUnit {
   created_at: number;
   judgement: ReceiptJudgement | null;
   status_events: ReceiptStatusEvent[];
+  /** 具体动作（关键工具调用单元才有；restraint 等 ⇒ `null`）。 */
+  action?: ReceiptUnitAction | null;
   missing: string[];
 }
 

@@ -187,6 +187,12 @@ export function AttributionReceiptPage() {
                       {a.semanticLabel}
                       {' · '}
                       {a.version ?? missingValue}
+                      {a.corrected && (
+                        <span style={{ color: '#b45309', marginLeft: 6 }}>{t('attribution.receipt.corrected')}</span>
+                      )}
+                      {a.used && !a.corrected && (
+                        <span style={{ color: '#1a7f37', marginLeft: 6 }}>{t('attribution.receipt.used')}</span>
+                      )}
                     </summary>
                     <div style={{ marginTop: 4, lineHeight: 1.7 }}>
                       <div>
@@ -228,6 +234,51 @@ export function AttributionReceiptPage() {
                       <div>
                         {t('attribution.receipt.asset.changes')}: {a.changes ?? t('attribution.receipt.anchor.none')}
                       </div>
+                      {/* 归因链：used 资产显示判官理由 + 具体动作 + 位置（asset → decision → outcome） */}
+                      {a.attributions.length > 0 && (
+                        <div
+                          style={{
+                            marginTop: 6,
+                            padding: '6px 8px',
+                            background: '#f2f8f2',
+                            borderLeft: '3px solid #1a7f37',
+                            borderRadius: 3,
+                          }}
+                        >
+                          <div style={{ fontWeight: 600 }}>{t('attribution.receipt.asset.attribution')}</div>
+                          {a.attributions.map((at, i) => (
+                            <div key={i} style={{ marginTop: 4 }}>
+                              <div>
+                                <b>
+                                  {t(
+                                    at.verdict === 'confirmed'
+                                      ? 'attribution.receipt.asset.verdict.confirmed'
+                                      : 'attribution.receipt.asset.verdict.unconfirmed',
+                                  )}
+                                </b>
+                                {' · '}
+                                <span style={{ color: '#666' }}>{at.turn_label}</span>
+                                <span style={{ fontFamily: 'monospace', fontSize: 12 }}> ({at.unit_id})</span>
+                              </div>
+                              {at.rationale && (
+                                <div style={{ marginTop: 2 }}>
+                                  {t('attribution.receipt.asset.rationale')}:{' '}
+                                  <span style={{ color: '#333' }}>{at.rationale}</span>
+                                </div>
+                              )}
+                              {at.action && (at.action.tool_name || at.action.param_text) && (
+                                <div style={{ marginTop: 2, fontFamily: 'monospace', fontSize: 12, color: '#555' }}>
+                                  {t('attribution.receipt.asset.action')}:{' '}
+                                  {t('attribution.receipt.asset.actionToolCall', {
+                                    tool: at.action.tool_name ?? '?',
+                                    param: at.action.param_text ?? '',
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </details>
                 ))}
