@@ -517,6 +517,23 @@ injection:
   assetReflection:
     markerOptIn: true
 
+  # ── 资产归因链（任务三：使用链路记录 + 可信归因）────────────────────────
+  # 默认**全关**（fail-closed）：未配置 = 不写、零行为回归。要让面板「归因回执 /
+  # 抽查池」出现数据，需同时开启下面 3 键 + 本文件末尾 `attribution.judge.enqueue`
+  # 并**单独起 worker 进程**（完整步骤见 `deploy/ATTRIBUTION-DEPLOYMENT.md`）。
+  # 每个键的代价（开了就要付，且改后必须重启 proxy）：
+  #   attributionEvents      → 每轮注入/召回写归因事件行（库增长 + IO）
+  #   decisionUnitExtractor  → 解析每轮消息/工具调用为决策单元（CPU）
+  #   visibleArchive         → 归档「agent 当时看到的」正文切片（**正文落库，隐私敏感**）
+  attributionEvents:          # S2 事件面：写 attribution_events（hook.done / asset_fetched / agent.tool.change）
+    enabled: false
+  decisionUnitExtractor:      # S3 决策单元抽取：写 decision_unit.created（变更锚定 + 判定的前置）
+    enabled: false
+  visibleArchive:             # P0 可见正文归档：写 block_text / block_seen（只喂可公开内容）
+    enabled: false
+    maxBlockChars: 32768
+    maxMessageChars: 65536
+
 
 # ── 提取（写侧：把每轮对话/工具调用回流到内核） ─────────────────────────────
 # 与 injection 对偶：injection 决定"往 prompt 塞什么"，extraction 决定"往内核回写什么"。
