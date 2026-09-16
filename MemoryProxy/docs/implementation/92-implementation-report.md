@@ -21,10 +21,11 @@
    - 摘要一句话：「**1 项已采用；10 项仅作为背景参考**，效果待验证」；
    - 已采用资产置顶，展开看到**归因链**三行：判官理由 → 具体动作（`git commit --signoff`）→ 位置（轮 4 · 消息 784）。
 
-**（此处插入截图：回执页 — DCO 案例归因链）**
+<img width="1572" height="945" alt="image" src="https://github.com/user-attachments/assets/f5a0016a-abf9-428f-bb6e-5ff9cb83951e" />
+
 
 这个案例说明系统回答问题的方式：**不从资产出发问"它被遵守了吗"，而是从决策出发问"这个决策能归因到哪条资产"**——并且判官给出的是可核验的理由，不是黑盒打分。另外 10 项为什么是"背景参考"？判官逐条给了拒因（"注入了，但没找到它影响了哪个决策的可信证据"），**不静默、不凑数**。
-<img width="1572" height="945" alt="image" src="https://github.com/user-attachments/assets/7f38fd29-1444-4f4b-a033-37fd5f4e47e9" />
+
 
 
 ### 案例 2：验证链（pytest → grep → diff）被完整读出
