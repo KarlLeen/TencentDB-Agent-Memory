@@ -85,36 +85,92 @@
 
 ## 5. 老师怎么部署 / 复现
 
-### 最快看：公网已部署
+### 5.1 最快看：公网已部署（0 成本）
 
-`https://43.156.131.187:8443/`（BasicAuth，账号 `teacher`）→ `#/attribution` 看回执页，`#/audit` 看人工抽查池。
+`https://43.156.131.187:8443/`（BasicAuth，账号 `teacher`）→ `#/attribution` 看回执页，`#/audit` 看人工抽查池。回执页里展开任意已采用资产，能看到「归因链」三行。
 
-### 本地复现
+### 5.2 本地完整部署（从零到跑通，7 步）
 
-| 组件 | 跑法 | 端口 |
-|---|---|---|
-| proxy 后端 | `cd MemoryProxy && node --import tsx/esm <launch.mts> --config <config.yaml>`（连真库 `~/.tdai-memory-proxy/proxy.db`） | 8098 |
-| 面板 | Docker 镜像 `team-memory-panel-knowledge:6a87a9c-navfix`，容器 `tdai-memory-hub` | 8125 |
+**前置依赖**：Node ≥ 20、Docker（仅面板用）、可出网的 LLM 端点（DeepSeek 或任意 OpenAI 兼容端点，需要 key）。
 
-`attribution` 段的关键三键（缺任一键归因全暗）：
+**第 1 步 · 克隆 + 装依赖**
 
-```yaml
-attribution:
-  judge:
-    enqueue: true        # 入队开关
-    provider: real       # 真实 LLM 判官（DeepSeek）
-injection:
-  decisionUnitExtractor:
-    enabled: true        # 抽取开关
+```bash
+git clone https://github.com/KarlLeen/TencentDB-Agent-Memory.git
+cd TencentDB-Agent-Memory && git checkout feature/attribution-v2
+cd MemoryProxy && npm install
 ```
 
-起来后 `http://127.0.0.1:8125/#/attribution` 选会话看回执。
+**第 2 步 · 写配置**（`config.yaml`，归因链关键段；完整骨架见 `config.example.yaml`）
 
-### 复现「pytest → grep → diff 读出验证 SOP」
+```yaml
+# ── 归因四键（injection 段，缺任一键归因全暗）──
+injection:
+  attributionEvents:      { enabled: true }   # S2 事件面（hook.done / agent.tool.change）
+  decisionUnitExtractor:  { enabled: true }   # S3 决策单元抽取（含 tool_call.observed）
+  visibleArchive:         { enabled: true }   # 可见正文归档（喂判官对照资产正文）
 
-1. 造一个资产正文教「三步验证 SOP：跑 pytest → grep 提取失败 → diff 对比基线」（落 `injection.hook.done` + 可见正文归档）；
-2. 会话里跑 pytest（决策单元）+ grep/diff（辅助命令，自动落 `tool_call.observed`）；
-3. 判官判定 pytest 单元时 `turn_context` 带上 grep/diff，real 判官据此 `confirmed`，理由引用「subsequent grep and diff steps」（真实判定原文见案例 2）。
+# ── 判定段（attribution 段）──
+attribution:
+  judge:
+    enqueue: true                             # 总开关：只有布尔 true 生效（字符串 "true" 视作 false）
+    provider: real                            # real = LLM 语义确认；mechanical = 只认整段逐字
+    real:                                     # 仅 provider="real" 消费；baseUrl/apiKey/model 无缺省，缺一启动即 fail-closed
+      baseUrl: "https://api.deepseek.com/v1"
+      apiKey: "<你的 DeepSeek key>"
+      model: "deepseek-chat"
+```
+
+（另需 `upstream`、`storage`、`sessionInit` 等基础段——照 `config.example.yaml` 填真实值，这里只列归因专属四键 + 判定段。）
+
+**第 3 步 · 起 proxy**（连 SQLite 真库）
+
+```bash
+cd MemoryProxy
+PROXY_DB_PATH="$HOME/.tdai-memory-proxy/proxy.db" \
+  node --import tsx/esm <你的 launch.mts> --config config.yaml
+# 验证：curl http://127.0.0.1:8098/health  →  {"status":"ok", ...}
+```
+
+**第 4 步 · 起判定 worker（独立进程，proxy 不会自动启动它）**
+
+```bash
+cd MemoryProxy
+PROXY_DB_PATH="$HOME/.tdai-memory-proxy/proxy.db" \
+  npm run worker:attribution                 # 常驻轮询
+# 或一次性抽干积压： npm run worker:attribution -- --once
+```
+
+⚠️ 这是最容易漏的一步：**proxy 和 worker 是两个进程**，只起 proxy 的话，决策单元会入队但永远没人判定。
+
+**第 5 步 · 起面板（Docker）**
+
+```bash
+docker run -d --name tdai-memory-hub \
+  -p 8125:8125 \
+  -e ATTRIBUTION_PROXY_BASE_URL="http://host.docker.internal:8098" \
+  -e ATTRIBUTION_PROXY_ADMIN_KEY="<你的 admin key>" \
+  team-memory-panel-knowledge:6a87a9c-navfix
+```
+
+⚠️ 面板回执页需要 `ATTRIBUTION_PROXY_ADMIN_KEY` 才能读 proxy 数据，缺了会 fail-closed 报 503。
+
+**第 6 步 · 导入资产 + 跑一条会话**
+
+- 导入一个 skill 资产（正文写清楚「约定 / 流程 / 已知坑」，这是判官对照的素材）；
+- 用客户端（CodeBuddy CLI 等）跑一条真实任务，让它执行一个能被资产覆盖的决策（如按资产的约定 `git commit --signoff`）。
+
+**第 7 步 · 验收**
+
+1. `curl http://127.0.0.1:8098/health` → ok；
+2. 跑完会话后，`sqlite3 proxy.db "SELECT event_type, COUNT(*) FROM attribution_events GROUP BY 1"` 应能看到 `injection.hook.done` / `decision_unit.created` / `agent.tool.change` / `tool_call.observed` 四类事件非零；
+3. 打开 `http://127.0.0.1:8125/#/attribution` 选该会话 → 看到「本次应用 N 项团队资产」+ 展开已采用资产的「归因链」。
+
+### 5.3 复现「pytest → grep → diff 读出验证 SOP」这条
+
+1. 造一个资产正文教「三步验证 SOP：跑 pytest → grep 提取失败 → diff 对比基线」（落 `injection.hook.done` + 可见正文归档 `block_text`/`block_seen`）；
+2. 会话里跑 pytest（决策单元）+ grep/diff（辅助命令，自动落 `tool_call.observed`，命令原文不截断）；
+3. worker 判定 pytest 单元时，`turn_context` 带上 grep/diff，real 判官据此 `confirmed`，理由引用「subsequent grep and diff steps」（真实判定原文见案例 2）。
 
 ---
 
