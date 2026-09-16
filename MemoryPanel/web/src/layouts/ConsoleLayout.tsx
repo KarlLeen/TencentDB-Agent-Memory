@@ -25,6 +25,8 @@ const PATH_TO_PAGE: Record<string, PageId> = {
   '/skills': 'skills',
   '/memory': 'chat_memory',
   '/analytics': 'analytics',
+  '/attribution': 'attribution_receipt',
+  '/audit': 'audit_pool',
   '/team/members': 'team_members',
   '/team/agents': 'team_agents',
   '/team/api-keys': 'api_keys',
