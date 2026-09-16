@@ -408,7 +408,9 @@ describe('144 · 展开层字段（C2/C3/C4；缺值一律 null ⇒ 渲染"未�
 
 describe('149 · 变更/结果接线（使用位置 / 对应改动两格；只报计数与枚举）', () => {
   it('有变更 ⇒ 使用位置 = 命中锚定单元数；对应改动 = 种类计数（无路径/命令原文）', () => {
-    const base = mkDto(mkUnit());
+    // 无归因链（judgement 不指向 asset-1）⇒ 走"锚定单元数"旧口径（有归因链会走"实质使用于"新口径）
+    const unitNoAttr = mkUnit({ judgement: { ...mkUnit().judgement!, asset_id: 'other-asset', verdict: 'unconfirmed' } });
+    const base = mkDto(unitNoAttr);
     const dto: ReceiptDto = {
       ...base,
       session: {
@@ -423,10 +425,11 @@ describe('149 · 变更/结果接线（使用位置 / 对应改动两格；只�
   });
 
   it('无变更（null）⇒ 两格保持空态（不伪造）；会话有变更但该资产未匹配 ⇒ 如实说明', () => {
-    const none = toReceiptView(mkDto(mkUnit()), tZh).assets[0]!;
+    const unitNoAttr = mkUnit({ judgement: { ...mkUnit().judgement!, asset_id: 'other-asset', verdict: 'unconfirmed' } });
+    const none = toReceiptView(mkDto(unitNoAttr), tZh).assets[0]!;
     expect(none.usageLocations).toEqual([]);
     expect(none.changes).toBe(null);
-    const base = mkDto(mkUnit());
+    const base = mkDto(unitNoAttr);
     const dto: ReceiptDto = {
       ...base,
       session: {
@@ -464,11 +467,15 @@ describe('150 · 为什么适用于当前任务（档位 + 禁 LLM + 缺素材�
     ).whyApplicable;
   }
 
-  it('档①：confirmed 且指向该资产 ⇒ "整段逐字命中（覆盖率 X%）"（1 位小数）；无覆盖率 ⇒ 如实"未记录"', () => {
-    const units = [mkUnitWithDetail('asset-1', 'confirmed', { citationMetrics: [{ assetId: 'asset-1', coverage: 0.877 }] })];
-    console.log(`150 档① → ${whyOf('asset-1', true, units)}`);
-    expect(whyOf('asset-1', true, units)).toBe('整段逐字命中（覆盖率 87.7%）');
-    expect(whyOf('asset-1', true, [mkUnitWithDetail('asset-1', 'confirmed', {})])).toBe('整段逐字命中（覆盖率未记录）');
+  it('档①：confirmed 且指向该资产 ⇒ matchLevel=exact 才"整段逐字命中"；无 exact ⇒ "语义确认"（不冒充逐字）', () => {
+    const exact = [mkUnitWithDetail('asset-1', 'confirmed', { citationMetrics: [{ assetId: 'asset-1', matchLevel: 'exact', coverage: 0.877 }] })];
+    console.log(`150 档① exact → ${whyOf('asset-1', true, exact)}`);
+    expect(whyOf('asset-1', true, exact)).toBe('整段逐字命中（覆盖率 87.7%）');
+    // 无 matchLevel（real 判官语义确认）⇒ 语义确认档，**不得**冒充"逐字命中"
+    const semantic = [mkUnitWithDetail('asset-1', 'confirmed', { citationMetrics: [{ assetId: 'asset-1', coverage: 0.877 }] })];
+    expect(whyOf('asset-1', true, semantic)).toBe('判官语义确认（对照资产正文后判定实质遵循）');
+    // 无 citationMetrics ⇒ 语义确认档（无度量可判 exact）
+    expect(whyOf('asset-1', true, [mkUnitWithDetail('asset-1', 'confirmed', {})])).toBe('判官语义确认（对照资产正文后判定实质遵循）');
   });
 
   it('档②：在 citationMetrics（未达裁决档）或 shortlist 溢出面 ⇒ "候选但未达确认阈值"', () => {
