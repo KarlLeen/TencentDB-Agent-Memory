@@ -480,6 +480,11 @@ describe("149 · 变更/结果锚定：kind 映射 / payload 逐字 / 对齐 / �
     // 其它 shell 命令 ⇒ 不产（`other` 保留未启用；不得把它当变更计数，R4）
     expect(classifyToolChange("Bash", { command: "git push origin main" })).toBeNull();
     expect(classifyToolChange("Bash", { command: "rm -rf tmp" })).toBeNull();
+    // 164：路径/参数位的命令名字样不算变更类别（对齐 vocab test.run 的收窄口径）
+    expect(classifyToolChange("Bash", { command: "cat pytest.ini" })).toBeNull();
+    expect(classifyToolChange("Bash", { command: "grep /tmp/pytest.log" })).toBeNull();
+    expect(classifyToolChange("Bash", { command: "cat eslint.ini" })).toBeNull();
+    expect(classifyToolChange("Bash", { command: "cat build.log" })).toBeNull();
     console.log("149 kind → 五类 ✓；只读类/其它 shell ⇒ null（不产）");
   });
 

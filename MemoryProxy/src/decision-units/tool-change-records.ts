@@ -47,19 +47,24 @@ const FILE_TOOL_KINDS: Readonly<Record<string, ToolChangeKind>> = {
  *  `execute_command` = CodeBuddy 客户端的 shell 工具名（实测决策单元 payload `toolName`）。 */
 const SHELL_TOOL_NAMES: ReadonlySet<string> = new Set(["Bash", "Shell", "shell", "run_command", "execute_command"]);
 
-/** 命令模式表（顺序即优先级：先测"跑测试"，再 lint，再 build）。 */
+/**
+ * 命令模式表（顺序即优先级：先测"跑测试"，再 lint，再 build）。
+ * 164：前缀 = 行首 / shell 分隔符（; & | 换行）+ 可选空格 / `npx` 执行器。**不含纯空格**
+ * ⇒ `cat pytest.ini`、`cat eslint.ini`、`cat build.log`（命令名在参数位）不算变更；但保留
+ * `npx eslint`、`npx tsc`（执行器 + 工具名，是合法变更动作）。
+ */
 const COMMAND_KIND_PATTERNS: ReadonlyArray<{ kind: ToolChangeKind; re: RegExp }> = [
   {
     kind: "run_tests",
-    re: /(^|[\s;&|])(npm|pnpm|yarn)\s+(run\s+)?(test|vitest|jest)\b|(^|[\s;&|])(vitest|jest|pytest|go\s+test|cargo\s+test|phpunit|rspec)\b/i,
+    re: /(^|[;&|\n]\s*|npx\s+)(npm|pnpm|yarn)\s+(run\s+)?(test|vitest|jest)\b|(^|[;&|\n]\s*|npx\s+)(vitest|jest|pytest|go\s+test|cargo\s+test|phpunit|rspec)\b/i,
   },
   {
     kind: "lint",
-    re: /(^|[\s;&|])(eslint|ruff|flake8|pylint|golangci-lint|stylelint)\b|(^|[\s;&|])(npm|pnpm|yarn)\s+(run\s+)?lint\b|cargo\s+clippy\b/i,
+    re: /(^|[;&|\n]\s*|npx\s+)(eslint|ruff|flake8|pylint|golangci-lint|stylelint)\b|(^|[;&|\n]\s*|npx\s+)(npm|pnpm|yarn)\s+(run\s+)?lint\b|(^|[;&|\n]\s*|npx\s+)cargo\s+clippy\b/i,
   },
   {
     kind: "build",
-    re: /(^|[\s;&|])(npm|pnpm|yarn)\s+(run\s+)?build\b|(^|[\s;&|])(tsc|vite\s+build|webpack|rollup|esbuild|make|cargo\s+build|go\s+build|gradle|mvn)\b/i,
+    re: /(^|[;&|\n]\s*|npx\s+)(npm|pnpm|yarn)\s+(run\s+)?build\b|(^|[;&|\n]\s*|npx\s+)(tsc|vite\s+build|webpack|rollup|esbuild|make|cargo\s+build|go\s+build|gradle|mvn)\b/i,
   },
 ];
 
