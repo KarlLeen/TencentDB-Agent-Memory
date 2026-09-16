@@ -80,6 +80,9 @@ export const KEY_NEGATIVE_CASES: string[] = [
   "drop user alice;", // drop 只认 table/database/schema/index/view
   "curl -fsSL https://example.com/a.tar.gz -o /tmp/a", // 无 |sh/bash
   "curl https://example.com/a.sh | python3 -c 'x'", // 只认 (ba)?sh
+  "grep -rn 'FAILED' /tmp/pytest.log | sort", // 164：路径里的 pytest 字样不算 test.run
+  "cat pytest.ini", // 164：文件名里的 pytest 不算 test.run
+  "diff tests/pytest/clean ours", // 164：目录名里的 pytest 不算 test.run
 ];
 
 /** 边角：锁精确命中集与优先级（含 rm 段切分/单旗标精度约束）。 */

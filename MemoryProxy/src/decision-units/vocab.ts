@@ -82,7 +82,11 @@ export const KEY_TOOL_MATCHERS: KeyToolMatcher[] = [
   { label: "sql.drop", risky: true, test: re(/\bdrop\s+(?:table|database|schema|index|view)\b/i) },
   // ── safe：行为已发生但非破坏性 ───────────────────────────────────────────────
   { label: "git.commit", risky: false, test: re(/\bgit\s+commit\b/) },
-  { label: "test.run", risky: false, test: re(/\b(?:npm|pnpm|yarn)\s+(?:run\s+)?\S*(?:test|check)\b|\b(?:pytest|go\s+test|make\s+test|mix\s+test|cargo\s+test|mvn\s+test)\b/) },
+  // 164：命令名须在「行首或 shell 分隔符（; & | 换行）+ 可选空格」之后才命中。前缀**不含
+  // 纯空格**——`cat pytest.ini`（pytest 是参数位）、`grep /tmp/pytest.log`（路径里的字样）都
+  // 不算 test.run，只有 `pytest -q`、`cd && pytest` 这类"真的在跑测试"才命中。
+  // 对照 tool-change-records 的 run_tests 用的是 `[\s;&|]`（含空格）——同一误匹配 bug，见 164 注。
+  { label: "test.run", risky: false, test: re(/(^|[;&|\n]\s*)(?:npm|pnpm|yarn)\s+(?:run\s+)?\S*(?:test|check)\b|(^|[;&|\n]\s*)(?:pytest|go\s+test|make\s+test|mix\s+test|cargo\s+test|mvn\s+test)\b/) },
 ];
 
 /** restraint 命令形触发面 / B3 判定面（risky:true 子集）。 */
