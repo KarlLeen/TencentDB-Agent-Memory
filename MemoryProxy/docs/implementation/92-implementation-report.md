@@ -178,11 +178,17 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8125/health           
 
 ### 5.3 Docker 容器栈（备选，一键起）
 
-想用纯 Docker 一键起三件套也行，但注意**必须先用源码本地构建 proxy + 面板镜像**（官方 `agentmemory/*:latest` 不含归因链）：
+想用纯 Docker 一键起三件套也行，但注意**必须先用源码本地构建 proxy + 面板镜像**（官方 `agentmemory/*:latest` 不含归因链），且**镜像名必须跟 `.env` 一致**——`build.sh` 默认产出 `team-memory-panel-knowledge`，但 `.env` 默认是 `agentmemory/memory-hub`，不覆盖名字会白构建：
 
 ```bash
+# proxy 镜像（= .env 的 PROXY_IMAGE=agentmemory/memory-proxy:latest）
 cd MemoryProxy && docker build -t agentmemory/memory-proxy:latest .
-cd ../deploy/panel-knowledge-combined && IMAGE_TAG=latest ./build.sh
+
+# 面板镜像：显式覆盖 IMAGE_NAME，让它 = .env 的 MEMORY_HUB_IMAGE=agentmemory/memory-hub:latest
+cd ../deploy/panel-knowledge-combined && IMAGE_NAME=agentmemory/memory-hub IMAGE_TAG=latest ./build.sh
+
+# memory-core 用官方 latest（归因链核心不涉及它，session-init/资产数据面够用）
+
 cd ../deploy/global-images && ./start-all.sh
 ```
 
