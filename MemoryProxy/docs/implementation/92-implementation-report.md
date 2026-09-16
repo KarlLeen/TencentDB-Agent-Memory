@@ -160,7 +160,7 @@ npm run worker:attribution    # 常驻轮询判定队列
 | `ATTRIBUTION_PROXY_BASE_URL` | `http://host.docker.internal:<proxy端口>`（指向**源码 proxy 的端口**；面板容器内 `127.0.0.1` 指自己，不通） |
 | `ATTRIBUTION_PROXY_ADMIN_KEY` | proxy `admin.apiKey` 的值（缺省为空 ⇒ 面板 fail-closed 显示 unavailable） |
 
-**第 6 步 · 造一条真实数据**（回执页不会凭空有内容）
+**第 6 步 · 造一条真实数据/导入asset测试**（回执页不会凭空有内容）
 
 1. 面板 `http://localhost:8125` → 资产管理 → 新建一条 **Skill**，内容用可公开约定（如「本项目 commit 必须 DCO 签名：`git commit -s`」）；
 2. 让 coding agent 把 API base 指向源码 proxy，做一件会触发该资产的任务（如「把改动提交成 git commit」）；
