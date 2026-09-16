@@ -21,6 +21,11 @@ import {
   deriveToolChangeRecords,
   toolChangePayload,
 } from "./tool-change-records.js";
+import {
+  EVENT_TYPE_TOOL_CALL_OBSERVED,
+  deriveToolCallObserved,
+  toolCallObservedPayload,
+} from "./tool-call-observed.js";
 import type { RestraintPayload, SealedDecisionUnit } from "./types.js";
 import { getAttributionEventRepo } from "../db/attributionEventRepo.js";
 import { selectUnitDedupeWinners, unitDedupeAnchorKey } from "../db/schema.js";
@@ -222,6 +227,40 @@ export function runDecisionUnitExtraction(params: RunDecisionUnitExtractionParam
     // best-effort：变更面失败绝不影响单元落库与入队（与 runner 总纪律一致）。
     console.warn(
       `[decision-unit] tool-change emit failed (best-effort) session=${params.sessionKey}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  // ── 163 · 工具调用素材（tool_call.observed）：同 turn 非 key shell 调用 ──────────
+  //   背景素材（不判定、不进队列、不进 asset_used）；capture 层落库**不截断**命令原文；
+  //   幂等 = 独立槽位带（`TOOL_CALL_OBSERVED_SEQ_BASE`）⇒ 与单元/变更槽位均不交。
+  try {
+    const observedRecords = deriveToolCallObserved(
+      params.messages,
+      params.protocol,
+      units.map((u) => ({ unitId: u.unitId, turnSeq: u.turnSeq, msgSeq: u.msgSeq })),
+      { minIndex }, // 与单元/变更同款增量语义
+    );
+    if (observedRecords.length > 0) {
+      getAttributionEventRepo().appendMany(
+        observedRecords.map((r) => ({
+          spaceId: params.spaceId,
+          userId: params.userId ?? undefined,
+          agentSource: params.agentSource,
+          sessionKey: params.sessionKey,
+          turnSeq: r.turnSeq,
+          msgSeq: r.msgSeq,
+          eventType: EVENT_TYPE_TOOL_CALL_OBSERVED,
+          // 唯一锚 ⇒ 落 `unit_id` 列；0 个或多个 ⇒ 只在 payload.units 表达（不猜）。
+          unitId: r.units.length === 1 ? r.units[0] : undefined,
+          payload: toolCallObservedPayload(r),
+        })),
+      );
+    }
+  } catch (err) {
+    // best-effort：素材面失败绝不影响单元落库与入队。
+    console.warn(
+      `[decision-unit] tool-call-observed emit failed (best-effort) session=${params.sessionKey}:`,
       err instanceof Error ? err.message : String(err),
     );
   }

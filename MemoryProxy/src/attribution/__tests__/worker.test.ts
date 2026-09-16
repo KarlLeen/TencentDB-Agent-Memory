@@ -17,6 +17,7 @@ import {
 import { getAttributionJudgeQueueCounters } from "../judge-queue-repo.js";
 import { __resetDbForTests, getDb } from "../../db/index.js";
 import {
+  AUX_COMMAND_MAX_CHARS,
   EXIT_DB_UNAVAILABLE,
   buildTurnContext,
   buildWorkerDeps,
@@ -303,23 +304,25 @@ describe("S5 交付单元：落库四态在 worker 侧的分支（A1/A2）", () 
 describe("161 · A 同 turn 上下文（buildTurnContext）", () => {
   function makeEventRepo(rows: Array<Record<string, unknown>>) {
     const repo = {
-      listBySession: () =>
-        rows.map((r) => ({
-          event_id: "e",
-          space_id: "_default",
-          user_id: null,
-          agent_source: null,
-          session_key: "sess-1",
-          turn_seq: null,
-          msg_seq: null,
-          event_type: "decision_unit.created",
-          asset_id: null,
-          asset_type: null,
-          unit_id: null,
-          payload_json: "{}",
-          created_at: 0,
-          ...r,
-        })),
+      listBySession: (_sessionKey: string, opts?: { eventType?: string; limit?: number }) =>
+        rows
+          .map((r) => ({
+            event_id: "e",
+            space_id: "_default",
+            user_id: null,
+            agent_source: null,
+            session_key: "sess-1",
+            turn_seq: null,
+            msg_seq: null,
+            event_type: "decision_unit.created",
+            asset_id: null,
+            asset_type: null,
+            unit_id: null,
+            payload_json: "{}",
+            created_at: 0,
+            ...r,
+          }))
+          .filter((r) => !opts?.eventType || r.event_type === opts.eventType),
     };
     return repo as unknown as import("../../db/attributionEventRepo.js").AttributionEventRepo;
   }
@@ -367,5 +370,69 @@ describe("161 · A 同 turn 上下文（buildTurnContext）", () => {
     expect(r.kept).toBe(0);
     expect(r.truncated).toBe(false);
     expect(r.context).toEqual([]);
+  });
+
+  it("163：辅助工具调用（tool_call.observed）混排；去重（toolUseId）+ 导航黑名单过滤", () => {
+    const repo = makeEventRepo([
+      // 决策单元（key_tool_call，toolUseId=t-pytest）
+      {
+        unit_id: "u-key",
+        turn_seq: 3,
+        msg_seq: 10,
+        event_type: "decision_unit.created",
+        payload_json: JSON.stringify({ unitType: "key_tool_call", toolName: "execute_command", toolUseId: "t-pytest", toolParamText: "pytest -q" }),
+      },
+      // 辅助命令 grep（非 key ⇒ 保留）
+      {
+        unit_id: null,
+        turn_seq: 3,
+        msg_seq: 20_000_000 + 1 * 16,
+        event_type: "tool_call.observed",
+        payload_json: JSON.stringify({ tool: "execute_command", command_surface: "grep -rn FAILED | sort", toolUseId: "t-grep", exit_status: "error" }),
+      },
+      // 纯导航 ls（应过滤）
+      {
+        unit_id: null,
+        turn_seq: 3,
+        msg_seq: 20_000_000 + 2 * 16,
+        event_type: "tool_call.observed",
+        payload_json: JSON.stringify({ tool: "execute_command", command_surface: "ls -la", toolUseId: "t-ls", exit_status: "ok" }),
+      },
+      // 已作为决策单元的 toolUseId=t-pytest（应去重）
+      {
+        unit_id: null,
+        turn_seq: 3,
+        msg_seq: 20_000_000 + 3 * 16,
+        event_type: "tool_call.observed",
+        payload_json: JSON.stringify({ tool: "execute_command", command_surface: "pytest -q", toolUseId: "t-pytest", exit_status: "ok" }),
+      },
+    ]);
+    const r = buildTurnContext(repo, "sess-1", 3, "u-none");
+    // 保留 = 决策单元 u-key + 辅助 grep；去重掉 t-pytest、过滤掉 ls
+    expect(r.total).toBe(2);
+    expect(r.context.map((c) => c.kind)).toEqual(["key_tool_call", "tool_call"]);
+    expect(r.context[0]).toMatchObject({ unitId: "u-key" });
+    expect(r.context[1]).toMatchObject({
+      kind: "tool_call",
+      payload: { tool: "execute_command", command_surface: "grep -rn FAILED | sort", exit_status: "error" },
+    });
+  });
+
+  it("163：辅助命令单条截断到 AUX_COMMAND_MAX_CHARS（临时值 200）", () => {
+    const longCmd = "grep -rn " + "x".repeat(400);
+    const repo = makeEventRepo([
+      {
+        unit_id: null,
+        turn_seq: 3,
+        msg_seq: 20_000_000 + 1 * 16,
+        event_type: "tool_call.observed",
+        payload_json: JSON.stringify({ tool: "execute_command", command_surface: longCmd, toolUseId: "t-long", exit_status: "ok" }),
+      },
+    ]);
+    const r = buildTurnContext(repo, "sess-1", 3, "u-none");
+    expect(r.context).toHaveLength(1);
+    const surface = (r.context[0]!.payload as { command_surface: string }).command_surface;
+    expect(surface.length).toBe(AUX_COMMAND_MAX_CHARS);
+    expect(surface).toBe(longCmd.slice(0, AUX_COMMAND_MAX_CHARS));
   });
 });

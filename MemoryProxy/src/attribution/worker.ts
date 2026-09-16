@@ -21,6 +21,7 @@ import { pathToFileURL } from "node:url";
 import { buildConfig } from "../config.js";
 import { getDb } from "../db/index.js";
 import { getAttributionEventRepo, type AttributionEventRepo } from "../db/attributionEventRepo.js";
+import { EVENT_TYPE_TOOL_CALL_OBSERVED } from "../decision-units/tool-call-observed.js";
 import {
   createEvidenceSupplyProvider,
   extractVisibleAssetCandidates,
@@ -188,6 +189,16 @@ export const TURN_CONTEXT_MAX_UNITS = 8;
 export const TURN_CONTEXT_MAX_CHARS = 8000;
 /** 查同 turn 单元的事件表扫描上限（与 loadVisibleAssets 同款大 limit；真库规模小）。 */
 const TURN_CONTEXT_LIMIT_ROWS = 5000;
+/** 163：辅助命令（`tool_call.observed`）单条命令面截断（**临时值**，回看真实分布收紧）。 */
+export const AUX_COMMAND_MAX_CHARS = 200;
+/** 163：导航类命令黑名单（**纯**导航、无管道/连接符 ⇒ 过滤；含 `&&`/`|`/`;` 连接 ⇒ 保留）。 */
+const NAVIGATION_COMMAND_RE = /^(?:ls|pwd|cd|echo|which|clear|whoami|uname|printenv|env|id)\b/i;
+const COMMAND_CHAINING_RE = /&&|\||;/;
+/** 命令面是否「纯导航」（导航命令开头且无连接符）——consume 层过滤，capture 层仍全量落库。 */
+function isNavigationOnly(surface: string): boolean {
+  const t = surface.trim();
+  return NAVIGATION_COMMAND_RE.test(t) && !COMMAND_CHAINING_RE.test(t);
+}
 
 export interface TurnContextResult {
   /** 喂给判官的同 turn 单元（当前单元除外；只 key_tool_call + code_change）。 */
@@ -223,20 +234,56 @@ export function buildTurnContext(
   currentUnitId: string,
 ): TurnContextResult {
   if (turnSeq === null) return { context: [], total: 0, kept: 0, truncated: false };
-  const rows = repo.listBySession(sessionKey, {
+
+  // 决策单元（key_tool_call + code_change；当前单元除外）。同时收集**所有**决策单元的
+  // `toolUseId`（含当前单元），供辅助素材去重——当前单元已在 JudgeInput.unit 里，不再重复喂。
+  const unitRows = repo.listBySession(sessionKey, {
     eventType: "decision_unit.created",
     limit: TURN_CONTEXT_LIMIT_ROWS,
   });
   const typed: Array<{ unitId: string; kind: string; payload: Record<string, unknown>; msgSeq: number }> = [];
-  for (const row of rows) {
+  const unitToolUseIds = new Set<string>();
+  for (const row of unitRows) {
     if (row.turn_seq !== turnSeq) continue;
-    if (!row.unit_id || row.unit_id === currentUnitId) continue;
+    if (!row.unit_id) continue;
     const p = parseEventPayloadJson(row.payload_json);
     const unitType = typeof p.unitType === "string" ? p.unitType : "";
     if (unitType !== "key_tool_call" && unitType !== "code_change") continue;
+    if (typeof p.toolUseId === "string" && p.toolUseId.length > 0) unitToolUseIds.add(p.toolUseId);
+    if (row.unit_id === currentUnitId) continue;
     typed.push({ unitId: row.unit_id, kind: unitType, payload: p, msgSeq: row.msg_seq ?? 0 });
   }
-  // listBySession 按 created_at 倒序 ⇒ 转回正序（msg_seq 升序，确定性）
+
+  // 163 · 工具调用素材（tool_call.observed）：去重（toolUseId 已是决策单元 ⇒ 跳过）+
+  // 导航黑名单过滤 + 单条命令面截断。consume 层过滤，capture 层已全量落库（可回看）。
+  const observedRows = repo.listBySession(sessionKey, {
+    eventType: EVENT_TYPE_TOOL_CALL_OBSERVED,
+    limit: TURN_CONTEXT_LIMIT_ROWS,
+  });
+  for (const row of observedRows) {
+    if (row.turn_seq !== turnSeq) continue;
+    const p = parseEventPayloadJson(row.payload_json);
+    const toolUseId = typeof p.toolUseId === "string" ? p.toolUseId : "";
+    if (toolUseId.length > 0 && unitToolUseIds.has(toolUseId)) continue; // 已是决策单元 ⇒ 去重
+    const tool = typeof p.tool === "string" ? p.tool : "";
+    const surface = typeof p.command_surface === "string" ? p.command_surface : "";
+    if (surface.length === 0) continue;
+    if (isNavigationOnly(surface)) continue; // 纯导航（ls/cd/... 无连接符）⇒ 过滤
+    const exitStatus = typeof p.exit_status === "string" ? p.exit_status : null;
+    typed.push({
+      unitId: row.unit_id ?? "",
+      kind: "tool_call",
+      payload: {
+        tool,
+        command_surface: surface.slice(0, AUX_COMMAND_MAX_CHARS),
+        ...(exitStatus !== null ? { exit_status: exitStatus } : {}),
+      },
+      msgSeq: row.msg_seq ?? 0,
+    });
+  }
+
+  // listBySession 按 created_at 倒序 ⇒ 转回正序（msg_seq 升序，确定性）。
+  // 决策单元与辅助素材混排 ⇒ 判官看到真实的执行顺序（pytest → grep → diff）。
   typed.sort((a, b) => a.msgSeq - b.msgSeq);
   const total = typed.length;
   const context: Array<{ unitId: string; kind: string; payload: unknown }> = [];
