@@ -45,14 +45,16 @@
 
 ## 2. 数据账单（上面案例的真实数字）
 
-| 项 | 数字 |
-|---|---|
-| 注入资产 | 11 项（12 skill + 1 团队记忆，去重后 11） |
-| 决策单元 | 3 个（1 个 git commit、1 个 pytest、1 个克制判定） |
-| 判官判定 | 3/3 判完：**1 confirmed → `asset_used` 落行**；2 unconfirmed（各自带理由）；0 待处理、0 失败 |
-| 六阶段口径 | recalled / selected / injected = 11 项进入上下文；**used = 1**（DCO）；validated = 0（fail-closed 设计，见 §4）；corrected = 0 |
-| 锚定覆盖 | 34/35 ≈ 97%（asset → decision/change → outcome 的关联面） |
-| 测试 | **MemoryProxy 57 文件 / 658 测试全过；MemoryPanel 9 文件 / 71 测试全过** |
+| 项 | 案例 1（DCO 签名） | 案例 2（验证链） |
+|---|---|---|
+| 注入资产 | 11 项（12 skill + 1 团队记忆，去重后 11） | 1 项（「三步验证 SOP」） |
+| 决策单元 | 3 个（1 git commit、1 pytest、1 克制判定） | 1 个（pytest） |
+| 判官判定 | 3/3 判完：**1 confirmed → `asset_used`**；2 unconfirmed（各自带理由） | 1/1：confirmed（候选数 1） |
+| 六阶段口径 | recalled/selected/injected = 11；**used = 1**（DCO）；validated = 0（fail-closed，见 §4）；corrected = 0 | injected = 1；**used = 1**（验证 SOP） |
+
+> 「克制判定」= 模型面对破坏性操作时先问澄清、没直接执行（判官记一笔，不算 used）。
+>
+> **测试**：MemoryProxy 57 文件 / 658 测试全过；MemoryPanel 9 文件 / 71 测试全过。
 
 ---
 
@@ -85,9 +87,11 @@
 
 ## 5. 老师怎么部署 / 复现
 
-### 5.1 最快看：公网已部署（那有问题，不用管了，only 推荐5.2 源码直跑）
+### 5.1 最快看：公网已部署
 
-`https://43.156.131.187:8443/`（BasicAuth，账号 `teacher`）→ `#/attribution` 看回执页，`#/audit` 看人工抽查池。回执页里展开任意已采用资产，能看到「归因链」三行。
+公网 `https://43.156.131.187:8443/`（BasicAuth，账号 `teacher`）→ `#/attribution` 回执页、`#/audit` 抽查池。
+
+> 注：公网当前 TLS 握手暂不可达（服务器侧 Caddy 配置问题），若打不开请直接走 §5.2 本地源码直跑，效果一致。
 
 ### 5.2 源码直跑（推荐，跟报告作者本地完全一致）
 
