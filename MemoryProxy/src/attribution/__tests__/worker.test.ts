@@ -18,6 +18,7 @@ import { getAttributionJudgeQueueCounters } from "../judge-queue-repo.js";
 import { __resetDbForTests, getDb } from "../../db/index.js";
 import {
   EXIT_DB_UNAVAILABLE,
+  buildTurnContext,
   buildWorkerDeps,
   main,
   parseWorkerArgs,
@@ -296,5 +297,75 @@ describe("S5 交付单元：落库四态在 worker 侧的分支（A1/A2）", () 
     expect(calls.fail).toBe(1);
     // 机器可读渠道是 result.anomaly；last_error 只是给人看的补充
     expect(queueRepo().listByStatus("pending")[0]!.last_error).toContain("anomaly");
+  });
+});
+
+describe("161 · A 同 turn 上下文（buildTurnContext）", () => {
+  function makeEventRepo(rows: Array<Record<string, unknown>>) {
+    const repo = {
+      listBySession: () =>
+        rows.map((r) => ({
+          event_id: "e",
+          space_id: "_default",
+          user_id: null,
+          agent_source: null,
+          session_key: "sess-1",
+          turn_seq: null,
+          msg_seq: null,
+          event_type: "decision_unit.created",
+          asset_id: null,
+          asset_type: null,
+          unit_id: null,
+          payload_json: "{}",
+          created_at: 0,
+          ...r,
+        })),
+    };
+    return repo as unknown as import("../../db/attributionEventRepo.js").AttributionEventRepo;
+  }
+
+  it("只喂 key_tool_call + code_change；排除 restraint / 当前单元 / 不同 turn；按 msg_seq 升序", () => {
+    const repo = makeEventRepo([
+      { unit_id: "u-code", turn_seq: 3, msg_seq: 20, payload_json: JSON.stringify({ unitType: "code_change", filePath: "b.ts" }) },
+      { unit_id: "u-key", turn_seq: 3, msg_seq: 10, payload_json: JSON.stringify({ unitType: "key_tool_call", toolName: "Bash" }) },
+      { unit_id: "u-restraint", turn_seq: 3, msg_seq: 15, payload_json: JSON.stringify({ unitType: "restraint" }) },
+      { unit_id: "u-current", turn_seq: 3, msg_seq: 5, payload_json: JSON.stringify({ unitType: "key_tool_call" }) },
+      { unit_id: "u-other-turn", turn_seq: 4, msg_seq: 1, payload_json: JSON.stringify({ unitType: "key_tool_call" }) },
+    ]);
+    const r = buildTurnContext(repo, "sess-1", 3, "u-current");
+    expect(r.total).toBe(2); // u-key + u-code；restraint/current/other-turn 均排除
+    expect(r.kept).toBe(2);
+    expect(r.truncated).toBe(false);
+    expect(r.context.map((c) => c.unitId)).toEqual(["u-key", "u-code"]); // msg_seq 升序：10 < 20
+  });
+
+  it("超过 8 单元 ⇒ 截断留痕（kept=8, truncated=true, 不静默）", () => {
+    const rows: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < 10; i += 1) {
+      rows.push({ unit_id: `u-${i}`, turn_seq: 3, msg_seq: i, payload_json: JSON.stringify({ unitType: "key_tool_call", toolName: "Bash" }) });
+    }
+    const r = buildTurnContext(makeEventRepo(rows), "sess-1", 3, "u-none");
+    expect(r.total).toBe(10);
+    expect(r.kept).toBe(8);
+    expect(r.truncated).toBe(true);
+  });
+
+  it("总字符超 8000 ⇒ 截断留痕（truncated=true）", () => {
+    const big = "x".repeat(9000);
+    const repo = makeEventRepo([
+      { unit_id: "u-big", turn_seq: 3, msg_seq: 1, payload_json: JSON.stringify({ unitType: "key_tool_call", toolParamText: big }) },
+    ]);
+    const r = buildTurnContext(repo, "sess-1", 3, "u-none");
+    expect(r.total).toBe(1);
+    expect(r.kept).toBe(0);
+    expect(r.truncated).toBe(true);
+  });
+
+  it("turnSeq 为 null ⇒ 空上下文（不查库）", () => {
+    const r = buildTurnContext(makeEventRepo([]), "sess-1", null, "u-x");
+    expect(r.total).toBe(0);
+    expect(r.kept).toBe(0);
+    expect(r.truncated).toBe(false);
+    expect(r.context).toEqual([]);
   });
 });

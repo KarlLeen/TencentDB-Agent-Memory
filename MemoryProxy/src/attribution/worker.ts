@@ -20,7 +20,7 @@ import { pathToFileURL } from "node:url";
 
 import { buildConfig } from "../config.js";
 import { getDb } from "../db/index.js";
-import { getAttributionEventRepo } from "../db/attributionEventRepo.js";
+import { getAttributionEventRepo, type AttributionEventRepo } from "../db/attributionEventRepo.js";
 import {
   createEvidenceSupplyProvider,
   extractVisibleAssetCandidates,
@@ -180,6 +180,84 @@ export const DEFAULT_TOP_N_PER_CYCLE = 30;
  */
 export const ASSET_TEXT_MAX_CHARS = 3000;
 
+// ── 161 · A：同 turn 上下文（跨命令证据链）──────────────────────────────────────
+
+/** 喂给判官的同 turn 单元数上限（161 设计：实测 turn 内最多 7，对齐 batchSize=8）。 */
+export const TURN_CONTEXT_MAX_UNITS = 8;
+/** 喂给判官的同 turn 上下文总字符上限（161 设计：典型 1~3k，极端 ~8k）。 */
+export const TURN_CONTEXT_MAX_CHARS = 8000;
+/** 查同 turn 单元的事件表扫描上限（与 loadVisibleAssets 同款大 limit；真库规模小）。 */
+const TURN_CONTEXT_LIMIT_ROWS = 5000;
+
+export interface TurnContextResult {
+  /** 喂给判官的同 turn 单元（当前单元除外；只 key_tool_call + code_change）。 */
+  context: Array<{ unitId: string; kind: string; payload: unknown }>;
+  /** 同 turn 单元总数（当前单元除外；只 key/code；截断前）。 */
+  total: number;
+  /** 实际喂给判官的单元数（截断后）。 */
+  kept: number;
+  /** 是否发生截断（单元数 > 8 或字符 > 8000）—— 必须留痕，不静默。 */
+  truncated: boolean;
+}
+
+function parseEventPayloadJson(json: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(json) as unknown;
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 161 · A：组装「同 turn 上下文」—— 当前单元之外的、同 turnSeq 的已落库决策单元。
+ * 只喂 key_tool_call + code_change（restraint 语义独立，不进）；按 msg_seq 升序；
+ * 截断 8 单元 / 8000 字符并留痕（truncated/total/kept）。
+ * 「尽力而为」：同 turn 后续单元可能尚未密封落库（增量抽取），故上下文可能不完整——
+ * 时序缺口由 161 阶段 2 的 turn 边界重判补。
+ */
+export function buildTurnContext(
+  repo: AttributionEventRepo,
+  sessionKey: string,
+  turnSeq: number | null,
+  currentUnitId: string,
+): TurnContextResult {
+  if (turnSeq === null) return { context: [], total: 0, kept: 0, truncated: false };
+  const rows = repo.listBySession(sessionKey, {
+    eventType: "decision_unit.created",
+    limit: TURN_CONTEXT_LIMIT_ROWS,
+  });
+  const typed: Array<{ unitId: string; kind: string; payload: Record<string, unknown>; msgSeq: number }> = [];
+  for (const row of rows) {
+    if (row.turn_seq !== turnSeq) continue;
+    if (!row.unit_id || row.unit_id === currentUnitId) continue;
+    const p = parseEventPayloadJson(row.payload_json);
+    const unitType = typeof p.unitType === "string" ? p.unitType : "";
+    if (unitType !== "key_tool_call" && unitType !== "code_change") continue;
+    typed.push({ unitId: row.unit_id, kind: unitType, payload: p, msgSeq: row.msg_seq ?? 0 });
+  }
+  // listBySession 按 created_at 倒序 ⇒ 转回正序（msg_seq 升序，确定性）
+  typed.sort((a, b) => a.msgSeq - b.msgSeq);
+  const total = typed.length;
+  const context: Array<{ unitId: string; kind: string; payload: unknown }> = [];
+  let chars = 0;
+  let truncated = false;
+  for (const item of typed) {
+    if (context.length >= TURN_CONTEXT_MAX_UNITS) {
+      truncated = true;
+      break;
+    }
+    const len = JSON.stringify(item.payload).length;
+    if (chars + len > TURN_CONTEXT_MAX_CHARS) {
+      truncated = true;
+      break;
+    }
+    context.push({ unitId: item.unitId, kind: item.kind, payload: item.payload });
+    chars += len;
+  }
+  return { context, total, kept: context.length, truncated };
+}
+
 /** 62 · tombstone 判定的 rationaleRef 标记（审计可辨）。 */
 export const TOMBSTONE_RATIONALE_REF = "tombstone:result_missing";
 
@@ -323,6 +401,14 @@ async function consumeRow(
     });
   }
 
+  // 161 · A：同 turn 上下文（跨命令证据链；只喂 key/code；截断 + 留痕）
+  const turnContextResult = buildTurnContext(
+    getAttributionEventRepo(),
+    row.session_key,
+    turnSeq,
+    row.unit_id,
+  );
+
   const input: JudgeInput = {
     unitId: row.unit_id,
     sessionKey: row.session_key,
@@ -334,6 +420,8 @@ async function consumeRow(
     citationMetrics,
     // 候选资产正文（real 判官语义对照；缺省不出现，mechanical/mock 零影响）
     candidateAssetTexts,
+    // 161 · A：同 turn 上下文（无同 turn 单元 ⇒ 省略；mock/mechanical 不读）
+    ...(turnContextResult.context.length > 0 ? { turnContext: turnContextResult.context } : {}),
   };
 
   /** 失败收束：fail() → 分桶 → error 日志 → 退避。catch 与"落库明确说没落成"共用同一条路径。 */
@@ -407,6 +495,16 @@ async function consumeRow(
         ...(citationMetrics ? { citationMetrics } : {}),
         // 106 · (d)-1 影子度量（**兄弟键**；不改 citationMetrics 条目内键集 —— C2/C5）
         ...(citationMetricsShadow ? { citationMetricsShadow } : {}),
+        // 161 · A：同 turn 上下文留痕（有同 turn 单元才落；截断必须可观测，不静默）
+        ...(turnContextResult.total > 0
+          ? {
+              turnContext: {
+                total: turnContextResult.total,
+                kept: turnContextResult.kept,
+                truncated: turnContextResult.truncated,
+              },
+            }
+          : {}),
         // 59 · C5 消费点：excluded 类别声明随判定落库（对账材料；无 citationSource ⇒ 不落该键）
         ...(deps.citationSource
           ? { excludedCategories: deps.citationSource.excludedCategories() }

@@ -142,6 +142,7 @@ export class RealProviderJudge implements Judge {
                   candidates: input.candidates,
                   ...(input.candidateAssetTexts ? { asset_texts: input.candidateAssetTexts } : {}),
                   ...(input.citationMetrics ? { citation_metrics: input.citationMetrics } : {}),
+                  ...(input.turnContext ? { turn_context: input.turnContext } : {}),
                 }),
             },
           ],

@@ -198,6 +198,24 @@ describe("60 · T1b 请求形状（C6）+ T4a 超时 / 包装畸形（C5）", ()
     }
   });
 
+  it("161 · A：同 turn 上下文被喂进 prompt（turn_context 字段）", async () => {
+    const stub = await startStubLlm(() => GOOD);
+    try {
+      const input = baseInput();
+      input.turnContext = [
+        { unitId: "u-1", kind: "key_tool_call", payload: { toolName: "execute_command", toolParamText: "pytest -q" } },
+      ];
+      await stub.judge.judge(input);
+      const content = (stub.requests[0]!.body.messages as Array<{ content: string }>)[0]!.content;
+      console.log(`161 观测 → content 含 turn_context=${content.includes("turn_context")}`);
+      expect(content).toContain("turn_context");
+      expect(content).toContain("u-1");
+      expect(content).toContain("pytest -q");
+    } finally {
+      await stub.close();
+    }
+  });
+
   it("超时（delay > timeoutMs）⇒ throw（走既有 fail 路径，不 hang）", async () => {
     const stub = await startStubLlm(() => GOOD, { delayMs: 400 });
     try {

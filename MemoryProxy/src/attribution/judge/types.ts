@@ -55,6 +55,13 @@ export interface JudgeInput {
    * ⚠️ real 判官会把本字段发送给 LLM provider ⇒ 只对「可公开」资产启用 real 判官。
    */
   candidateAssetTexts?: Array<{ assetId: string; text: string }>;
+  /**
+   * 161 · A：同 turn 的其它决策单元（当前单元除外；只喂 key_tool_call + code_change）。
+   * 供 real 判官理解「当前单元是某个多步决策的一部分」（跨命令证据链）。
+   * 可选 ⇒ mock / mechanical 不读；无同 turn 单元 ⇒ 省略。
+   * ⚠️ 与 candidateAssetTexts 同理：real 判官会把本字段发送给 LLM provider。
+   */
+  turnContext?: Array<{ unitId: string; kind: string; payload: unknown }>;
 }
 
 /**
